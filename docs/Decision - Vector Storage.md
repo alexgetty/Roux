@@ -76,50 +76,100 @@ interface VectorStoreProvider {
 
 ## Decision
 
-**Option B: StoreProvider owns vector storage** — with configurable regeneration behavior.
+**Option B: StoreProvider owns the `searchByVector()` interface** — with optional delegation to external VectorProvider (future).
 
 ## Outcome
 
-### Storage
+### Interface
 
-StoreProvider persists embeddings alongside nodes. EmbeddingProvider is stateless (just `embed()` and `embedBatch()`).
+`searchByVector()` is part of the StoreProvider interface. This is the standardized contract that all stores implement:
+
+```typescript
+interface StoreProvider {
+  // ... existing CRUD and graph ops ...
+  storeEmbedding(id: string, vector: number[], model: string): Promise<void>;
+  searchByVector(vector: number[], limit: number): Promise<Array<{ id: string; distance: number }>>;
+}
+```
+
+EmbeddingProvider remains stateless (just `embed()` and `embedBatch()`).
+
+### Implementation Strategy
+
+Each store implements `searchByVector()` using whatever mechanism is appropriate for that backend:
+
+| Store | Vector Search Implementation |
+|-------|------------------------------|
+| DocStore | SQLite brute-force cosine similarity (MVP) |
+| Neo4jStore | Native Neo4j vector index |
+| SurrealDB | Native vector support |
+| FalkorDB | Native vector similarity |
+| SQLiteStore | sqlite-vec or brute-force |
+
+Stores with native vector support use their optimized implementations. Stores without (or with limited support) use simpler approaches.
+
+### Future: VectorProvider Override
+
+Post-MVP, stores may support delegating `searchByVector()` to an external VectorProvider:
+
+```yaml
+# Default: DocStore uses built-in SQLite brute-force
+providers:
+  store:
+    type: docstore
+
+# Override: DocStore delegates vector search to external provider
+providers:
+  store:
+    type: docstore
+  vector:
+    type: pinecone
+    apiKey: xxx
+```
+
+When a VectorProvider is configured, stores that support delegation use it instead of their built-in implementation. This enables:
+- Scale mismatch scenarios (simple document store + industrial vector search)
+- Specialized optimization (purpose-built vector DBs outperform general-purpose stores)
+- Upgrade path (start with brute-force, add Pinecone later without changing document store)
+
+**This is not an MVP feature.** The architecture accommodates it without requiring interface changes later.
+
+### MVP Scope
+
+For MVP:
+- DocStore implements `searchByVector()` with brute-force cosine similarity in SQLite
+- No VectorProvider override capability
+- Sufficient for hundreds to low thousands of nodes
+
+### Embedding Metadata
 
 Store tracks metadata per embedding:
 - `model`: which provider/model generated this vector
-- `generated_at`: timestamp for cache invalidation if needed
+- `computed_at`: timestamp for cache invalidation
 
-### Provider Swap Behavior
+### Embedding Provider Swap Behavior
 
-System-level setting applies to all model swaps:
+System-level setting applies to embedding model changes:
 
 ```yaml
 system:
   on_model_change: lazy  # lazy | eager
-
-providers:
-  embeddings:
-    type: ollama
-    model: nomic-embed-text
 ```
 
 | Mode | Behavior |
 |------|----------|
-| `lazy` (default) | New/updated nodes use new provider. Existing embeddings untouched. Mixed-model index is acceptable. |
-| `eager` | Any model change triggers background regeneration. Index stays model-consistent. |
+| `lazy` (default) | New/updated nodes use new provider. Existing embeddings untouched. |
+| `eager` | Model change triggers background regeneration. |
 
-One knob for the whole project. Per-provider overrides can be added later if a real use case demands it.
-
-### Manual Override
-
-`roux sync --full` always available to force complete re-embed regardless of mode.
+Manual override: `roux sync --full` forces complete re-embed regardless of setting.
 
 ### Rationale
 
-- **Single persistence layer:** Store owns all data. No sync between Store and separate vector DB.
+- **Standardized interface:** `searchByVector()` on StoreProvider gives a consistent contract regardless of backend.
+- **Backend-appropriate implementation:** Each store uses its native capabilities. Neo4j uses native vectors. DocStore uses SQLite.
 - **Stateless EmbeddingProvider:** Trivial to implement, test, swap. Just `text in → vector out`.
-- **User choice on consistency:** Those who don't care get zero friction on provider swap. Those who need consistent embeddings flip one flag.
-- **Mixed-model index is fine:** Semantic search degrades slightly with mixed embeddings, not catastrophically. "Find relevant nodes" still works.
-- **Future-proof:** Production stores (Neo4j, SurrealDB) have native vector indexes. This pattern lets them use optimized implementations internally.
+- **Future flexibility:** VectorProvider override can be added without changing the interface. Two-way door.
+- **No premature complexity:** MVP ships with simple brute-force. Optimization comes when needed.
 
 ## Related
 

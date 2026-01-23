@@ -67,10 +67,12 @@ Get most central nodes by graph metric.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `metric` | string | No | `"pagerank"` | `"pagerank"` | `"in_degree"` | `"out_degree"` |
+| `metric` | string | No | `"in_degree"` | `"in_degree"` | `"out_degree"` | `"pagerank"` |
 | `limit` | number | No | 10 | Max results |
 
 **Returns:** `Array<{ id: string, score: number }>`
+
+See [[Decision - MVP Scope Clarifications]] for rationale on `in_degree` default.
 
 ---
 
@@ -104,18 +106,26 @@ Create a new node (and backing file in DocStore).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `id` | string | No | - | Node ID. If omitted, derived from title. |
-| `title` | string | Yes | - | Node title |
+| `title` | string | Yes | - | Node title (used for filename) |
 | `content` | string | Yes | - | Full text content |
 | `tags` | string[] | No | `[]` | Classification tags |
 
 **Returns:** `Node` (the created node with final ID)
 
 **Behavior:**
-- Creates file at `{id}.md` with frontmatter (title, tags) and content
+- Creates file at `{title}.md`
+- ID derived from path: `{title}.md` lowercased
+- File includes frontmatter (title, tags) and content
 - Parses wiki-links in content to populate `outgoingLinks`
 - Generates embedding if EmbeddingProvider configured
-- Fails if node with ID already exists
+- Fails if file already exists
+
+**Example:**
+```
+create_node({ title: "Research Notes", content: "..." })
+→ File: Research Notes.md
+→ ID: research notes.md
+```
 
 ---
 
@@ -169,7 +179,7 @@ If EmbeddingProvider is not configured, `search` tool does not exist in the MCP 
 
 ## Error Handling
 
-See [[Decision - Error Contract]].
+See [[Decision - Error Contract]] and [[Decision - Error Output]].
 
 | Scenario | Behavior |
 |----------|----------|
@@ -177,6 +187,21 @@ See [[Decision - Error Contract]].
 | Node not found | Return `null` (get) or `false` (delete). Not an error. |
 | Invalid parameters | Return MCP error with validation message |
 | Provider failure | Return MCP error with failure message. System stays up. |
+
+### Warnings
+
+Warnings (broken links, parse issues) are included in response objects:
+
+```json
+{
+  "result": {
+    "node": {...},
+    "_warnings": ["Broken link: [[missing]]"]
+  }
+}
+```
+
+File watcher warnings accumulate and surface on the next MCP response, then clear. See [[Decision - Error Output]].
 
 ## Future Tools
 
@@ -191,6 +216,7 @@ These require LLMProvider and are deferred to Phase 0.5:
 ## Implementation Notes
 
 - Built with `@modelcontextprotocol/sdk`
+- **Transport:** stdio (MVP). Claude Code spawns Roux as subprocess. See [[Decision - MCP Transport]].
 - Each tool maps to a [[GraphCore]] operation
 - Tool signatures can evolve (add tools freely, deprecation cycle for removal)
 - All tools are synchronous from client perspective (async internally)
@@ -202,3 +228,5 @@ These require LLMProvider and are deferred to Phase 0.5:
 - [[Config]] — Server configuration
 - [[Decision - Provider Lifecycle]] — Tool exposure logic
 - [[Decision - Error Contract]] — Error handling
+- [[Decision - Error Output]] — Where warnings/errors go
+- [[Decision - MCP Transport]] — stdio vs SSE transport

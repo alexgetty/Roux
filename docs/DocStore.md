@@ -41,24 +41,26 @@ DocStore treats a directory of text files as a graph. Documents become [[Node|No
 
 ## ID Generation
 
-See [[Decision - Node Identity]] for full rationale.
+See [[Decision - ID Format]] for full rationale.
 
-**MVP:** Node ID derived from relative file path, lowercased.
+**MVP:** Node ID derived from relative file path, lowercased, with extension.
 - `Notes/Research.md` → `notes/research.md`
 - Case-insensitive matching (Obsidian-compatible)
 
-**Future:** Frontmatter `id` field takes precedence over filename.
+**Future:** Frontmatter `id` field takes precedence over filename (for multi-format support).
 ```yaml
 ---
 id: original-neo4j-id
 title: Research Notes
 ---
 ```
-This enables round-trip migration: Neo4j → DocStore → Neo4j preserves identity.
+This enables migration support: IDs from other stores can be preserved in frontmatter.
 
 ## Supported Formats
 
-- Markdown (`.md`) — with YAML frontmatter
+**MVP:** Markdown only (`.md`) with YAML frontmatter.
+
+**Future:**
 - Plain text (`.txt`)
 - HTML (`.html`, `.htm`)
 - RTF (`.rtf`)
@@ -95,12 +97,22 @@ tags:
 
 ## File Watching
 
-DocStore monitors the directory while serving:
-- File changed → update that node's cache
-- File deleted → remove from cache
-- New file → parse and add to cache
+DocStore monitors the directory while serving. See [[Decision - Graphology Lifecycle]].
 
-Target latency: <1 second for changes to reflect in queries.
+**Sync process (debounced):**
+1. File change detected → queued
+2. After 100ms debounce, process queue:
+   - Update SQLite cache
+   - Update graphology graph (nodes + edges)
+   - Recompute centrality
+3. Done. Everything fresh.
+
+**Events handled:**
+- File changed → re-parse, update node
+- File deleted → remove from cache and graph
+- New file → parse and add
+
+Target latency: <1 second for changes to reflect in queries (debounce + sync).
 
 ## Write Operations
 
@@ -109,11 +121,23 @@ When [[MCP Server]] calls `create_node` or `update_node`:
 2. Update cache immediately
 3. No delay—writes are instantly queryable
 
+## Vector Search
+
+DocStore implements `searchByVector()` (part of [[StoreProvider]] interface) using its SQLite cache.
+
+**MVP:** Brute-force cosine similarity. Load vectors from SQLite, compute similarity in application code, return top results. O(n) per query, but fast enough for hundreds to low thousands of nodes.
+
+**Future:** sqlite-vec extension for native vector operations. Scales to 100K+ vectors with proper indexing.
+
+See [[Decision - Vector Storage]] for the full rationale on vector search architecture.
+
 ## Design Decisions
 
 **Parser Architecture:** Chain of parsers. File type detection routes to format-specific parser. Start with markdown only—other formats added as needed. No complex multi-format parsers.
 
 **Link Resolution:** Match Obsidian behavior. Full path used as ID when disambiguation is needed. Error on true duplicates (same full path after Obsidian's disambiguation) for manual resolution.
+
+**Vector Search:** Brute-force for MVP. The interface (`searchByVector()`) allows swapping to sqlite-vec later without changing callers. See [[Decision - Vector Storage]].
 
 ## Open Questions (Deferred)
 
@@ -132,3 +156,7 @@ See [[Config]] for full schema. DocStore uses `source.path`, `source.include`, `
 - [[Wiki-links]] — How edges are extracted
 - [[Graph Projection]] — The transformation concept
 - [[EmbeddingProvider]] — Generates vectors for semantic search
+- [[Decision - SQLite Schema]] — Cache schema (hybrid: nodes, embeddings, centrality tables)
+- [[Decision - Vector Storage]] — Vector search architecture
+- [[Decision - Graphology Lifecycle]] — Graph construction, file sync, centrality timing
+- [[Decision - Error Output]] — Warning handling during file sync

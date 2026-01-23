@@ -9,13 +9,32 @@ The CLI provides terminal access to Roux. For administration, automation, shell 
 ## Commands (MVP)
 
 ```bash
-roux init <directory>     # Scan directory, build cache, generate embeddings
-roux serve                # Start MCP server with file watching
+roux init <directory>     # Install Roux in project (creates roux.yaml, .roux/)
+roux serve                # Start MCP server (stdio transport, with file watching)
 roux serve --no-watch     # Start without file watching
 roux sync                 # Manual resync (rarely needed)
 roux sync --full          # Full rebuild: regenerate everything
 roux status               # Show stats: node count, edge count, cache freshness
 ```
+
+## Workflow
+
+See [[Decision - CLI Workflow]].
+
+**`init`** = Install Roux in project (like `git init`). One-time setup.
+- Creates `roux.yaml` with defaults
+- Creates `.roux/` directory structure
+- Does NOT build cache (that's `serve`'s job)
+- On already-initialized directory: no-op, prints config location
+
+**`serve`** = Run Roux. Handles all runtime work.
+- Requires prior `init` (fails fast if not initialized)
+- Builds/syncs cache on first run or when files changed
+- Loads graph into memory, starts MCP server, watches for changes
+
+First `serve` after `init` is slower (building cache, generating embeddings). Subsequent runs are fast.
+
+**Transport:** stdio — Claude Code spawns it as a subprocess. See [[Decision - MCP Transport]].
 
 ## Future Commands
 
@@ -64,3 +83,7 @@ Command structure can evolve (add commands freely). Changing existing command si
 - [[GPI]] — What the CLI exposes
 - [[MCP Server]] — Alternative interface for AI
 - [[API]] — Alternative interface for web apps
+- [[Config]] — Configuration file created by init
+- [[Decision - CLI Workflow]] — init/serve relationship
+- [[Decision - MCP Transport]] — stdio vs SSE transport decision
+- [[Decision - Error Output]] — Error/warning output behavior

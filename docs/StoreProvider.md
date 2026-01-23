@@ -75,6 +75,21 @@ Storage and vector generation are orthogonal. You might want OpenAI embeddings w
 **Why include graph operations in Store?**
 Graph traversal is inherently tied to how data is stored. A graph database handles `findPath` natively; a file store needs to build an in-memory graph. The implementation differs, the interface doesn't.
 
+**Why include vector search in Store?**
+`searchByVector()` is part of StoreProvider because each backend implements it differently using native capabilities:
+
+| Store | Vector Search Implementation |
+|-------|------------------------------|
+| DocStore | SQLite brute-force (MVP), sqlite-vec (future) |
+| Neo4jStore | Native Neo4j vector index |
+| SurrealDB | Native vector support |
+| FalkorDB | Native vector similarity |
+
+The interface is standardized. The implementation is backend-specific.
+
+**Future: VectorProvider Override**
+Post-MVP, stores may support delegating `searchByVector()` to an external VectorProvider (e.g., Pinecone). This enables scenarios like DocStore for documents + Pinecone for industrial-scale vector search. See [[Decision - Vector Storage]] for details.
+
 **Canonical IDs vs Internal Storage**
 `Node.id` is the canonical, portable identifier defined by Roux. Each StoreProvider maps it to native storage:
 
@@ -93,7 +108,7 @@ Internal/auto-generated IDs (e.g., Neo4j numeric IDs) are implementation details
 ## Open Questions (Deferred)
 
 - **Scale Boundaries**: At what node count does SQLite + in-memory graph become inadequate? Empirical—learn from usage.
-- **Centrality Caching**: PageRank recomputation frequency. Determine based on real-world usage patterns.
+- ~~**Centrality Caching**: PageRank recomputation frequency.~~ Decided: recompute during file sync (piggybacked). See [[Decision - Graphology Lifecycle]].
 
 ## Related
 
@@ -101,3 +116,4 @@ Internal/auto-generated IDs (e.g., Neo4j numeric IDs) are implementation details
 - [[Node]] — What gets stored
 - [[DocStore]] — MVP implementation
 - [[EmbeddingProvider]] — Often used alongside for semantic search
+- [[Decision - Graphology Lifecycle]] — Graph construction and sync timing

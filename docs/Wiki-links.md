@@ -6,9 +6,18 @@ Link syntax for edges. The primary way to create relationships in [[DocStore]].
 
 ```markdown
 Link to [[Another Note]]
-Link with alias [[Another Note|display text]]
+Link with display text [[Another Note|display text]]
 Link to heading [[Another Note#Section]]
+Link to block [[Another Note#^blockid]]
 ```
+
+**MVP behavior:**
+- `[[Note]]` — resolves to Note
+- `[[Note|text]]` — resolves to Note, displays as "text"
+- `[[Note#Heading]]` — fragment stripped, resolves to Note
+- `[[Note#^blockid]]` — fragment stripped, resolves to Note
+
+Fragment support (heading/block links) is deferred. See [[Decision - MVP Scope Clarifications]].
 
 ## How They Become Edges
 
@@ -16,16 +25,16 @@ When [[DocStore]] parses a file:
 
 1. **Scan content** for `[[...]]` patterns
 2. **Extract target** (the text inside brackets)
-3. **Resolve target** to a node ID
+3. **Resolve target** to a node ID (lowercased, with extension)
 4. **Create edge** from current node to target
 
 ```
 File: concepts/ml.md
-Content: "See also [[neural networks]] and [[deep learning]]"
+Content: "See also [[Neural Networks]] and [[Deep Learning]]"
 
-Result:
-  ml → neural-networks (edge)
-  ml → deep-learning (edge)
+Resolved IDs (assuming files exist):
+  concepts/ml.md → neural networks.md
+  concepts/ml.md → deep learning.md
 ```
 
 ## Resolution Rules
@@ -35,15 +44,15 @@ See [[Decision - Node Identity]] for full rationale.
 Target text resolves to a Node ID following Obsidian-compatible rules:
 
 **Case-insensitive matching:**
-- `[[Neural Networks]]` matches `neural-networks.md`, `Neural Networks.md`
+- `[[Neural Networks]]` matches `Neural Networks.md` → ID: `neural networks.md`
 
 **Path-qualified links:**
-- `[[concepts/neural-networks]]` → matches `concepts/neural-networks.md` specifically
-- `[[neural-networks]]` (no path) → searches entire store
+- `[[concepts/neural networks]]` → matches `concepts/neural networks.md` specifically
+- `[[neural networks]]` (no path) → searches entire store
 
 **Resolution at write time:**
 - When ambiguity exists (multiple matches), resolve and store minimum path needed
-- `[[meeting]]` with `notes/meeting.md` and `archive/meeting.md` → user picks, stored as `[[notes/meeting]]`
+- `[[Meeting]]` with `notes/Meeting.md` and `archive/Meeting.md` → user picks, stored as `[[notes/Meeting]]`
 
 ## Broken Links
 
@@ -65,6 +74,8 @@ Obsidian shows "backlinks"—this is computed at query time, not stored.
 
 ## Aliases
 
+**Not MVP.** See [[Decision - MVP Scope Clarifications]].
+
 Some systems support aliases:
 ```yaml
 ---
@@ -72,10 +83,11 @@ aliases: [ML, machine-learning]
 ---
 ```
 
-Then `[[ML]]` resolves to this note. DocStore can support this via frontmatter parsing.
+Then `[[ML]]` resolves to this note. DocStore could support this via frontmatter parsing in a future release. For MVP, links must match filename/ID directly.
 
 ## Related
 
 - [[DocStore]] — Uses wiki-links for edge extraction
 - [[Graph Projection]] — Wiki-links enable projection
 - [[Node]] — Links become `outgoingLinks` array
+- [[Decision - MVP Scope Clarifications]] — Fragment and alias scope decisions

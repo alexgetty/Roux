@@ -107,3 +107,4 @@ These are internal to GraphCore—not architectural components, but the language
 - [[EmbeddingProvider]] — Vector generation
 - [[LLMProvider]] — Text generation
 - [[MCP Server]] — Primary external interface
+- [[Decision - Graphology Lifecycle]] — Graph construction and sync timing

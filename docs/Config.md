@@ -1,6 +1,8 @@
 # Configuration
 
-Canonical schema for `roux.yaml`. Created by `roux init`, lives in project root.
+Canonical schema for `roux.yaml`. Created by `roux init`, lives in project root. See [[Decision - CLI Workflow]] for init/serve relationship.
+
+**MVP note:** MVP is zero-config. Only DocStore + transformers.js. `roux init` creates defaults with no prompts. Ollama/OpenAI embedding options are future.
 
 ## Full Schema
 
@@ -58,7 +60,9 @@ providers:
 
 **Note:** If `providers.embedding` is omitted entirely, `local` is used automatically. Semantic search works out of the box.
 
-### Ollama Embedding
+### Ollama Embedding (Future)
+
+**Not MVP.** Will be added if transformers.js quality proves insufficient.
 
 ```yaml
 providers:
@@ -69,7 +73,9 @@ providers:
     timeout: 30000                  # Request timeout (ms)
 ```
 
-### OpenAI Embedding
+### OpenAI Embedding (Future)
+
+**Not MVP.** Will be added if transformers.js quality proves insufficient.
 
 ```yaml
 providers:
@@ -209,6 +215,7 @@ Future: Support `${ENV_VAR}` syntax in config values.
 ## Related
 
 - [[CLI]] - Commands that use config
+- [[Decision - CLI Workflow]] - init/serve relationship, config creation
 - [[Decision - Provider Lifecycle]] - How providers are loaded
 - [[Decision - Vector Storage]] - on_model_change rationale
 - [[Decision - Default Embeddings]] - Why embedding defaults to local

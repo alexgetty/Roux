@@ -1,6 +1,8 @@
 # Architectural Decisions
 
-Open decisions that must be resolved before MVP implementation. Each is a one-way door or affects one-way door interfaces.
+Tracking document for architectural decisions. Each is a one-way door or affects one-way door interfaces.
+
+**Status:** All MVP-blocking decisions resolved. Ready for implementation.
 
 ## Status Legend
 
@@ -12,6 +14,8 @@ Open decisions that must be resolved before MVP implementation. Each is a one-wa
 
 ## Decisions
 
+### Decided
+
 | Decision | Status | Affects |
 |----------|--------|---------|
 | [[Decision - Search Ownership]] | Decided | [[GraphCore]], [[StoreProvider]], [[EmbeddingProvider]] |
@@ -21,6 +25,19 @@ Open decisions that must be resolved before MVP implementation. Each is a one-wa
 | [[Decision - Error Contract]] | Decided | [[GraphCore]], all providers, [[MCP Server]] |
 | [[Decision - Provider Lifecycle]] | Decided | [[GraphCore]], [[MCP Server]] |
 | [[Decision - Default Embeddings]] | Decided | [[EmbeddingProvider]], [[Config]], [[MVP]] |
+| [[Decision - ID Format]] | Decided | [[Node]], [[Decision - Node Identity]], [[DocStore]] |
+| [[Decision - SQLite Schema]] | Decided | [[DocStore]], [[StoreProvider]], [[EmbeddingProvider]] |
+| [[Decision - MVP Scope Clarifications]] | Decided | [[MVP]], [[DocStore]], [[MCP Server]] |
+| [[Decision - Graphology Lifecycle]] | Decided | [[DocStore]], [[GraphCore]], [[StoreProvider]] |
+| [[Decision - MCP Transport]] | Decided | [[MCP Server]], [[CLI]], [[Config]] |
+| [[Decision - CLI Workflow]] | Decided | [[CLI]], [[DocStore]], [[Config]] |
+| [[Decision - Error Output]] | Decided | [[CLI]], [[MCP Server]], [[DocStore]] |
+
+### Deferred (Not Blocking MVP)
+
+| Decision | Status | Affects |
+|----------|--------|---------|
+| [[Decision - Performance Thresholds]] | Deferred | [[MVP]], [[DocStore]], [[StoreProvider]] |
 
 ## Process
 

@@ -12,7 +12,7 @@ Format conversion happens at store boundaries only. Internally, everything is a 
 
 ```typescript
 interface Node {
-  id: string;                        // Canonical identifier (portable across stores)
+  id: string;                        // Canonical identifier (store-specific format)
   title: string;                     // Display name
   content: string;                   // Full text content
   tags: string[];                    // Classification
@@ -30,20 +30,21 @@ interface SourceRef {
 
 ## Node Identity
 
-See [[Decision - Node Identity]] for full rationale.
+See [[Decision - ID Format]] for full rationale.
 
-`Node.id` is the **canonical, portable identifier**. It must:
-- Survive migration between any two stores unchanged
-- Be valid as a string in all target stores (Neo4j, SurrealDB, etc.)
-- Be the stable reference for all edges (`outgoingLinks`)
+`Node.id` is the **canonical identifier within a StoreProvider**. Each store uses IDs optimized for its context:
 
-**ID Resolution Order:**
-1. Frontmatter `id` field (if present)
-2. Derived from source (e.g., filename in DocStore)
+- **DocStore:** File path with extension, lowercased (`notes/research.md`)
+- **Neo4j (future):** Neo4j-native conventions
+- **Other stores:** Store-specific formats
 
-**MVP:** IDs derived from filename, Obsidian-compatible. Case-insensitive matching.
+**MVP (DocStore):** ID derived from file path, lowercased, with extension.
 
-**Store-agnostic:** Each StoreProvider maps canonical IDs to native storage. Internal/auto-generated IDs (e.g., Neo4j numeric IDs) are never exposed.
+**Future:** Explicit ID in file (frontmatter `id:`) takes precedence over derived ID.
+
+**Migration:** IDs are not portable across stores. Migration tooling handles ID translation and link rewriting.
+
+**Case sensitivity:** Links are matched case-insensitively. `[[Note]]` matches `note.md`.
 
 ## Design Decisions
 
