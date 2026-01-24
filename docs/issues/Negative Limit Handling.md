@@ -63,7 +63,26 @@ it('returns empty array for negative limit', () => {
 });
 ```
 
+## Also Affects: getHubs
+
+Same pattern in `getHubs` at `src/graph/operations.ts:68-94`:
+
+```typescript
+scores.sort((a, b) => b[1] - a[1]);
+return scores.slice(0, limit);
+```
+
+`slice(0, -1)` returns all but last element. Should return empty for `limit <= 0`.
+
+```typescript
+it('returns empty array for negative limit', () => {
+  const hubs = getHubs(graph, 'in_degree', -5);
+  expect(hubs).toEqual([]);
+});
+```
+
 ## References
 
-- `src/graph/operations.ts:13-41`
+- `src/graph/operations.ts:13-41` (getNeighborIds)
+- `src/graph/operations.ts:68-94` (getHubs)
 - `tests/unit/graph/operations.test.ts:37-82`

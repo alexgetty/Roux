@@ -215,21 +215,52 @@ Note: DocStore implements `getRandomNode()` using its internal `getAllNodeIds()`
 ---
 
 ### Phase 8: File Watcher
-**Goal:** Live sync of external file changes
+**Goal:** Live sync of external file changes. User edits in Obsidian → Roux sees it in <2 seconds.
+
+**Architecture Decision:** Watcher lives inside DocStore, not as a standalone module.
+- DocStore is the only StoreProvider that needs filesystem watching
+- Other stores (Neo4j, SQLite) would use database-level change notifications
+- Chokidar is a DocStore dependency, not a core Roux dependency
+
+**DocStore Methods to Add:**
+```typescript
+startWatching(onChange?: (changedIds: string[]) => void): void
+stopWatching(): void
+isWatching(): boolean
+```
+
+The `onChange` callback notifies the serve layer which nodes changed, enabling re-embedding coordination at the CLI/serve level. DocStore handles cache/graph updates internally; the serve layer handles embedding generation.
 
 **Tasks:**
-- [ ] Chokidar integration
-- [ ] Debounce (100ms)
-- [ ] Add/change/delete detection
-- [ ] Cache invalidation
-- [ ] Graph rebuild on changes
-- [ ] Re-embed modified nodes
-- [ ] `.roux/` exclusion (hardcoded)
-- [ ] Configurable exclusions
+- [ ] Add `startWatching()`, `stopWatching()`, `isWatching()` to DocStore
+- [ ] Chokidar integration watching `sourceRoot` for `.md` files
+- [ ] Debounce (1 second) — batches rapid edits, no perceptible delay for users
+- [ ] Add/change/delete event handling:
+  - `add`: parse file → upsert cache → queue ID
+  - `change`: parse file → upsert cache → queue ID
+  - `unlink`: delete from cache → delete embedding → queue ID
+- [ ] After debounce: rebuild graph, call `onChange(changedIds)`
+- [ ] Graceful parse failures: if file mid-write (truncated), log warning, skip file, retry on next event
+- [ ] Hardcoded exclusions: `.roux/`, `.git/`, `node_modules/`, `.obsidian/`
+- [ ] Unit tests for watcher lifecycle and event handling
+- [ ] Integration tests with real filesystem events
+
+**Re-embedding Flow:**
+DocStore does NOT have access to EmbeddingProvider. The serve layer (Phase 10) coordinates re-embedding:
+1. CLI calls `docStore.startWatching(async (ids) => { ... })`
+2. In callback: for each changed ID, fetch node content, call `embeddingProvider.embed()`, store via `docStore.storeEmbedding()`
+3. On shutdown: `docStore.stopWatching()`
+
+This keeps DocStore focused on storage/graph and GraphCore/CLI on embedding orchestration.
 
 **Key files:**
-- `src/watcher/index.ts`
+- `src/providers/docstore/index.ts` (add watcher methods)
+- `tests/unit/docstore/watcher.test.ts`
 - `tests/integration/watcher/`
+
+**Test Strategy:**
+- Unit tests: watcher lifecycle, event handling, debounce behavior, parse failure handling
+- Integration tests: real filesystem create/modify/delete detection, timing verification
 
 **Dependencies:** Phases 4, 5, 6
 
@@ -350,7 +381,7 @@ Phase 11 (Integration)
 | Link titles | StoreProvider.resolveTitles() maps IDs to human-readable titles |
 | Graph ownership | DocStore owns graphology instance; GraphCore delegates (no cached copy) |
 | Capabilities | Config-driven at startup (read `roux.yaml`), not runtime detection |
-| Graph sync | Debounced incremental (100ms) per [[decisions/Graphology Lifecycle]] |
+| Graph sync | Debounced incremental (1 second). Longer debounce batches autosave spam; no perceptible delay since users aren't querying mid-edit. |
 | Config loading | CLI loads `roux.yaml`, passes `RouxConfig` to `GraphCore.fromConfig()`. GraphCore never touches filesystem. |
 | Score conversion | `searchByVector()` returns distance; GraphCore converts to similarity score (0-1, higher=better) |
 | Phase 7 tests | Unit tests with mocked providers. Integration tests deferred to Phase 11. |

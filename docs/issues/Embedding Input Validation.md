@@ -9,20 +9,11 @@ phase: 6
 
 Missing tests for edge case inputs to `TransformersEmbeddingProvider`.
 
-## 1. Empty String Input
+## 1. Empty String Input ✅ FIXED
 
-What if `embed('')` is called?
+~~What if `embed('')` is called?~~
 
-```typescript
-const embedding = await provider.embed('');
-```
-
-Could produce:
-- Zero vector (bad for cosine similarity)
-- Throw an error
-- Model-specific default output
-
-Current tests only use non-empty strings like `'test text'`.
+**Status:** Test added in `transformers.test.ts:50-54`. Empty string produces valid 384-dim normalized vector (not zero vector). Behavior documented.
 
 ## 2. Very Long Input
 

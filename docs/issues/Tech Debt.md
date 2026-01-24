@@ -63,6 +63,18 @@ Uses `row.vector.byteOffset` which could be non-zero if SQLite's Buffer is a vie
 2. ~~`DocStore.close()` doesn't close injected VectorProvider~~ - **Fixed in Phase 7**
 3. `src/index.ts` exports - only `VERSION` is tested, not actual module exports
 
+## Race Condition in sync() ✅ FIXED
+
+~~File deleted between `collectMarkdownFiles` and `stat()` could crash sync.~~
+
+**Status:** Fixed in `docstore/index.ts:62-68`. ENOENT errors are caught and file is skipped. Non-ENOENT errors are rethrown. Tests added at `docstore.test.ts:920-979`.
+
+## Unsupported Embedding Type in fromConfig ✅ FIXED
+
+~~`GraphCoreImpl.fromConfig()` silently ignored unknown embedding types, leaving no provider registered.~~
+
+**Status:** Fixed in `graphcore.ts:191-194`. Now throws descriptive error for unsupported types. Test added at `graphcore.test.ts:602-612`.
+
 ## Error Assertion Specificity
 
 **Location:** `tests/unit/docstore/docstore.test.ts` lines 288, 342, 375

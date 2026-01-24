@@ -48,6 +48,12 @@ describe('TransformersEmbeddingProvider', () => {
       expect(embedding).toHaveLength(384);
     }, 60000);
 
+    it('handles empty string input', async () => {
+      const embedding = await provider.embed('');
+      expect(embedding).toHaveLength(384);
+      expect(embedding.every((v) => Number.isFinite(v))).toBe(true);
+    }, 60000);
+
     it('returns normalized vector (magnitude approximately 1)', async () => {
       const embedding = await provider.embed('hello world');
       const magnitude = Math.sqrt(

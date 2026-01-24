@@ -188,8 +188,11 @@ export class GraphCoreImpl implements GraphCore {
       const model = embeddingConfig?.model;
       const embedding = new TransformersEmbeddingProvider(model);
       core.registerEmbedding(embedding);
+    } else {
+      throw new Error(
+        `Unsupported embedding provider type: ${embeddingConfig.type}. Supported: local`
+      );
     }
-    // TODO: Ollama and OpenAI providers for post-MVP
 
     return core;
   }

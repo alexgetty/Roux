@@ -918,6 +918,72 @@ No links yet`
       const ids = await store.getAllNodeIds();
       expect(ids.sort()).toEqual(['a.md', 'b.md', 'c.md']);
     });
+
+    it('handles file deleted during sync gracefully (ENOENT)', async () => {
+      await writeMarkdownFile('a.md', '# A');
+      await writeMarkdownFile('b.md', '# B');
+      // Create file in subdirectory that we'll delete
+      await writeMarkdownFile('subdir/vanish.md', '# Will vanish');
+
+      // Create a custom DocStore with overridden sync that deletes mid-operation
+      const racyStore = new DocStore(sourceDir, join(tempDir, 'racy-cache'));
+
+      // Monkey-patch getFileMtime to delete the subdir on first call to vanish.md
+      const originalProto = Object.getPrototypeOf(racyStore);
+      let deleted = false;
+      const originalGetFileMtime = originalProto.getFileMtime;
+
+      // Override via prototype to intercept private method
+      Object.getPrototypeOf(racyStore).getFileMtime = async function (
+        filePath: string
+      ): Promise<number> {
+        if (filePath.includes('vanish.md') && !deleted) {
+          deleted = true;
+          await rm(join(sourceDir, 'subdir'), { recursive: true });
+        }
+        return originalGetFileMtime.call(this, filePath);
+      };
+
+      try {
+        // Sync should not throw — skips the deleted file
+        await expect(racyStore.sync()).resolves.not.toThrow();
+
+        const ids = await racyStore.getAllNodeIds();
+        expect(ids.sort()).toEqual(['a.md', 'b.md']);
+      } finally {
+        // Restore original method
+        Object.getPrototypeOf(racyStore).getFileMtime = originalGetFileMtime;
+        racyStore.close();
+      }
+    });
+
+    it('rethrows non-ENOENT errors during sync', async () => {
+      await writeMarkdownFile('a.md', '# A');
+
+      // Create a custom DocStore that throws a non-ENOENT error
+      const errorStore = new DocStore(sourceDir, join(tempDir, 'error-cache'));
+
+      const originalProto = Object.getPrototypeOf(errorStore);
+      const originalGetFileMtime = originalProto.getFileMtime;
+
+      Object.getPrototypeOf(errorStore).getFileMtime = async function (
+        filePath: string
+      ): Promise<number> {
+        if (filePath.endsWith('a.md')) {
+          const error = new Error('EACCES: permission denied') as NodeJS.ErrnoException;
+          error.code = 'EACCES';
+          throw error;
+        }
+        return originalGetFileMtime.call(this, filePath);
+      };
+
+      try {
+        await expect(errorStore.sync()).rejects.toThrow('EACCES');
+      } finally {
+        Object.getPrototypeOf(errorStore).getFileMtime = originalGetFileMtime;
+        errorStore.close();
+      }
+    });
   });
 
   describe('unicode filenames', () => {

@@ -1,5 +1,6 @@
 import { readFile, writeFile, stat, readdir, mkdir, rm } from 'node:fs/promises';
 import { join, relative, dirname, resolve } from 'node:path';
+import { watch, type FSWatcher } from 'chokidar';
 import type { DirectedGraph } from 'graphology';
 import type { Node } from '../../types/node.js';
 import type {
@@ -34,6 +35,11 @@ export class DocStore implements StoreProvider {
   private vectorProvider: VectorProvider;
   private ownsVectorProvider: boolean;
 
+  private watcher: FSWatcher | null = null;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingChanges: Map<string, 'add' | 'change' | 'unlink'> = new Map();
+  private onChangeCallback: ((changedIds: string[]) => void) | undefined;
+
   constructor(
     sourceRoot: string,
     cacheDir: string,
@@ -51,12 +57,20 @@ export class DocStore implements StoreProvider {
 
     // Process new/modified files
     for (const filePath of currentPaths) {
-      const mtime = await this.getFileMtime(filePath);
-      const cachedMtime = this.cache.getModifiedTime(filePath);
+      try {
+        const mtime = await this.getFileMtime(filePath);
+        const cachedMtime = this.cache.getModifiedTime(filePath);
 
-      if (cachedMtime === null || mtime > cachedMtime) {
-        const node = await this.fileToNode(filePath);
-        this.cache.upsertNode(node, 'file', filePath, mtime);
+        if (cachedMtime === null || mtime > cachedMtime) {
+          const node = await this.fileToNode(filePath);
+          this.cache.upsertNode(node, 'file', filePath, mtime);
+        }
+      } catch (err) {
+        // File may have been deleted between readdir and stat — skip it
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          continue;
+        }
+        throw err;
       }
     }
 
@@ -235,9 +249,132 @@ export class DocStore implements StoreProvider {
   }
 
   close(): void {
+    this.stopWatching();
     this.cache.close();
     if (this.ownsVectorProvider && 'close' in this.vectorProvider) {
       (this.vectorProvider as { close: () => void }).close();
+    }
+  }
+
+  startWatching(onChange?: (changedIds: string[]) => void): void {
+    if (this.watcher) {
+      throw new Error('Already watching. Call stopWatching() first.');
+    }
+
+    this.onChangeCallback = onChange;
+    this.watcher = watch(this.sourceRoot, {
+      ignoreInitial: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 100,
+      },
+    });
+
+    this.watcher
+      .on('add', (path) => this.queueChange(path, 'add'))
+      .on('change', (path) => this.queueChange(path, 'change'))
+      .on('unlink', (path) => this.queueChange(path, 'unlink'));
+  }
+
+  stopWatching(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.pendingChanges.clear();
+
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+  }
+
+  isWatching(): boolean {
+    return this.watcher !== null;
+  }
+
+  private queueChange(filePath: string, event: 'add' | 'change' | 'unlink'): void {
+    const relativePath = relative(this.sourceRoot, filePath);
+    const id = normalizeId(relativePath);
+
+    // Check exclusions
+    if (!filePath.endsWith('.md')) {
+      return;
+    }
+
+    // Check if path contains any excluded directory
+    const pathParts = relativePath.split('/');
+    for (const part of pathParts) {
+      if (DocStore.EXCLUDED_DIRS.has(part)) {
+        return;
+      }
+    }
+
+    // Apply coalescing rules
+    const existing = this.pendingChanges.get(id);
+
+    if (existing) {
+      if (existing === 'add' && event === 'change') {
+        // add + change = add (keep as add)
+        return;
+      } else if (existing === 'add' && event === 'unlink') {
+        // add + unlink = remove from queue
+        this.pendingChanges.delete(id);
+      } else if (existing === 'change' && event === 'unlink') {
+        // change + unlink = unlink
+        this.pendingChanges.set(id, 'unlink');
+      }
+      // change + change = change (already set, no action needed)
+    } else {
+      this.pendingChanges.set(id, event);
+    }
+
+    // Reset debounce timer
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+
+    this.debounceTimer = setTimeout(() => {
+      this.processQueue();
+    }, 1000);
+  }
+
+  private async processQueue(): Promise<void> {
+    const changes = new Map(this.pendingChanges);
+    this.pendingChanges.clear();
+    this.debounceTimer = null;
+
+    const processedIds: string[] = [];
+
+    for (const [id, event] of changes) {
+      try {
+        if (event === 'unlink') {
+          const existing = this.cache.getNode(id);
+          if (existing) {
+            this.cache.deleteNode(id);
+            await this.vectorProvider.delete(id);
+            processedIds.push(id);
+          }
+        } else {
+          // add or change
+          const filePath = join(this.sourceRoot, id);
+          const node = await this.fileToNode(filePath);
+          const mtime = await this.getFileMtime(filePath);
+          this.cache.upsertNode(node, 'file', filePath, mtime);
+          processedIds.push(id);
+        }
+      } catch (err) {
+        console.warn(`Failed to process file change for ${id}:`, err);
+      }
+    }
+
+    // Rebuild graph after processing all changes
+    if (processedIds.length > 0) {
+      this.rebuildGraph();
+    }
+
+    // Call callback if provided
+    if (this.onChangeCallback && processedIds.length > 0) {
+      this.onChangeCallback(processedIds);
     }
   }
 
@@ -259,7 +396,7 @@ export class DocStore implements StoreProvider {
     }
   }
 
-  private static readonly EXCLUDED_DIRS = new Set(['.roux', 'node_modules', '.git']);
+  private static readonly EXCLUDED_DIRS = new Set(['.roux', 'node_modules', '.git', '.obsidian']);
 
   private async collectMarkdownFiles(dir: string): Promise<string[]> {
     const results: string[] = [];

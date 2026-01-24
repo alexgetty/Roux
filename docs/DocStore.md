@@ -155,11 +155,14 @@ DocStore monitors the directory while serving. See [[decisions/Graphology Lifecy
 
 **Sync process (debounced):**
 1. File change detected → queued
-2. After 100ms debounce, process queue:
+2. After 1 second debounce, process queue:
    - Update SQLite cache
    - Update graphology graph (nodes + edges)
    - Recompute centrality
+   - Call `onChange(changedIds)` callback if registered
 3. Done. Everything fresh.
+
+**Why 1 second?** Users don't query mid-edit. There's a natural cognitive gap between editing in Obsidian and switching to Claude/MCP. A longer debounce batches multiple autosaves (typically every 1-5 seconds) into a single sync, reducing redundant processing with no perceptible delay.
 
 **Partial read handling:**
 If a file is mid-write when processed (truncated frontmatter, incomplete content), parse will fail. Behavior: log warning, skip the file. The next save triggers another event and we retry. Brief staleness is acceptable; crashing is not.
@@ -169,7 +172,24 @@ If a file is mid-write when processed (truncated frontmatter, incomplete content
 - File deleted → remove from cache and graph
 - New file → parse and add
 
-Target latency: <1 second for changes to reflect in queries (debounce + sync).
+Target latency: <2 seconds for changes to reflect in queries (debounce + sync).
+
+**Watcher API:**
+```typescript
+// Start watching for file changes
+store.startWatching((changedIds: string[]) => {
+  // Called after each debounced sync with IDs of changed nodes
+  // Use this to trigger re-embedding at the serve layer
+});
+
+// Stop watching
+store.stopWatching();
+
+// Check if watching
+store.isWatching(); // boolean
+```
+
+The `onChange` callback enables the serve layer (CLI) to coordinate re-embedding. DocStore handles cache/graph updates internally; the callback notifies which nodes need new embeddings.
 
 ## Write Operations
 

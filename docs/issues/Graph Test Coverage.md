@@ -50,6 +50,22 @@ it('limit returns valid neighbors not arbitrary nodes', () => {
 
 Add `src/graph/index.ts` barrel export for cleaner imports. Not urgent since graph module is internal to DocStore.
 
+### Duplicate Node IDs in buildGraph
+
+If `buildGraph` receives nodes with duplicate IDs, graphology throws. This can't happen from DocStore (cache enforces unique IDs), but the function is public.
+
+```typescript
+it('throws on duplicate node IDs', () => {
+  const nodes = [
+    createNode({ id: 'same.md' }),
+    createNode({ id: 'same.md' }),
+  ];
+  expect(() => buildGraph(nodes)).toThrow();
+});
+```
+
+**Decision needed:** Should `buildGraph` deduplicate silently, or is throwing correct?
+
 ## Complexity
 
 Low — test additions only, no implementation changes.

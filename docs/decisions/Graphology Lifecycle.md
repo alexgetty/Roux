@@ -94,16 +94,16 @@ file changed:
 ```
 file changed:
   1. Queue change
-  2. After 100ms debounce, process queue
+  2. After 1 second debounce, process queue
   3. Batch update SQLite
   4. Batch update graphology
   5. Recompute centrality (piggybacked)
 ```
 
-**Pros:** Handles rapid changes (autosave). Efficient batching.
-**Cons:** 100ms delay before changes visible. More state to manage.
+**Pros:** Handles rapid changes (autosave). Efficient batching. Reduces redundant syncs.
+**Cons:** 1 second delay before changes visible. More state to manage.
 
-**Decision:** Autosave editors spam file changes. Debouncing prevents thrashing. 100ms is imperceptible. Centrality recomputation piggybacked onto same sync process (see below).
+**Decision:** Autosave editors spam file changes (every 1-5 seconds). A 1-second debounce batches multiple autosaves into a single sync. Users don't query mid-edit—there's a natural cognitive gap between editing and switching to Claude/MCP. The delay is imperceptible in practice. Centrality recomputation piggybacked onto same sync process (see below).
 
 ### Centrality Computation
 
@@ -185,7 +185,7 @@ get_hubs:
 
 1. ~~What's acceptable startup latency at 500, 1000, 5000 nodes?~~ Deferred to real measurement. SQLite load is fast enough for MVP.
 2. ~~Should centrality results be allowed to be stale?~~ No. Recompute during sync.
-3. ~~Is 100ms debounce acceptable for file sync?~~ Yes. Imperceptible to humans, prevents thrashing.
+3. ~~Is 100ms debounce acceptable for file sync?~~ Revised to 1 second. Users don't query mid-edit, so longer debounce just batches more saves with no perceptible delay.
 4. ~~Should we show progress during startup for large graphs?~~ Deferred. Not blocking MVP.
 
 ## Decision
@@ -193,7 +193,7 @@ get_hubs:
 | Sub-decision | Choice | Rationale |
 |--------------|--------|-----------|
 | Graph Construction | Build from SQLite on startup | SQLite is the cache. Fast and simple. |
-| File Change Sync | Debounced incremental (100ms) | Handles autosave spam. Batch updates cleaner than individual edge diffs. |
+| File Change Sync | Debounced incremental (1 second) | Handles autosave spam. Longer debounce batches more saves; no perceptible delay since users don't query mid-edit. |
 | Centrality Computation | Piggyback on sync | Single update process. Always correct. No stale flags or background jobs. |
 
 ## Outcome
@@ -201,7 +201,7 @@ get_hubs:
 Decided. The graphology lifecycle is:
 
 1. **Startup:** Load nodes/edges from SQLite → build graphology graph → ready
-2. **File change:** Queue change → debounce 100ms → batch update SQLite + graphology + centrality → done
+2. **File change:** Queue change → debounce 1 second → batch update SQLite + graphology + centrality → done
 3. **Query:** Read from in-memory graph (always current after last sync)
 
 ## Related

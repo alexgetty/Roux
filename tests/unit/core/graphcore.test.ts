@@ -609,5 +609,18 @@ describe('GraphCore', () => {
       const core = GraphCoreImpl.fromConfig(config);
       expect(core).toBeDefined();
     });
+
+    it('throws on unsupported embedding type', () => {
+      const config: RouxConfig = {
+        providers: {
+          store: { type: 'docstore' },
+          embedding: { type: 'openai' as 'local' },
+        },
+        source: { path: join(tempDir, 'source'), include: ['*.md'], exclude: [] },
+        cache: { path: join(tempDir, 'cache3') },
+      };
+
+      expect(() => GraphCoreImpl.fromConfig(config)).toThrow(/unsupported/i);
+    });
   });
 });
