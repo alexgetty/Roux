@@ -203,6 +203,7 @@ These require LLMProvider and are deferred to Phase 0.5:
 - Each tool maps to a [[GraphCore]] operation
 - Tool signatures can evolve (add tools freely, deprecation cycle for removal)
 - All tools are synchronous from client perspective (async internally)
+- **Response formatting:** See [[MCP Tools Schema]] for exact response shapes, including `LinkInfo` resolution via `StoreProvider.resolveTitles()`
 
 ## Related
 

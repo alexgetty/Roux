@@ -42,6 +42,8 @@ IDs are not portable across stores. Migration tooling handles ID translation and
 **Why `outgoingLinks` not `edges`?**
 Edges are directional. A Node knows what it links *to*, not what links to it. Bidirectional queries are the StoreProvider's job.
 
+**Note on MCP responses:** When nodes are returned via MCP, `outgoingLinks` (IDs) are enriched to `links` (ID + title pairs) using `StoreProvider.resolveTitles()`. This provides semantic context for LLM reasoning. See [[MCP Tools Schema]] for response formats.
+
 **Why `properties` as a bag?**
 Different use cases need different metadata. A document node might have `wordCount`, a person node might have `birthDate`. The bag allows extension without schema changes.
 

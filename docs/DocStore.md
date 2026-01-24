@@ -109,6 +109,24 @@ tags:
 
 **Future:** Inline `#tag` syntax (Obsidian-compatible). Not MVP.
 
+## Title Resolution
+
+DocStore implements `resolveTitles()` by deriving human-readable titles from file paths (zero IO):
+
+```
+notes/machine-learning.md → "Machine Learning"
+concepts/Neural Networks.md → "Neural Networks"
+drafts/2024-01-15-meeting.md → "2024 01 15 Meeting"
+```
+
+**Rules:**
+1. Remove directory path prefix
+2. Remove `.md` extension
+3. Replace hyphens with spaces
+4. Title-case the result
+
+This enables rich MCP responses with semantic link titles. See [[MCP Tools Schema]] for response format and [[StoreProvider]] for the interface.
+
 ## Link Parsing
 
 When parsing a file, DocStore extracts [[Wiki-links]] into edges:

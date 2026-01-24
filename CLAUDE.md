@@ -22,3 +22,20 @@ See [[TDD]] for full methodology and tooling.
 ## Documentation
 
 Architecture docs live in `docs/` as an Obsidian vault. `docs/GPI.md` and `docs/GraphCore.md` are the primary references.
+
+## Code Style
+
+**Comments:** Only when adding information invisible to the code itself.
+- Defaults, constraints, hidden behaviors, "relative to what" → comment
+- Restating the type/function name → delete it
+
+```typescript
+// Bad: comment just restates the name
+/** Cache configuration. */
+export interface CacheConfig { ... }
+
+// Good: comment adds non-obvious context
+export interface CacheConfig {
+  /** SQLite directory */
+  path: string;
+}

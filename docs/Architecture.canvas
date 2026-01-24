@@ -1,7 +1,7 @@
 {
 	"nodes":[
 		{"id":"graphcore","type":"file","file":"docs/GraphCore.md","x":-1100,"y":-800,"width":2320,"height":520},
-		{"id":"mcp","type":"file","file":"docs/MCP Server.md","x":-1110,"y":-1320,"width":700,"height":310},
+		{"id":"mcp","type":"file","file":"docs/MCP Server.md","x":-1110,"y":-1320,"width":700,"height":310,"color":"4"},
 		{"id":"cli","type":"file","file":"docs/CLI.md","x":510,"y":-1320,"width":700,"height":310},
 		{"id":"api","type":"file","file":"docs/API.md","x":-290,"y":-1320,"width":700,"height":310},
 		{"id":"neo4j","type":"file","file":"docs/Neo4j.md","x":-1940,"y":720,"width":260,"height":180},
@@ -11,7 +11,7 @@
 		{"id":"transformers","type":"file","file":"docs/Transformers.md","x":-620,"y":720,"width":280,"height":180},
 		{"id":"ollama","type":"file","file":"docs/Ollama.md","x":-280,"y":720,"width":280,"height":180},
 		{"id":"openai","type":"file","file":"docs/OpenAI.md","x":60,"y":720,"width":280,"height":180},
-		{"id":"docstore","type":"file","file":"docs/DocStore.md","x":-3900,"y":720,"width":300,"height":180},
+		{"id":"docstore","type":"file","file":"docs/DocStore.md","x":-3900,"y":720,"width":300,"height":180,"color":"4"},
 		{"id":"sqlitestore","type":"file","file":"docs/SQLiteStore.md","x":-3540,"y":720,"width":260,"height":180},
 		{"id":"levelgraph","type":"file","file":"docs/LevelGraph.md","x":-3220,"y":720,"width":260,"height":180},
 		{"id":"surrealdb","type":"file","file":"docs/SurrealDB.md","x":-2900,"y":720,"width":260,"height":180},

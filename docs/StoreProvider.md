@@ -30,6 +30,9 @@ interface StoreProvider {
 
   // Search
   searchByTags(tags: string[], mode: TagMode): Promise<Node[]>;
+
+  // Link resolution (for MCP response formatting)
+  resolveTitles(ids: string[]): Promise<Map<string, string>>;
 }
 
 interface NeighborOptions {
@@ -100,6 +103,17 @@ Post-MVP, stores may support delegating `searchByVector()` to an external Vector
 | SurrealDB | `notes/research.md` | Record ID or field |
 
 Internal/auto-generated IDs (e.g., Neo4j numeric IDs) are implementation details, never exposed through the interface. See [[Decision - Node Identity]].
+
+**Why `resolveTitles()`?**
+MCP responses include outgoing links with human-readable titles for LLM context. The mapping from ID to title is store-specific:
+
+| Store | Resolution Strategy |
+|-------|---------------------|
+| DocStore | Derive from file path (zero IO) |
+| Neo4j | Batch query for title property |
+| SurrealDB | Batch query for title field |
+
+This keeps the MCP layer store-agnostic while enabling rich context in responses. See [[MCP Tools Schema]] for response format details.
 
 ## Open Questions (Deferred)
 
