@@ -163,6 +163,30 @@ describe('SqliteVectorProvider', () => {
         await provider.store('a', [0.1, 0.2, 0.3], 'model');
         await expect(provider.search([0.1, 0.2], 10)).rejects.toThrow(/dimension/i);
       });
+
+      it('throws on dimension mismatch in store', async () => {
+        await provider.store('a', [0.1, 0.2, 0.3], 'model');
+        await expect(provider.store('b', [0.1, 0.2], 'model')).rejects.toThrow(/dimension/i);
+      });
+
+      it('allows overwriting same id with different dimensions', async () => {
+        await provider.store('a', [0.1, 0.2, 0.3], 'model-v1');
+        // Overwriting same ID is allowed - this is the migration path
+        await provider.store('a', [0.1, 0.2, 0.3, 0.4], 'model-v2');
+
+        const model = await provider.getModel('a');
+        expect(model).toBe('model-v2');
+      });
+
+      it('allows storing after all vectors deleted', async () => {
+        await provider.store('a', [0.1, 0.2, 0.3], 'model');
+        await provider.delete('a');
+        // After clearing, new dimension is allowed
+        await provider.store('b', [0.1, 0.2, 0.3, 0.4], 'model');
+
+        const model = await provider.getModel('b');
+        expect(model).toBe('model');
+      });
     });
 
     describe('empty vector', () => {
@@ -200,6 +224,21 @@ describe('SqliteVectorProvider', () => {
 
       it('store throws on -Infinity in vector', async () => {
         await expect(provider.store('a', [0.1, -Infinity, 0.3], 'model')).rejects.toThrow(/invalid/i);
+      });
+
+      it('search throws on NaN in query vector', async () => {
+        await provider.store('a', [0.1, 0.2, 0.3], 'model');
+        await expect(provider.search([0.1, NaN, 0.3], 10)).rejects.toThrow(/invalid/i);
+      });
+
+      it('search throws on Infinity in query vector', async () => {
+        await provider.store('a', [0.1, 0.2, 0.3], 'model');
+        await expect(provider.search([0.1, Infinity, 0.3], 10)).rejects.toThrow(/invalid/i);
+      });
+
+      it('search throws on -Infinity in query vector', async () => {
+        await provider.store('a', [0.1, 0.2, 0.3], 'model');
+        await expect(provider.search([0.1, -Infinity, 0.3], 10)).rejects.toThrow(/invalid/i);
       });
     });
   });

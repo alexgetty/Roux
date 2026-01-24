@@ -7,7 +7,9 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 - 50+ architecture docs in `/docs/`
 - 15 major decisions made and documented
 - All interfaces specified (Node, providers, GraphCore, MCP tools, CLI)
-- Zero source code (intentional—TDD methodology)
+- Phases 1-7 complete: scaffold, types, schemas, DocStore, Graphology, Embedding/Vector, GraphCore
+- 333 tests, 100% coverage
+- Ready for Phase 8: File Watcher
 
 ## Success Criteria
 1. `roux init` creates config and `.roux/` cache
@@ -110,21 +112,24 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 
 ---
 
-### Phase 5: Graphology Integration
+### Phase 5: Graphology Integration ✓
 **Goal:** Graph operations via graphology library
 
 **Tasks:**
-- [ ] Build graph from DocStore nodes
-- [ ] get_neighbors (in/out/both directions)
-- [ ] find_path (shortest path)
-- [ ] get_hubs (in_degree metric for MVP)
-- [ ] Centrality caching in SQLite
-- [ ] Graph rebuild on file changes
+- [x] Build graph from DocStore nodes (`buildGraph()`)
+- [x] get_neighbors (in/out/both directions via `getNeighborIds()`)
+- [x] find_path (shortest path via `findPath()`)
+- [x] get_hubs (in_degree metric via `getHubs()`)
+- [x] Centrality computation (`computeCentrality()`)
+- [x] Unit tests (31 tests across builder + operations)
 
 **Key files:**
 - `src/graph/builder.ts`
 - `src/graph/operations.ts`
-- `tests/unit/graph/`
+- `tests/unit/graph/builder.test.ts`
+- `tests/unit/graph/operations.test.ts`
+
+**Note:** Graph rebuild on file changes is handled by DocStore (see [[decisions/Graphology Lifecycle]]). DocStore owns the graphology instance.
 
 **Dependencies:** Phase 4
 
@@ -155,21 +160,55 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 
 ---
 
-### Phase 7: GraphCore Orchestration
-**Goal:** Hub that routes requests to providers
+### Phase 7: GraphCore Orchestration ✓
+**Goal:** Hub that routes requests to providers. Zero functionality itself—pure delegation.
+
+**Architecture Clarifications:**
+- GraphCore does NOT own a graph instance. It calls StoreProvider methods.
+- DocStore owns the graphology instance (per [[decisions/Graphology Lifecycle]])
+- No lazy refresh patterns or eventual consistency—keep it simple for MVP
+- **Config loading:** CLI loads `roux.yaml`, parses to `RouxConfig`, passes to `GraphCore.fromConfig(config)`. GraphCore does not touch filesystem directly.
+- **StoreProvider is required:** `GraphCore.fromConfig()` throws if store not configured. No store = no data = nothing works. (See [[decisions/Provider Lifecycle]])
+- **EmbeddingProvider defaults to local:** If `providers.embedding` omitted, use TransformersEmbeddingProvider automatically. Semantic search works out of the box. (See [[Config]])
+- **Score conversion:** `searchByVector()` returns `distance` (lower = closer). GraphCore converts to `score` (0-1, higher = better) using `score = 1 / (1 + distance)` before returning from `search()`.
+
+**Interface Additions Required (before implementation):**
+
+Add to `src/types/graphcore.ts`:
+```typescript
+searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
+getRandomNode(tags?: string[]): Promise<Node | null>;
+```
+
+Add to `src/types/provider.ts` (StoreProvider):
+```typescript
+getRandomNode(tags?: string[]): Promise<Node | null>;
+```
+
+Note: DocStore implements `getRandomNode()` using its internal `getAllNodeIds()` + random pick + optional tag filter via `searchByTags()`. Database-backed stores can use native random selection (e.g., `ORDER BY rand() LIMIT 1`).
 
 **Tasks:**
-- [ ] Provider registration and lifecycle
-- [ ] Capability detection (what's available)
-- [ ] Search orchestration (embed query → search vectors → return nodes)
-- [ ] Request routing to appropriate providers
-- [ ] Error handling and capability-based responses
+- [x] Add interface methods above (with tests first per TDD)
+- [x] Implement `GraphCore` class with `fromConfig(config: RouxConfig)` static factory
+- [x] Provider registration (`registerStore()`, `registerEmbedding()`)
+- [x] Search orchestration (embed → searchByVector → convert score → getNodes)
+- [x] CRUD routing → StoreProvider (`getNode`, `createNode`, `updateNode`, `deleteNode`)
+- [x] Graph ops routing → StoreProvider (`getNeighbors`, `findPath`, `getHubs`)
+- [x] Tag search routing → StoreProvider (`searchByTags`)
+- [x] Random node routing → StoreProvider (`getRandomNode`)
+- [x] `getNode` with depth: call `getNeighbors` for in/out, count each, merge into `NodeWithContext`
+- [x] Error handling: throw if store missing, EmbeddingProvider auto-defaults to local
+
+**Test Strategy:**
+- Unit tests with mocked providers (StoreProvider, EmbeddingProvider mocks)
+- 100% coverage required
+- Integration tests with real DocStore deferred to Phase 11
 
 **Key files:**
-- `src/core/graphcore.ts`
-- `src/core/capabilities.ts`
-- `tests/unit/core/`
-- `tests/integration/`
+- `src/types/graphcore.ts` (interface additions)
+- `src/types/provider.ts` (StoreProvider interface addition)
+- `src/core/graphcore.ts` (implementation)
+- `tests/unit/core/graphcore.test.ts`
 
 **Dependencies:** Phases 4, 5, 6
 
@@ -253,10 +292,17 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 **Goal:** End-to-end testing and real-world validation
 
 **Tasks:**
-- [ ] E2E test: full user journey
+- [ ] Integration tests: GraphCore + real DocStore + real TransformersEmbeddingProvider
+- [ ] Integration tests: MCP Server + GraphCore + real providers
+- [ ] E2E test: full user journey (`roux init` → `roux serve` → MCP tool calls → file changes)
 - [ ] Test on Alex's Obsidian vault
 - [ ] README with quickstart
 - [ ] npm publish prep
+
+**Key files:**
+- `tests/integration/core/graphcore.integration.test.ts`
+- `tests/integration/mcp/`
+- `tests/e2e/`
 
 **Dependencies:** All previous phases
 
@@ -299,9 +345,15 @@ Phase 11 (Integration)
 | IDs | File path-based (relative, lowercase, with extension) |
 | Hubs | `in_degree` metric (not PageRank - O(1) vs O(n)) |
 | Errors | Capability-based tool exposure, not runtime errors |
-| Embeddings | transformers.js default, zero external deps |
+| Embeddings | transformers.js default, zero external deps. Auto-instantiated if config omits `providers.embedding`. |
 | Transport | stdio for MCP (Claude Code spawns as subprocess) |
 | Link titles | StoreProvider.resolveTitles() maps IDs to human-readable titles |
+| Graph ownership | DocStore owns graphology instance; GraphCore delegates (no cached copy) |
+| Capabilities | Config-driven at startup (read `roux.yaml`), not runtime detection |
+| Graph sync | Debounced incremental (100ms) per [[decisions/Graphology Lifecycle]] |
+| Config loading | CLI loads `roux.yaml`, passes `RouxConfig` to `GraphCore.fromConfig()`. GraphCore never touches filesystem. |
+| Score conversion | `searchByVector()` returns distance; GraphCore converts to similarity score (0-1, higher=better) |
+| Phase 7 tests | Unit tests with mocked providers. Integration tests deferred to Phase 11. |
 
 ---
 

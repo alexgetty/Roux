@@ -28,6 +28,10 @@ Architecture docs live in `docs/` as an Obsidian vault. `docs/GPI.md` and `docs/
 - `CONTRIBUTING.md` has a "Component Usage" table with high-level descriptions + wikilinks to detailed sections
 - After each phase, update both: add `## Usage` to component doc, add row to CONTRIBUTING table
 
+**Tracking directories:**
+- `docs/roadmap/` — Future features, post-MVP enhancements, deferred scope
+- `docs/issues/` — Current bugs, test gaps, tech debt that should be fixed
+
 ## Code Style
 
 **Comments:** Only when adding information invisible to the code itself.

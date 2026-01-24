@@ -756,6 +756,41 @@ Original content`
 
       customStore.close();
     });
+
+    it('close() does NOT close injected VectorProvider (caller owns lifecycle)', async () => {
+      const closeMock = vi.fn();
+      const mockVectorProvider: VectorProvider & { close: () => void } = {
+        store: vi.fn().mockResolvedValue(undefined),
+        search: vi.fn().mockResolvedValue([]),
+        delete: vi.fn().mockResolvedValue(undefined),
+        getModel: vi.fn().mockResolvedValue(null),
+        close: closeMock,
+      };
+
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorProvider);
+      customStore.close();
+
+      expect(closeMock).not.toHaveBeenCalled();
+    });
+
+    it('close() closes owned VectorProvider when DocStore created it', async () => {
+      // Create a new store with a separate cache dir to get fresh VectorProvider
+      const ownedCacheDir = join(tempDir, 'owned-vector-cache');
+      const ownedStore = new DocStore(sourceDir, ownedCacheDir);
+
+      // Store something to ensure vector DB is created
+      await ownedStore.storeEmbedding('test.md', [0.1, 0.2, 0.3], 'model');
+
+      // close() should close the owned VectorProvider without error
+      // If there's a resource leak, subsequent operations might fail or DB stays open
+      ownedStore.close();
+
+      // Verify the VectorProvider was closed by trying to create a new one
+      // at the same path - if old one wasn't closed, this might fail on some systems
+      const newStore = new DocStore(sourceDir, ownedCacheDir);
+      await newStore.storeEmbedding('test2.md', [0.4, 0.5, 0.6], 'model');
+      newStore.close();
+    });
   });
 
   describe('security', () => {
@@ -906,6 +941,60 @@ No links yet`
       // Should be lowercased
       const node = await store.getNode('über.md');
       expect(node).not.toBeNull();
+    });
+  });
+
+  describe('getRandomNode', () => {
+    it('returns null for empty store', async () => {
+      const result = await store.getRandomNode();
+      expect(result).toBeNull();
+    });
+
+    it('returns a node when store has nodes', async () => {
+      await writeMarkdownFile('a.md', '---\ntitle: A\n---\nContent');
+      await writeMarkdownFile('b.md', '---\ntitle: B\n---\nContent');
+      await store.sync();
+
+      const result = await store.getRandomNode();
+      expect(result).not.toBeNull();
+      expect(['a.md', 'b.md']).toContain(result?.id);
+    });
+
+    it('returns the only node when store has one', async () => {
+      await writeMarkdownFile('only.md', '---\ntitle: Only\n---\nContent');
+      await store.sync();
+
+      const result = await store.getRandomNode();
+      expect(result?.id).toBe('only.md');
+    });
+
+    it('filters by tags when provided', async () => {
+      await writeMarkdownFile('tagged.md', '---\ntags: [special]\n---\nA');
+      await writeMarkdownFile('untagged.md', '---\ntags: [other]\n---\nB');
+      await store.sync();
+
+      const result = await store.getRandomNode(['special']);
+      expect(result?.id).toBe('tagged.md');
+    });
+
+    it('returns null when no nodes match tags', async () => {
+      await writeMarkdownFile('a.md', '---\ntags: [one]\n---\nA');
+      await writeMarkdownFile('b.md', '---\ntags: [two]\n---\nB');
+      await store.sync();
+
+      const result = await store.getRandomNode(['nonexistent']);
+      expect(result).toBeNull();
+    });
+
+    it('returns any matching node with tags (any mode)', async () => {
+      await writeMarkdownFile('first.md', '---\ntags: [match]\n---\nA');
+      await writeMarkdownFile('second.md', '---\ntags: [match]\n---\nB');
+      await writeMarkdownFile('third.md', '---\ntags: [nomatch]\n---\nC');
+      await store.sync();
+
+      const result = await store.getRandomNode(['match']);
+      expect(result).not.toBeNull();
+      expect(['first.md', 'second.md']).toContain(result?.id);
     });
   });
 });

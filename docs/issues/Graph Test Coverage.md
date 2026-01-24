@@ -1,12 +1,11 @@
 ---
-type: Roadmap Feature
-status: Proposed
-priority: Low
-phase: Post-MVP
-parent: "[[DocStore]]"
+type: Issue
+severity: Medium
+component: Graph
+phase: 5
 ---
 
-# Feature - Graph Test Coverage
+# Issue - Graph Test Coverage
 
 Additional test coverage for graph operations edge cases.
 

@@ -32,6 +32,7 @@ export class DocStore implements StoreProvider {
   private sourceRoot: string;
   private graph: DirectedGraph | null = null;
   private vectorProvider: VectorProvider;
+  private ownsVectorProvider: boolean;
 
   constructor(
     sourceRoot: string,
@@ -40,6 +41,7 @@ export class DocStore implements StoreProvider {
   ) {
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
+    this.ownsVectorProvider = !vectorProvider;
     this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
   }
 
@@ -179,6 +181,24 @@ export class DocStore implements StoreProvider {
     return this.cache.searchByTags(tags, mode);
   }
 
+  async getRandomNode(tags?: string[]): Promise<Node | null> {
+    let candidates: Node[];
+
+    if (tags && tags.length > 0) {
+      candidates = await this.searchByTags(tags, 'any');
+    } else {
+      candidates = this.cache.getAllNodes();
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const randomIndex = Math.floor(Math.random() * candidates.length);
+    // Safe: randomIndex is always 0 to length-1 when length > 0
+    return candidates[randomIndex]!;
+  }
+
   async resolveTitles(ids: string[]): Promise<Map<string, string>> {
     return this.cache.resolveTitles(ids);
   }
@@ -216,6 +236,9 @@ export class DocStore implements StoreProvider {
 
   close(): void {
     this.cache.close();
+    if (this.ownsVectorProvider && 'close' in this.vectorProvider) {
+      (this.vectorProvider as { close: () => void }).close();
+    }
   }
 
   private ensureGraph(): void {
@@ -323,7 +346,7 @@ export class DocStore implements StoreProvider {
     // Match common file extensions: .md, .txt, .png, .json, etc.
     // Extension must contain at least one letter (to exclude .2024, .123, etc.)
     const match = path.match(/\.([a-z0-9]{1,4})$/i);
-    if (!match) return false;
+    if (!match?.[1]) return false;
     // Require at least one letter in the extension
     return /[a-z]/i.test(match[1]);
   }

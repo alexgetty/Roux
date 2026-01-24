@@ -38,6 +38,17 @@ export class SqliteVectorProvider implements VectorProvider {
       }
     }
 
+    // Validate dimension consistency (exclude self for overwrites)
+    const existing = this.db
+      .prepare('SELECT LENGTH(vector) / 4 as dim FROM vectors WHERE id != ? LIMIT 1')
+      .get(id) as { dim: number } | undefined;
+
+    if (existing && existing.dim !== vector.length) {
+      throw new Error(
+        `Dimension mismatch: cannot store ${vector.length}-dim vector, existing vectors have ${existing.dim} dimensions`
+      );
+    }
+
     const blob = Buffer.from(new Float32Array(vector).buffer);
     this.db
       .prepare(
@@ -49,6 +60,11 @@ export class SqliteVectorProvider implements VectorProvider {
   async search(vector: number[], limit: number): Promise<VectorSearchResult[]> {
     if (vector.length === 0) {
       throw new Error('Cannot search with empty vector');
+    }
+    for (const v of vector) {
+      if (!Number.isFinite(v)) {
+        throw new Error(`Invalid vector value: ${v}`);
+      }
     }
     if (limit <= 0) {
       return [];

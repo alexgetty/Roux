@@ -31,7 +31,7 @@ If there's no failing test, there's no reason to write code.
 ### Before Writing Any Code
 
 1. Identify the behavior to implement
-2. Write a test that exercises that behavior
+2. Write a unit or integration test that exercises that behavior
 3. Run the test—confirm it fails
 4. Only then write implementation
 
@@ -47,7 +47,21 @@ If there's no failing test, there's no reason to write code.
 - No new functionality during refactor
 - Commit when green
 
+### After Feature Complete
+
+- Write E2E tests that verify the full user journey
+- E2E tests come *after* implementation because you need a working system to test
+- These catch composition bugs that unit tests miss
+- Flow: unit tests (red) → implementation (green) → E2E tests (verify) → refactor
+
 ## Test Scope
+
+| Level | What it tests | Mocks? | TDD timing |
+|-------|---------------|--------|------------|
+| **Unit** | Single function/method in isolation | Yes | Before implementation |
+| **Integration** | Multiple real components together | Minimal | Before implementation |
+| **Contract** | Provider implementations against interfaces | No | Before implementation |
+| **End-to-end** | Full user journey through system | No | After implementation |
 
 ### Unit Tests
 - Test single functions/methods in isolation
@@ -64,6 +78,13 @@ If there's no failing test, there's no reason to write code.
 - Any [[StoreProvider]] implementation must pass the same contract tests
 - Ensures interchangeability
 
+### End-to-End Tests
+- Test complete user journeys (CLI → MCP → file system → query results)
+- No mocks—real system, real files, real responses
+- Written *after* implementation exists (can't E2E test what doesn't exist yet)
+- Verify that unit-tested pieces compose correctly
+- Catch integration gaps that unit tests miss
+
 ## What Gets Tested
 
 Everything that has behavior:
@@ -74,6 +95,11 @@ Everything that has behavior:
 - [[MCP Server]] tool handlers
 - Error handling paths
 - Edge cases documented in specs
+
+**E2E scenarios** (tested after implementation):
+- `roux init` → config created → cache initialized
+- `roux serve` → MCP tools respond → file changes sync
+- Full CRUD journey: create node → query it → update it → delete it → confirm gone
 
 ## What Doesn't Need Tests
 
@@ -86,7 +112,7 @@ Everything that has behavior:
 
 ```
 tests/
-├── unit/
+├── unit/           # Isolated, mocked, fast
 │   ├── core/
 │   │   └── graph-core.test.ts
 │   └── providers/
@@ -94,12 +120,16 @@ tests/
 │       │   └── doc-store.test.ts
 │       └── embedding/
 │           └── transformers.test.ts
-├── integration/
+├── integration/    # Real components, minimal mocks
 │   ├── doc-store.integration.test.ts
 │   └── mcp-server.integration.test.ts
-└── contracts/
-    ├── store-provider.contract.test.ts
-    └── embedding-provider.contract.test.ts
+├── contracts/      # Interface compliance
+│   ├── store-provider.contract.test.ts
+│   └── embedding-provider.contract.test.ts
+└── e2e/            # Full user journeys, no mocks
+    ├── cli-init.e2e.test.ts
+    ├── cli-serve.e2e.test.ts
+    └── mcp-tools.e2e.test.ts
 ```
 
 ## Test Naming

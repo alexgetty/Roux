@@ -45,6 +45,9 @@ export interface StoreProvider {
   // Search
   searchByTags(tags: string[], mode: TagMode): Promise<Node[]>;
 
+  // Discovery
+  getRandomNode(tags?: string[]): Promise<Node | null>;
+
   // Link resolution (for MCP response formatting)
   resolveTitles(ids: string[]): Promise<Map<string, string>>;
 }

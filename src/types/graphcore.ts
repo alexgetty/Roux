@@ -1,5 +1,10 @@
 import type { Node, NodeWithContext } from './node.js';
-import type { Metric, StoreProvider, EmbeddingProvider } from './provider.js';
+import type {
+  Metric,
+  StoreProvider,
+  EmbeddingProvider,
+  TagMode,
+} from './provider.js';
 import type { NeighborOptions } from './edge.js';
 
 export interface SearchOptions {
@@ -27,4 +32,8 @@ export interface GraphCore {
   getNeighbors(id: string, options: NeighborOptions): Promise<Node[]>;
   findPath(source: string, target: string): Promise<string[] | null>;
   getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
+
+  // Tag and discovery operations
+  searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
+  getRandomNode(tags?: string[]): Promise<Node | null>;
 }

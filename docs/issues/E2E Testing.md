@@ -1,10 +1,13 @@
-# E2E Testing
+---
+type: Issue
+severity: Medium
+component: Testing
+phase: 11
+---
 
-End-to-end testing with Playwright or similar.
+# Issue - E2E Testing
 
-## Status
-
-**Deferred until post-MVP.**
+End-to-end testing gap. No full user workflow coverage.
 
 ## Overview
 
