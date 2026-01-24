@@ -7,10 +7,10 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 - 50+ architecture docs in `/docs/`
 - 15 major decisions made and documented
 - All interfaces specified (Node, providers, GraphCore, MCP tools, CLI)
-- Phases 1-9 complete: scaffold, types, schemas, DocStore, Graphology, Embedding/Vector, GraphCore, File Watcher, MCP Server
-- 517 tests, 100% coverage
-- Outstanding MCP layer issues documented in `docs/issues/MCP Layer Gaps.md` (to be fixed in Phase 10)
-- Ready for Phase 10: CLI
+- Phases 1-10 complete: scaffold, types, schemas, DocStore, Graphology, Embedding/Vector, GraphCore, File Watcher, MCP Server, CLI
+- 517+ tests, 100% coverage
+- Red team audits completed (rounds 2-7), tech debt documented in `docs/issues/`
+- Ready for Phase 11: Integration & Polish
 
 ## Success Criteria
 1. `roux init` creates config and `.roux/` cache
@@ -350,7 +350,7 @@ This keeps DocStore focused on storage/graph and GraphCore/CLI on embedding orch
 
 ---
 
-### Phase 10: CLI
+### Phase 10: CLI ✓
 **Goal:** Four commands for user interaction + fix outstanding MCP layer issues
 
 **Framework:** Commander.js
@@ -358,43 +358,43 @@ This keeps DocStore focused on storage/graph and GraphCore/CLI on embedding orch
 #### MCP Layer Fixes (from Phase 9 red-team)
 Address issues from `docs/issues/MCP Layer Gaps.md` as part of this phase:
 
-- [ ] `sanitizeFilename` empty result → return `"untitled"` fallback
-- [ ] Type assertions without validation → add runtime checks for `direction`, `metric`, `mode`
-- [ ] String limit coercion → add explicit `Number()` coercion
-- [ ] Missing test coverage gaps (see issue doc for specifics)
+- [x] `sanitizeFilename` empty result → return `"untitled"` fallback
+- [x] Type assertions without validation → add runtime checks for `direction`, `metric`, `mode`
+- [x] String limit coercion → add explicit `Number()` coercion
+- [x] Missing test coverage gaps (see issue doc for specifics)
 
 #### Commands
 
 **`roux init <directory>`**
-- [ ] Create `roux.yaml` with minimal defaults
-- [ ] Create `.roux/` directory
-- [ ] No-op if already initialized (print config location)
-- [ ] Validate directory exists
+- [x] Create `roux.yaml` with minimal defaults
+- [x] Create `.roux/` directory
+- [x] No-op if already initialized (print config location)
+- [x] Validate directory exists
 
 **`roux serve`**
-- [ ] Fail fast if not initialized (no `roux.yaml`)
-- [ ] Load config, instantiate providers via `GraphCore.fromConfig()`
-- [ ] Build/sync cache (parse files, store in SQLite)
-- [ ] Generate embeddings for nodes missing them
-- [ ] **Progress indicator** — required for embedding generation (can be hundreds of files)
-- [ ] Start MCP server (stdio transport)
-- [ ] Start file watcher, wire `onChange` to re-embed changed nodes
-- [ ] `--no-watch` flag disables file watching
-- [ ] Graceful shutdown on SIGINT/SIGTERM
+- [x] Fail fast if not initialized (no `roux.yaml`)
+- [x] Load config, instantiate providers via `GraphCore.fromConfig()`
+- [x] Build/sync cache (parse files, store in SQLite)
+- [x] Generate embeddings for nodes missing them
+- [x] **Progress indicator** — required for embedding generation (can be hundreds of files)
+- [x] Start MCP server (stdio transport)
+- [x] Start file watcher, wire `onChange` to re-embed changed nodes
+- [x] `--no-watch` flag disables file watching
+- [x] Graceful shutdown on SIGINT/SIGTERM
 
 **`roux status`**
-- [ ] Node count
-- [ ] Edge count
-- [ ] Cache freshness (last sync time)
-- [ ] Embedding coverage (nodes with/without embeddings)
-- [ ] Fail gracefully if not initialized
+- [x] Node count
+- [x] Edge count
+- [x] Cache freshness (last sync time)
+- [x] Embedding coverage (nodes with/without embeddings)
+- [x] Fail gracefully if not initialized
 
 **`roux viz`**
-- [ ] Generate static HTML with D3 force-directed graph
-- [ ] Output to `.roux/graph.html` by default
-- [ ] `--output <path>` flag for custom location
-- [ ] `--open` flag to open in browser after generation
-- [ ] Node size by in-degree, color by tag (if tagged)
+- [x] Generate static HTML with D3 force-directed graph
+- [x] Output to `.roux/graph.html` by default
+- [x] `--output <path>` flag for custom location
+- [x] `--open` flag to open in browser after generation
+- [x] Node size by in-degree, color by tag (if tagged)
 
 #### Key Files
 - `src/cli/index.ts` — Commander setup, command registration
@@ -403,8 +403,8 @@ Address issues from `docs/issues/MCP Layer Gaps.md` as part of this phase:
 - `src/cli/commands/status.ts`
 - `src/cli/commands/viz.ts`
 - `src/cli/progress.ts` — Progress indicator utilities
-- `tests/unit/cli/` — Unit tests for command logic
-- `tests/integration/cli/` — Integration tests
+- `tests/unit/cli/` — Unit tests for command logic (init, serve, status, viz)
+- `tests/integration/cli/` — Integration tests (deferred to Phase 11)
 
 #### Progress Indicator
 `roux serve` on first run generates embeddings for all nodes. With 200+ files, this takes time. User must see progress.
