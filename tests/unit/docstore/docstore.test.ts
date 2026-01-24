@@ -310,6 +310,21 @@ Original content`
           store.updateNode('missing.md', { title: 'New' })
         ).rejects.toThrow(/not found/i);
       });
+
+      it('updates outgoingLinks and rebuilds graph', async () => {
+        await writeMarkdownFile('linked.md', '---\ntitle: Linked\n---\nContent');
+        await store.sync();
+
+        await store.updateNode('target.md', {
+          outgoingLinks: ['linked.md'],
+        });
+
+        // Graph should be rebuilt - target should now have linked as neighbor
+        const neighbors = await store.getNeighbors('target.md', {
+          direction: 'out',
+        });
+        expect(neighbors.map((n) => n.id)).toContain('linked.md');
+      });
     });
 
     describe('deleteNode', () => {
@@ -423,25 +438,165 @@ Original content`
     });
   });
 
-  describe('Phase 5/6 stubs', () => {
-    it('getNeighbors throws not implemented', async () => {
-      await expect(
-        store.getNeighbors('any.md', { direction: 'out' })
-      ).rejects.toThrow(/not implemented/i);
+  describe('graph operations', () => {
+    /**
+     * Test graph:
+     *   a -> b -> c
+     *   a -> d
+     *   d -> c
+     */
+    beforeEach(async () => {
+      await writeMarkdownFile('a.md', '---\ntitle: A\n---\n[[b]] and [[d]]');
+      await writeMarkdownFile('b.md', '---\ntitle: B\n---\n[[c]]');
+      await writeMarkdownFile('c.md', '---\ntitle: C\n---\nNo links');
+      await writeMarkdownFile('d.md', '---\ntitle: D\n---\n[[c]]');
+      await store.sync();
     });
 
-    it('findPath throws not implemented', async () => {
-      await expect(store.findPath('a.md', 'b.md')).rejects.toThrow(
-        /not implemented/i
-      );
+    describe('getNeighbors', () => {
+      it('builds graph lazily if not synced', async () => {
+        // Create a fresh store without calling sync
+        const lazyStore = new DocStore(sourceDir, join(tempDir, 'lazy-cache'));
+        // Should not throw - builds graph on demand (empty graph)
+        const neighbors = await lazyStore.getNeighbors('missing.md', {
+          direction: 'out',
+        });
+        expect(neighbors).toEqual([]);
+        lazyStore.close();
+      });
+
+      it('returns outgoing neighbors', async () => {
+        const neighbors = await store.getNeighbors('a.md', { direction: 'out' });
+        expect(neighbors.map((n) => n.id).sort()).toEqual(['b.md', 'd.md']);
+      });
+
+      it('returns incoming neighbors', async () => {
+        const neighbors = await store.getNeighbors('c.md', { direction: 'in' });
+        expect(neighbors.map((n) => n.id).sort()).toEqual(['b.md', 'd.md']);
+      });
+
+      it('returns both directions', async () => {
+        const neighbors = await store.getNeighbors('b.md', {
+          direction: 'both',
+        });
+        expect(neighbors.map((n) => n.id).sort()).toEqual(['a.md', 'c.md']);
+      });
+
+      it('respects limit', async () => {
+        const neighbors = await store.getNeighbors('a.md', {
+          direction: 'out',
+          limit: 1,
+        });
+        expect(neighbors).toHaveLength(1);
+      });
+
+      it('returns empty array for node with no neighbors', async () => {
+        const neighbors = await store.getNeighbors('c.md', { direction: 'out' });
+        expect(neighbors).toEqual([]);
+      });
+
+      it('returns empty array for non-existent node', async () => {
+        const neighbors = await store.getNeighbors('missing.md', {
+          direction: 'out',
+        });
+        expect(neighbors).toEqual([]);
+      });
     });
 
-    it('getHubs throws not implemented', async () => {
-      await expect(store.getHubs('pagerank', 10)).rejects.toThrow(
-        /not implemented/i
-      );
+    describe('findPath', () => {
+      it('returns path between connected nodes', async () => {
+        const path = await store.findPath('a.md', 'c.md');
+        expect(path).not.toBeNull();
+        expect(path?.[0]).toBe('a.md');
+        expect(path?.[path.length - 1]).toBe('c.md');
+      });
+
+      it('returns shortest path', async () => {
+        // a -> b -> c (length 3) or a -> d -> c (length 3)
+        const path = await store.findPath('a.md', 'c.md');
+        expect(path).toHaveLength(3);
+      });
+
+      it('returns null when no path exists', async () => {
+        const path = await store.findPath('c.md', 'a.md');
+        expect(path).toBeNull();
+      });
+
+      it('returns single node for same source and target', async () => {
+        const path = await store.findPath('a.md', 'a.md');
+        expect(path).toEqual(['a.md']);
+      });
+
+      it('returns null for non-existent source', async () => {
+        const path = await store.findPath('missing.md', 'a.md');
+        expect(path).toBeNull();
+      });
+
+      it('returns null for non-existent target', async () => {
+        const path = await store.findPath('a.md', 'missing.md');
+        expect(path).toBeNull();
+      });
     });
 
+    describe('getHubs', () => {
+      it('returns top nodes by in_degree', async () => {
+        const hubs = await store.getHubs('in_degree', 2);
+        expect(hubs[0]).toEqual(['c.md', 2]);
+      });
+
+      it('returns top nodes by out_degree', async () => {
+        const hubs = await store.getHubs('out_degree', 1);
+        expect(hubs[0]).toEqual(['a.md', 2]);
+      });
+
+      it('respects limit', async () => {
+        const hubs = await store.getHubs('in_degree', 2);
+        expect(hubs).toHaveLength(2);
+      });
+
+      it('returns empty for empty store', async () => {
+        const emptyStore = new DocStore(
+          join(tempDir, 'empty-source'),
+          join(tempDir, 'empty-cache')
+        );
+        await mkdir(join(tempDir, 'empty-source'), { recursive: true });
+        await emptyStore.sync();
+
+        const hubs = await emptyStore.getHubs('in_degree', 10);
+        expect(hubs).toEqual([]);
+
+        emptyStore.close();
+      });
+
+      it('handles non-existent source directory gracefully', async () => {
+        const missingStore = new DocStore(
+          join(tempDir, 'does-not-exist'),
+          join(tempDir, 'missing-cache')
+        );
+        // sync() should not throw when source directory doesn't exist
+        await missingStore.sync();
+
+        const hubs = await missingStore.getHubs('in_degree', 10);
+        expect(hubs).toEqual([]);
+
+        missingStore.close();
+      });
+    });
+
+    describe('centrality caching', () => {
+      it('stores centrality after sync', async () => {
+        // Centrality should have been computed during sync
+        // Access cache to verify (via internal method or check via getHubs consistency)
+        const hubs = await store.getHubs('in_degree', 10);
+
+        // c has in_degree 2, b has 1, d has 1, a has 0
+        expect(hubs.find((h) => h[0] === 'c.md')?.[1]).toBe(2);
+        expect(hubs.find((h) => h[0] === 'a.md')?.[1]).toBe(0);
+      });
+    });
+  });
+
+  describe('Phase 6 stubs', () => {
     it('storeEmbedding throws not implemented', async () => {
       await expect(
         store.storeEmbedding('id', [1, 2, 3], 'model')

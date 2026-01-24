@@ -47,6 +47,9 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
+    "graphology": "^0.26.0",
+    "graphology-shortest-path": "^2.1.0",
+    "graphology-types": "^0.24.8",
     "gray-matter": "^4.0.3"
   }
 }

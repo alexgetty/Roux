@@ -1,5 +1,6 @@
 import { readFile, writeFile, stat, readdir, mkdir, rm } from 'node:fs/promises';
 import { join, relative, dirname } from 'node:path';
+import type { DirectedGraph } from 'graphology';
 import type { Node } from '../../types/node.js';
 import type {
   StoreProvider,
@@ -16,10 +17,18 @@ import {
   titleFromPath,
   serializeToMarkdown,
 } from './parser.js';
+import { buildGraph } from '../../graph/builder.js';
+import {
+  getNeighborIds,
+  findPath as graphFindPath,
+  getHubs as graphGetHubs,
+  computeCentrality,
+} from '../../graph/operations.js';
 
 export class DocStore implements StoreProvider {
   private cache: Cache;
   private sourceRoot: string;
+  private graph: DirectedGraph | null = null;
 
   constructor(sourceRoot: string, cacheDir: string) {
     this.sourceRoot = sourceRoot;
@@ -51,6 +60,9 @@ export class DocStore implements StoreProvider {
         }
       }
     }
+
+    // Rebuild graph from all nodes
+    this.rebuildGraph();
   }
 
   async createNode(node: Node): Promise<void> {
@@ -74,6 +86,9 @@ export class DocStore implements StoreProvider {
 
     const mtime = await this.getFileMtime(filePath);
     this.cache.upsertNode(node, 'file', filePath, mtime);
+
+    // Rebuild graph to include new node
+    this.rebuildGraph();
   }
 
   async updateNode(id: string, updates: Partial<Node>): Promise<void> {
@@ -100,6 +115,11 @@ export class DocStore implements StoreProvider {
 
     const mtime = await this.getFileMtime(filePath);
     this.cache.upsertNode(updated, 'file', filePath, mtime);
+
+    // Rebuild graph if links changed
+    if (updates.outgoingLinks !== undefined) {
+      this.rebuildGraph();
+    }
   }
 
   async deleteNode(id: string): Promise<void> {
@@ -111,6 +131,9 @@ export class DocStore implements StoreProvider {
     const filePath = join(this.sourceRoot, id);
     await rm(filePath);
     this.cache.deleteNode(id);
+
+    // Rebuild graph without deleted node
+    this.rebuildGraph();
   }
 
   async getNode(id: string): Promise<Node | null> {
@@ -137,20 +160,20 @@ export class DocStore implements StoreProvider {
     return this.cache.resolveTitles(ids);
   }
 
-  // Phase 5/6 stubs
-  async getNeighbors(_id: string, _options: NeighborOptions): Promise<Node[]> {
-    throw new Error('Not implemented: getNeighbors is Phase 5');
+  async getNeighbors(id: string, options: NeighborOptions): Promise<Node[]> {
+    this.ensureGraph();
+    const neighborIds = getNeighborIds(this.graph!, id, options);
+    return this.cache.getNodes(neighborIds);
   }
 
-  async findPath(_source: string, _target: string): Promise<string[] | null> {
-    throw new Error('Not implemented: findPath is Phase 5');
+  async findPath(source: string, target: string): Promise<string[] | null> {
+    this.ensureGraph();
+    return graphFindPath(this.graph!, source, target);
   }
 
-  async getHubs(
-    _metric: Metric,
-    _limit: number
-  ): Promise<Array<[string, number]>> {
-    throw new Error('Not implemented: getHubs is Phase 5');
+  async getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>> {
+    this.ensureGraph();
+    return graphGetHubs(this.graph!, metric, limit);
   }
 
   async storeEmbedding(
@@ -172,9 +195,34 @@ export class DocStore implements StoreProvider {
     this.cache.close();
   }
 
+  private ensureGraph(): void {
+    if (!this.graph) {
+      this.rebuildGraph();
+    }
+  }
+
+  private rebuildGraph(): void {
+    const nodes = this.cache.getAllNodes();
+    this.graph = buildGraph(nodes);
+
+    // Cache centrality metrics
+    const centrality = computeCentrality(this.graph);
+    const now = Date.now();
+    for (const [id, metrics] of centrality) {
+      this.cache.storeCentrality(id, 0, metrics.inDegree, metrics.outDegree, now);
+    }
+  }
+
   private async collectMarkdownFiles(dir: string): Promise<string[]> {
     const results: string[] = [];
-    const entries = await readdir(dir, { withFileTypes: true });
+
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      // Directory doesn't exist yet
+      return results;
+    }
 
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);

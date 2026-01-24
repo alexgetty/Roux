@@ -13,6 +13,7 @@ export type {
   LinkInfo,
   Metric,
   TagMode,
+  CentralityMetrics,
 } from './provider.js';
 
 // GraphCore types

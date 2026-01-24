@@ -3,6 +3,11 @@ import type { Direction, NeighborOptions } from './edge.js';
 
 export type Metric = 'pagerank' | 'in_degree' | 'out_degree';
 
+export interface CentralityMetrics {
+  inDegree: number;
+  outDegree: number;
+}
+
 export type TagMode = 'any' | 'all';
 
 export interface VectorSearchResult {
