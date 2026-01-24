@@ -1010,6 +1010,114 @@ No links yet`
     });
   });
 
+  describe('wiki-link resolution', () => {
+    it('resolves bare filename to full path', async () => {
+      await writeMarkdownFile('folder/target.md', '---\ntitle: Target\n---\nContent');
+      await writeMarkdownFile('source.md', 'Link to [[target]]');
+
+      await store.sync();
+      const node = await store.getNode('source.md');
+
+      expect(node?.outgoingLinks).toContain('folder/target.md');
+    });
+
+    it('handles case-insensitive matching', async () => {
+      await writeMarkdownFile('Items/Lemon.md', '---\ntitle: Lemon\n---\nCitrus fruit');
+      await writeMarkdownFile('recipe.md', 'Uses [[LEMON]] for flavor');
+
+      await store.sync();
+      const node = await store.getNode('recipe.md');
+
+      expect(node?.outgoingLinks).toContain('items/lemon.md');
+    });
+
+    it('resolves aliased links', async () => {
+      await writeMarkdownFile('people/john.md', '---\ntitle: John\n---\nA person');
+      await writeMarkdownFile('note.md', 'Written by [[john|John Smith]]');
+
+      await store.sync();
+      const node = await store.getNode('note.md');
+
+      expect(node?.outgoingLinks).toContain('people/john.md');
+    });
+
+    it('leaves unresolvable links as-is', async () => {
+      await writeMarkdownFile('source.md', 'Link to [[nonexistent]]');
+
+      await store.sync();
+      const node = await store.getNode('source.md');
+
+      expect(node?.outgoingLinks).toContain('nonexistent.md');
+    });
+
+    it('picks alphabetically first match for ambiguous filenames', async () => {
+      await writeMarkdownFile('a/item.md', '---\ntitle: Item A\n---\nA');
+      await writeMarkdownFile('b/item.md', '---\ntitle: Item B\n---\nB');
+      await writeMarkdownFile('ref.md', 'See [[item]]');
+
+      await store.sync();
+      const node = await store.getNode('ref.md');
+
+      expect(node?.outgoingLinks).toContain('a/item.md');
+      expect(node?.outgoingLinks).not.toContain('b/item.md');
+    });
+
+    it('treats partial path links literally (no suffix matching)', async () => {
+      await writeMarkdownFile('deep/folder/target.md', '---\ntitle: Target\n---\nContent');
+      await writeMarkdownFile('source.md', 'Link to [[folder/target]]');
+
+      await store.sync();
+      const node = await store.getNode('source.md');
+
+      // Should NOT resolve to deep/folder/target.md — partial paths stay literal
+      expect(node?.outgoingLinks).toContain('folder/target.md');
+      expect(node?.outgoingLinks).not.toContain('deep/folder/target.md');
+    });
+
+    it('resolves self-links', async () => {
+      await writeMarkdownFile('note.md', 'Reference to [[note]] itself');
+
+      await store.sync();
+      const node = await store.getNode('note.md');
+
+      expect(node?.outgoingLinks).toContain('note.md');
+    });
+
+    it('leaves already-resolved links unchanged', async () => {
+      await writeMarkdownFile('folder/target.md', '---\ntitle: Target\n---\nContent');
+      await writeMarkdownFile('source.md', 'Link to [[folder/target]]');
+
+      await store.sync();
+      const node = await store.getNode('source.md');
+
+      expect(node?.outgoingLinks).toContain('folder/target.md');
+    });
+
+    it('resolves multiple links independently', async () => {
+      await writeMarkdownFile('docs/a.md', '---\ntitle: A\n---\nA');
+      await writeMarkdownFile('notes/b.md', '---\ntitle: B\n---\nB');
+      await writeMarkdownFile('source.md', 'Links: [[a]] and [[b]]');
+
+      await store.sync();
+      const node = await store.getNode('source.md');
+
+      expect(node?.outgoingLinks).toContain('docs/a.md');
+      expect(node?.outgoingLinks).toContain('notes/b.md');
+    });
+
+    it('forms graph edges after resolution', async () => {
+      await writeMarkdownFile('graph/ingredients/lemon.md', '---\ntitle: Lemon\n---\nCitrus');
+      await writeMarkdownFile('recipes/lemonade.md', 'Needs [[lemon]]');
+
+      await store.sync();
+
+      const neighbors = await store.getNeighbors('recipes/lemonade.md', {
+        direction: 'out',
+      });
+      expect(neighbors.map((n) => n.id)).toContain('graph/ingredients/lemon.md');
+    });
+  });
+
   describe('getRandomNode', () => {
     it('returns null for empty store', async () => {
       const result = await store.getRandomNode();

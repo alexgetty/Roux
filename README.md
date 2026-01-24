@@ -33,7 +33,7 @@ Roux turns a folder of interconnected markdown files into a queryable knowledge 
 ## CLI Commands
 
 ```bash
-roux init [directory]     # Initialize Roux (creates roux.yaml and .roux/)
+roux init [directory]     # Initialize Roux (creates roux.yaml, .roux/, .mcp.json)
 roux serve [directory]    # Start MCP server with file watching
 roux serve --no-watch     # Start without watching for file changes
 roux status [directory]   # Show node/edge/embedding counts
@@ -72,17 +72,15 @@ Embeddings use local transformers.js by default. No external services required.
 
 ## Claude Code Integration
 
-Add to your Claude Code MCP config:
+`roux init` automatically creates `.mcp.json` in your project directory. Claude Code will prompt you to approve the MCP server on first use.
 
-```json
-{
-  "mcpServers": {
-    "roux": {
-      "command": "roux",
-      "args": ["serve", "/path/to/your/notes"]
-    }
-  }
-}
+No manual configuration needed — just:
+
+```bash
+cd ~/my-notes
+roux init
+# Open the directory in Claude Code
+# Claude will detect .mcp.json and offer to enable the roux server
 ```
 
 Then ask Claude things like:

@@ -226,6 +226,12 @@ export class Cache {
     return result;
   }
 
+  updateOutgoingLinks(nodeId: string, links: string[]): void {
+    this.db
+      .prepare('UPDATE nodes SET outgoing_links = ? WHERE id = ?')
+      .run(JSON.stringify(links), nodeId);
+  }
+
   storeEmbedding(nodeId: string, vector: number[], model: string): void {
     const buffer = Buffer.from(new Float32Array(vector).buffer);
     this.db

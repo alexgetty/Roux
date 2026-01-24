@@ -682,6 +682,27 @@ describe('DocStore File Watcher', () => {
       );
     });
 
+    it('resolves wiki-links for files added via watcher', async () => {
+      // Setup: nested target exists
+      await writeMarkdownFile('folder/target.md', '---\ntitle: Target\n---\nContent');
+      await store.sync();
+
+      store.startWatching();
+
+      // Add source file with bare wiki-link
+      await writeMarkdownFile('source.md', 'Link to [[target]]');
+      triggerEvent('add', join(sourceDir, 'source.md'));
+
+      await vi.waitFor(
+        async () => {
+          const node = await store.getNode('source.md');
+          // Should resolve to full path, not stay as 'target.md'
+          expect(node?.outgoingLinks).toContain('folder/target.md');
+        },
+        { timeout: 2000 }
+      );
+    });
+
     it('deletes embedding from vector store on unlink', async () => {
       // Track whether embedding exists via stateful mock
       const embeddingState = new Map<string, boolean>();

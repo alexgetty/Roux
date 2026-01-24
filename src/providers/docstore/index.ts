@@ -85,6 +85,10 @@ export class DocStore implements StoreProvider {
       }
     }
 
+    // Resolve wiki-links after all nodes are cached
+    const filenameIndex = this.buildFilenameIndex();
+    this.resolveOutgoingLinks(filenameIndex);
+
     // Rebuild graph from all nodes
     this.rebuildGraph();
   }
@@ -375,14 +379,66 @@ export class DocStore implements StoreProvider {
       }
     }
 
-    // Rebuild graph after processing all changes
+    // Resolve wiki-links and rebuild graph after processing all changes
     if (processedIds.length > 0) {
+      const filenameIndex = this.buildFilenameIndex();
+      this.resolveOutgoingLinks(filenameIndex);
       this.rebuildGraph();
     }
 
     // Call callback if provided
     if (this.onChangeCallback && processedIds.length > 0) {
       this.onChangeCallback(processedIds);
+    }
+  }
+
+  private buildFilenameIndex(): Map<string, string[]> {
+    const index = new Map<string, string[]>();
+    for (const node of this.cache.getAllNodes()) {
+      const basename = node.id.split('/').pop()!;
+      const existing = index.get(basename) ?? [];
+      existing.push(node.id);
+      index.set(basename, existing);
+    }
+    // Sort each array alphabetically for deterministic first-match
+    for (const paths of index.values()) {
+      paths.sort();
+    }
+    return index;
+  }
+
+  private resolveOutgoingLinks(filenameIndex: Map<string, string[]>): void {
+    // Build set of valid node IDs for quick lookup
+    const validNodeIds = new Set<string>();
+    for (const paths of filenameIndex.values()) {
+      for (const path of paths) {
+        validNodeIds.add(path);
+      }
+    }
+
+    for (const node of this.cache.getAllNodes()) {
+      const resolved = node.outgoingLinks.map((link) => {
+        // If link already exists as a valid node ID, keep it
+        if (validNodeIds.has(link)) {
+          return link;
+        }
+        // Only resolve bare filenames (no path separators)
+        // Partial paths like "folder/target.md" stay literal
+        if (link.includes('/')) {
+          return link;
+        }
+        // Try basename lookup for bare filenames
+        const matches = filenameIndex.get(link);
+        if (matches && matches.length > 0) {
+          return matches[0]!;
+        }
+        return link;
+      });
+
+      // Only update if something changed
+      if (resolved.some((r, i) => r !== node.outgoingLinks[i])) {
+        this.cache.updateOutgoingLinks(node.id, resolved);
+      }
     }
   }
 
