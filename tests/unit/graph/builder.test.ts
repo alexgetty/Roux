@@ -84,4 +84,36 @@ describe('buildGraph', () => {
 
     expect(graph.size).toBe(1);
   });
+
+  it('handles circular link structures without infinite loops', () => {
+    // A → B → C → A (cycle)
+    const nodes = [
+      createNode({ id: 'a.md', outgoingLinks: ['b.md'] }),
+      createNode({ id: 'b.md', outgoingLinks: ['c.md'] }),
+      createNode({ id: 'c.md', outgoingLinks: ['a.md'] }),
+    ];
+
+    const graph = buildGraph(nodes);
+
+    expect(graph.order).toBe(3);
+    expect(graph.size).toBe(3);
+    expect(graph.hasDirectedEdge('a.md', 'b.md')).toBe(true);
+    expect(graph.hasDirectedEdge('b.md', 'c.md')).toBe(true);
+    expect(graph.hasDirectedEdge('c.md', 'a.md')).toBe(true);
+  });
+
+  it('handles complex cycles with multiple entry points', () => {
+    // A → B → C → B (cycle) and A → D → C
+    const nodes = [
+      createNode({ id: 'a.md', outgoingLinks: ['b.md', 'd.md'] }),
+      createNode({ id: 'b.md', outgoingLinks: ['c.md'] }),
+      createNode({ id: 'c.md', outgoingLinks: ['b.md'] }),
+      createNode({ id: 'd.md', outgoingLinks: ['c.md'] }),
+    ];
+
+    const graph = buildGraph(nodes);
+
+    expect(graph.order).toBe(4);
+    expect(graph.size).toBe(5);
+  });
 });

@@ -94,6 +94,36 @@ Content only`
       expect(node?.outgoingLinks).toContain('folder/deep note.md');
     });
 
+    it('adds .md to links with dots in filename (not extensions)', async () => {
+      await writeMarkdownFile(
+        'dated.md',
+        `Links: [[archive.2024]] and [[meeting.notes.draft]]`
+      );
+
+      await store.sync();
+      const node = await store.getNode('dated.md');
+
+      // Dots in middle of filename should not be treated as extension
+      expect(node?.outgoingLinks).toContain('archive.2024.md');
+      expect(node?.outgoingLinks).toContain('meeting.notes.draft.md');
+    });
+
+    it('does not add .md to links that already have file extension', async () => {
+      await writeMarkdownFile(
+        'explicit.md',
+        `Links: [[file.md]] and [[doc.txt]] and [[image.png]]`
+      );
+
+      await store.sync();
+      const node = await store.getNode('explicit.md');
+
+      expect(node?.outgoingLinks).toContain('file.md');
+      expect(node?.outgoingLinks).toContain('doc.txt');
+      expect(node?.outgoingLinks).toContain('image.png');
+      // Should NOT have double extensions
+      expect(node?.outgoingLinks).not.toContain('file.md.md');
+    });
+
     it('handles files without frontmatter', async () => {
       await writeMarkdownFile('plain.md', '# Just Markdown\n\nNo frontmatter.');
 
@@ -607,6 +637,157 @@ Original content`
       await expect(store.searchByVector([1, 2, 3], 10)).rejects.toThrow(
         /not implemented/i
       );
+    });
+  });
+
+  describe('security', () => {
+    it('rejects path traversal in createNode', async () => {
+      const maliciousNode: Node = {
+        id: '../../../etc/passwd.md',
+        title: 'Malicious',
+        content: 'evil content',
+        tags: [],
+        outgoingLinks: [],
+        properties: {},
+      };
+
+      await expect(store.createNode(maliciousNode)).rejects.toThrow(
+        /outside.*source/i
+      );
+    });
+
+    it('rejects path traversal with encoded sequences', async () => {
+      const node: Node = {
+        id: 'folder/../../escape.md',
+        title: 'Escape',
+        content: '',
+        tags: [],
+        outgoingLinks: [],
+        properties: {},
+      };
+
+      await expect(store.createNode(node)).rejects.toThrow(/outside.*source/i);
+    });
+  });
+
+  describe('case sensitivity consistency', () => {
+    beforeEach(async () => {
+      await writeMarkdownFile(
+        'CamelCase.md',
+        `---
+title: Original
+---
+Content`
+      );
+      await store.sync();
+    });
+
+    it('updateNode works with different case than stored', async () => {
+      await store.updateNode('camelcase.md', { title: 'Updated' });
+      const node = await store.getNode('camelcase.md');
+      expect(node?.title).toBe('Updated');
+    });
+
+    it('updateNode works with original case', async () => {
+      await store.updateNode('CamelCase.md', { title: 'Updated' });
+      const node = await store.getNode('camelcase.md');
+      expect(node?.title).toBe('Updated');
+    });
+
+    it('deleteNode works with different case than stored', async () => {
+      await store.deleteNode('CAMELCASE.md');
+      const node = await store.getNode('camelcase.md');
+      expect(node).toBeNull();
+    });
+  });
+
+  describe('content link reparsing', () => {
+    beforeEach(async () => {
+      await writeMarkdownFile(
+        'source.md',
+        `---
+title: Source
+---
+No links yet`
+      );
+      await writeMarkdownFile('target.md', '---\ntitle: Target\n---\nContent');
+      await store.sync();
+    });
+
+    it('updates outgoingLinks when content changes', async () => {
+      const before = await store.getNode('source.md');
+      expect(before?.outgoingLinks).toEqual([]);
+
+      await store.updateNode('source.md', {
+        content: 'Now has [[target]] link',
+      });
+
+      const after = await store.getNode('source.md');
+      expect(after?.outgoingLinks).toContain('target.md');
+    });
+
+    it('rebuilds graph when content adds new links', async () => {
+      await store.updateNode('source.md', {
+        content: 'Link to [[target]]',
+      });
+
+      const neighbors = await store.getNeighbors('source.md', {
+        direction: 'out',
+      });
+      expect(neighbors.map((n) => n.id)).toContain('target.md');
+    });
+  });
+
+  describe('exclude directories', () => {
+    it('excludes .roux directory from sync', async () => {
+      await writeMarkdownFile('visible.md', '# Visible');
+      await writeMarkdownFile('.roux/hidden.md', '# Hidden');
+      await writeMarkdownFile('.roux/cache/deep.md', '# Deep Hidden');
+
+      await store.sync();
+      const ids = await store.getAllNodeIds();
+
+      expect(ids).toContain('visible.md');
+      expect(ids).not.toContain('.roux/hidden.md');
+      expect(ids).not.toContain('.roux/cache/deep.md');
+    });
+  });
+
+  describe('concurrent operations', () => {
+    it('handles concurrent sync calls without corruption', async () => {
+      await writeMarkdownFile('a.md', '# A');
+      await writeMarkdownFile('b.md', '# B');
+      await writeMarkdownFile('c.md', '# C');
+
+      // Call sync twice simultaneously
+      await Promise.all([store.sync(), store.sync()]);
+
+      const ids = await store.getAllNodeIds();
+      expect(ids.sort()).toEqual(['a.md', 'b.md', 'c.md']);
+    });
+  });
+
+  describe('unicode filenames', () => {
+    it('indexes files with unicode names', async () => {
+      await writeMarkdownFile('日本語.md', '# Japanese');
+      await writeMarkdownFile('émoji-🎉.md', '# Emoji');
+
+      await store.sync();
+
+      const japanese = await store.getNode('日本語.md');
+      const emoji = await store.getNode('émoji-🎉.md');
+
+      expect(japanese).not.toBeNull();
+      expect(emoji).not.toBeNull();
+    });
+
+    it('normalizes unicode filenames consistently', async () => {
+      await writeMarkdownFile('Über.md', '# Umlaut');
+      await store.sync();
+
+      // Should be lowercased
+      const node = await store.getNode('über.md');
+      expect(node).not.toBeNull();
     });
   });
 });

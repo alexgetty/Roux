@@ -1,5 +1,5 @@
 import { readFile, writeFile, stat, readdir, mkdir, rm } from 'node:fs/promises';
-import { join, relative, dirname } from 'node:path';
+import { join, relative, dirname, resolve } from 'node:path';
 import type { DirectedGraph } from 'graphology';
 import type { Node } from '../../types/node.js';
 import type {
@@ -66,12 +66,15 @@ export class DocStore implements StoreProvider {
   }
 
   async createNode(node: Node): Promise<void> {
-    const existing = this.cache.getNode(node.id);
+    const normalizedId = normalizeId(node.id);
+    this.validatePathWithinSource(normalizedId);
+
+    const existing = this.cache.getNode(normalizedId);
     if (existing) {
-      throw new Error(`Node already exists: ${node.id}`);
+      throw new Error(`Node already exists: ${normalizedId}`);
     }
 
-    const filePath = join(this.sourceRoot, node.id);
+    const filePath = join(this.sourceRoot, normalizedId);
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true });
 
@@ -85,25 +88,35 @@ export class DocStore implements StoreProvider {
     await writeFile(filePath, markdown, 'utf-8');
 
     const mtime = await this.getFileMtime(filePath);
-    this.cache.upsertNode(node, 'file', filePath, mtime);
+    const normalizedNode = { ...node, id: normalizedId };
+    this.cache.upsertNode(normalizedNode, 'file', filePath, mtime);
 
     // Rebuild graph to include new node
     this.rebuildGraph();
   }
 
   async updateNode(id: string, updates: Partial<Node>): Promise<void> {
-    const existing = this.cache.getNode(id);
+    const normalizedId = normalizeId(id);
+    const existing = this.cache.getNode(normalizedId);
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
+    }
+
+    // If content is updated, reparse wiki-links
+    let outgoingLinks = updates.outgoingLinks;
+    if (updates.content !== undefined && outgoingLinks === undefined) {
+      const rawLinks = extractWikiLinks(updates.content);
+      outgoingLinks = rawLinks.map((link) => this.normalizeWikiLink(link));
     }
 
     const updated: Node = {
       ...existing,
       ...updates,
+      outgoingLinks: outgoingLinks ?? existing.outgoingLinks,
       id: existing.id, // ID cannot be changed
     };
 
-    const filePath = join(this.sourceRoot, id);
+    const filePath = join(this.sourceRoot, existing.id);
     const parsed = {
       title: updated.title,
       tags: updated.tags,
@@ -117,20 +130,21 @@ export class DocStore implements StoreProvider {
     this.cache.upsertNode(updated, 'file', filePath, mtime);
 
     // Rebuild graph if links changed
-    if (updates.outgoingLinks !== undefined) {
+    if (outgoingLinks !== undefined || updates.outgoingLinks !== undefined) {
       this.rebuildGraph();
     }
   }
 
   async deleteNode(id: string): Promise<void> {
-    const existing = this.cache.getNode(id);
+    const normalizedId = normalizeId(id);
+    const existing = this.cache.getNode(normalizedId);
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
 
-    const filePath = join(this.sourceRoot, id);
+    const filePath = join(this.sourceRoot, existing.id);
     await rm(filePath);
-    this.cache.deleteNode(id);
+    this.cache.deleteNode(existing.id);
 
     // Rebuild graph without deleted node
     this.rebuildGraph();
@@ -213,6 +227,8 @@ export class DocStore implements StoreProvider {
     }
   }
 
+  private static readonly EXCLUDED_DIRS = new Set(['.roux', 'node_modules', '.git']);
+
   private async collectMarkdownFiles(dir: string): Promise<string[]> {
     const results: string[] = [];
 
@@ -228,6 +244,10 @@ export class DocStore implements StoreProvider {
       const fullPath = join(dir, entry.name);
 
       if (entry.isDirectory()) {
+        // Skip excluded directories
+        if (DocStore.EXCLUDED_DIRS.has(entry.name)) {
+          continue;
+        }
         const nested = await this.collectMarkdownFiles(fullPath);
         results.push(...nested);
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
@@ -274,19 +294,38 @@ export class DocStore implements StoreProvider {
 
   /**
    * Normalize a wiki-link target to an ID.
-   * - If it has an extension, normalize as-is
+   * - If it has a file extension, normalize as-is
    * - If no extension, add .md
    * - Lowercase, forward slashes
    */
   private normalizeWikiLink(target: string): string {
     let normalized = target.toLowerCase().replace(/\\/g, '/');
 
-    // Add .md if no extension present
-    if (!normalized.includes('.')) {
+    // Add .md if no file extension present
+    // File extension = dot followed by 1-4 alphanumeric chars at end
+    if (!this.hasFileExtension(normalized)) {
       normalized += '.md';
     }
 
     return normalized;
+  }
+
+  private hasFileExtension(path: string): boolean {
+    // Match common file extensions: .md, .txt, .png, .json, etc.
+    // Extension must contain at least one letter (to exclude .2024, .123, etc.)
+    const match = path.match(/\.([a-z0-9]{1,4})$/i);
+    if (!match) return false;
+    // Require at least one letter in the extension
+    return /[a-z]/i.test(match[1]);
+  }
+
+  private validatePathWithinSource(id: string): void {
+    const resolvedPath = resolve(this.sourceRoot, id);
+    const resolvedRoot = resolve(this.sourceRoot);
+
+    if (!resolvedPath.startsWith(resolvedRoot + '/')) {
+      throw new Error(`Path traversal detected: ${id} resolves outside source root`);
+    }
   }
 }
 
