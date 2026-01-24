@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DocStore } from '../../../src/providers/docstore/index.js';
 import type { Node } from '../../../src/types/node.js';
+import type { VectorProvider, VectorSearchResult } from '../../../src/types/provider.js';
 
 describe('DocStore', () => {
   let tempDir: string;
@@ -375,6 +376,60 @@ Original content`
           /not found/i
         );
       });
+
+      it('delegates to VectorProvider.delete', async () => {
+        const mockVector: VectorProvider = {
+          store: vi.fn().mockResolvedValue(undefined),
+          search: vi.fn().mockResolvedValue([]),
+          delete: vi.fn().mockResolvedValue(undefined),
+          getModel: vi.fn().mockResolvedValue(null),
+        };
+
+        const customStore = new DocStore(sourceDir, cacheDir, mockVector);
+        await writeMarkdownFile('to-delete.md', '# Will be deleted');
+        await customStore.sync();
+
+        await customStore.deleteNode('to-delete.md');
+
+        expect(mockVector.delete).toHaveBeenCalledWith('to-delete.md');
+        customStore.close();
+      });
+
+      it('deleteNode removes file from disk AND embedding from vector store', async () => {
+        // Uses real SqliteVectorProvider (default), not mock
+        const node: Node = {
+          id: 'to-delete.md',
+          title: 'To Delete',
+          content: 'This will be deleted',
+          tags: [],
+          outgoingLinks: [],
+          properties: {},
+        };
+
+        await store.createNode(node);
+
+        // Store embedding
+        const vector = [0.1, 0.2, 0.3, 0.4, 0.5];
+        await store.storeEmbedding('to-delete.md', vector, 'test-model');
+
+        // Verify file exists
+        const filePath = join(sourceDir, 'to-delete.md');
+        await expect(readFile(filePath, 'utf-8')).resolves.toBeDefined();
+
+        // Verify embedding exists (search should find it)
+        const beforeResults = await store.searchByVector(vector, 10);
+        expect(beforeResults.some((r) => r.id === 'to-delete.md')).toBe(true);
+
+        // Delete
+        await store.deleteNode('to-delete.md');
+
+        // Verify file gone
+        await expect(readFile(filePath, 'utf-8')).rejects.toThrow();
+
+        // Verify embedding gone
+        const afterResults = await store.searchByVector(vector, 10);
+        expect(afterResults.some((r) => r.id === 'to-delete.md')).toBe(false);
+      });
     });
 
     describe('getNode', () => {
@@ -626,17 +681,80 @@ Original content`
     });
   });
 
-  describe('Phase 6 stubs', () => {
-    it('storeEmbedding throws not implemented', async () => {
-      await expect(
-        store.storeEmbedding('id', [1, 2, 3], 'model')
-      ).rejects.toThrow(/not implemented/i);
+  describe('VectorProvider delegation', () => {
+    it('creates default SqliteVectorProvider if none injected', async () => {
+      // Default store uses SqliteVectorProvider internally
+      // Verify by performing vector operations without error
+      await store.storeEmbedding('test.md', [0.1, 0.2, 0.3], 'test-model');
+      const results = await store.searchByVector([0.1, 0.2, 0.3], 10);
+      expect(results).toHaveLength(1);
+      expect(results[0]!.id).toBe('test.md');
     });
 
-    it('searchByVector throws not implemented', async () => {
-      await expect(store.searchByVector([1, 2, 3], 10)).rejects.toThrow(
-        /not implemented/i
+    it('accepts injected VectorProvider', async () => {
+      const mockVectorProvider: VectorProvider = {
+        store: vi.fn().mockResolvedValue(undefined),
+        search: vi.fn().mockResolvedValue([]),
+        delete: vi.fn().mockResolvedValue(undefined),
+        getModel: vi.fn().mockResolvedValue(null),
+      };
+
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorProvider);
+
+      await customStore.storeEmbedding('doc.md', [1, 2, 3], 'custom-model');
+      expect(mockVectorProvider.store).toHaveBeenCalledWith(
+        'doc.md',
+        [1, 2, 3],
+        'custom-model'
       );
+
+      customStore.close();
+    });
+
+    it('storeEmbedding delegates to VectorProvider.store', async () => {
+      const mockVectorProvider: VectorProvider = {
+        store: vi.fn().mockResolvedValue(undefined),
+        search: vi.fn().mockResolvedValue([]),
+        delete: vi.fn().mockResolvedValue(undefined),
+        getModel: vi.fn().mockResolvedValue(null),
+      };
+
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorProvider);
+
+      await customStore.storeEmbedding('node-id', [0.5, 0.6, 0.7], 'embedding-model');
+
+      expect(mockVectorProvider.store).toHaveBeenCalledTimes(1);
+      expect(mockVectorProvider.store).toHaveBeenCalledWith(
+        'node-id',
+        [0.5, 0.6, 0.7],
+        'embedding-model'
+      );
+
+      customStore.close();
+    });
+
+    it('searchByVector delegates to VectorProvider.search', async () => {
+      const mockResults: VectorSearchResult[] = [
+        { id: 'a.md', distance: 0.1 },
+        { id: 'b.md', distance: 0.2 },
+      ];
+
+      const mockVectorProvider: VectorProvider = {
+        store: vi.fn().mockResolvedValue(undefined),
+        search: vi.fn().mockResolvedValue(mockResults),
+        delete: vi.fn().mockResolvedValue(undefined),
+        getModel: vi.fn().mockResolvedValue(null),
+      };
+
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorProvider);
+
+      const results = await customStore.searchByVector([0.1, 0.2], 5);
+
+      expect(mockVectorProvider.search).toHaveBeenCalledTimes(1);
+      expect(mockVectorProvider.search).toHaveBeenCalledWith([0.1, 0.2], 5);
+      expect(results).toEqual(mockResults);
+
+      customStore.close();
     });
   });
 

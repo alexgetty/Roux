@@ -380,7 +380,28 @@ describe('Cache', () => {
 
       const retrieved = cache.getEmbedding('a.md');
       expect(retrieved?.model).toBe('test-model');
-      expect(retrieved?.vector).toEqual(vector);
+      // Float32 has less precision than Float64, so we check approximate equality
+      expect(retrieved?.vector).toHaveLength(5);
+      retrieved?.vector.forEach((v, i) => {
+        expect(v).toBeCloseTo(vector[i]!, 5);
+      });
+    });
+
+    it('stores embeddings as Float32Array (4 bytes per element)', () => {
+      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);
+
+      const vector = [0.1, 0.2, 0.3, 0.4, 0.5];
+      cache.storeEmbedding('a.md', vector, 'test-model');
+
+      // Access the raw buffer to verify Float32 format (4 bytes per float)
+      // @ts-expect-error accessing private db for testing
+      const row = cache.db
+        .prepare('SELECT vector FROM embeddings WHERE node_id = ?')
+        .get('a.md') as { vector: Buffer };
+
+      // 5 floats * 4 bytes = 20 bytes for Float32
+      // Would be 40 bytes if Float64
+      expect(row.vector.length).toBe(20);
     });
 
     it('returns null for node without embedding', () => {

@@ -8,8 +8,10 @@ import type {
   Metric,
   TagMode,
   VectorSearchResult,
+  VectorProvider,
 } from '../../types/provider.js';
 import { Cache } from './cache.js';
+import { SqliteVectorProvider } from '../vector/sqlite.js';
 import {
   parseMarkdown,
   extractWikiLinks,
@@ -29,10 +31,16 @@ export class DocStore implements StoreProvider {
   private cache: Cache;
   private sourceRoot: string;
   private graph: DirectedGraph | null = null;
+  private vectorProvider: VectorProvider;
 
-  constructor(sourceRoot: string, cacheDir: string) {
+  constructor(
+    sourceRoot: string,
+    cacheDir: string,
+    vectorProvider?: VectorProvider
+  ) {
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
+    this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
   }
 
   async sync(): Promise<void> {
@@ -145,6 +153,7 @@ export class DocStore implements StoreProvider {
     const filePath = join(this.sourceRoot, existing.id);
     await rm(filePath);
     this.cache.deleteNode(existing.id);
+    await this.vectorProvider.delete(existing.id);
 
     // Rebuild graph without deleted node
     this.rebuildGraph();
@@ -191,18 +200,18 @@ export class DocStore implements StoreProvider {
   }
 
   async storeEmbedding(
-    _id: string,
-    _vector: number[],
-    _model: string
+    id: string,
+    vector: number[],
+    model: string
   ): Promise<void> {
-    throw new Error('Not implemented: storeEmbedding is Phase 6');
+    return this.vectorProvider.store(id, vector, model);
   }
 
   async searchByVector(
-    _vector: number[],
-    _limit: number
+    vector: number[],
+    limit: number
   ): Promise<VectorSearchResult[]> {
-    throw new Error('Not implemented: searchByVector is Phase 6');
+    return this.vectorProvider.search(vector, limit);
   }
 
   close(): void {

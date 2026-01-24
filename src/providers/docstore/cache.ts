@@ -227,7 +227,7 @@ export class Cache {
   }
 
   storeEmbedding(nodeId: string, vector: number[], model: string): void {
-    const buffer = Buffer.from(new Float64Array(vector).buffer);
+    const buffer = Buffer.from(new Float32Array(vector).buffer);
     this.db
       .prepare(
         `
@@ -248,14 +248,14 @@ export class Cache {
 
     if (!row) return null;
 
-    const float64 = new Float64Array(
+    const float32 = new Float32Array(
       row.vector.buffer,
       row.vector.byteOffset,
-      row.vector.length / 8
+      row.vector.length / 4
     );
     return {
       model: row.model,
-      vector: Array.from(float64),
+      vector: Array.from(float32),
     };
   }
 

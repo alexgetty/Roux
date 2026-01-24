@@ -58,5 +58,26 @@ export interface EmbeddingProvider {
   modelId(): string;
 }
 
+/** Pluggable vector storage and similarity search. */
+export interface VectorProvider {
+  store(id: string, vector: number[], model: string): Promise<void>;
+  search(vector: number[], limit: number): Promise<VectorSearchResult[]>;
+  delete(id: string): Promise<void>;
+  getModel(id: string): Promise<string | null>;
+}
+
+export function isVectorProvider(value: unknown): value is VectorProvider {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.store === 'function' &&
+    typeof obj.search === 'function' &&
+    typeof obj.delete === 'function' &&
+    typeof obj.getModel === 'function'
+  );
+}
+
 // Re-export for convenience
 export type { Direction, NeighborOptions };

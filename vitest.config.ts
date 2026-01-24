@@ -9,7 +9,8 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.ts'],
       // cli excluded until Phase 10 implementation
-      exclude: ['src/**/*.d.ts', 'src/cli/**/*.ts'],
+      // edge.ts and graphcore.ts are pure type definitions with no runtime code
+      exclude: ['src/**/*.d.ts', 'src/cli/**/*.ts', 'src/types/edge.ts', 'src/types/graphcore.ts'],
       thresholds: {
         lines: 100,
         branches: 100,

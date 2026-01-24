@@ -76,19 +76,30 @@ interface VectorStoreProvider {
 
 ## Decision
 
-**Option B: StoreProvider owns the `searchByVector()` interface** — with optional delegation to external VectorProvider (future).
+**Option B evolves to modular VectorProvider** — StoreProvider delegates vector operations to an injected VectorProvider. Default implementation uses SQLite brute-force. Swappable via config.
 
 ## Outcome
 
 ### Interface
 
-`searchByVector()` is part of the StoreProvider interface. This is the standardized contract that all stores implement:
+VectorProvider is a separate interface for vector storage and similarity search:
+
+```typescript
+interface VectorProvider {
+  store(id: string, vector: number[], model: string): Promise<void>;
+  search(vector: number[], limit: number): Promise<VectorSearchResult[]>;
+  delete(id: string): Promise<void>;
+  getModel(id: string): Promise<string | null>;
+}
+```
+
+StoreProvider delegates to VectorProvider but exposes convenience methods:
 
 ```typescript
 interface StoreProvider {
   // ... existing CRUD and graph ops ...
   storeEmbedding(id: string, vector: number[], model: string): Promise<void>;
-  searchByVector(vector: number[], limit: number): Promise<Array<{ id: string; distance: number }>>;
+  searchByVector(vector: number[], limit: number): Promise<VectorSearchResult[]>;
 }
 ```
 
@@ -96,29 +107,23 @@ EmbeddingProvider remains stateless (just `embed()` and `embedBatch()`).
 
 ### Implementation Strategy
 
-Each store implements `searchByVector()` using whatever mechanism is appropriate for that backend:
+VectorProvider is injected into stores. Each store can use a different VectorProvider:
 
-| Store | Vector Search Implementation |
-|-------|------------------------------|
-| DocStore | SQLite brute-force cosine similarity (MVP) |
-| Neo4jStore | Native Neo4j vector index |
-| SurrealDB | Native vector support |
-| FalkorDB | Native vector similarity |
-| SQLiteStore | sqlite-vec or brute-force |
+| VectorProvider | Implementation |
+|----------------|----------------|
+| SqliteVectorProvider | Brute-force cosine similarity (MVP default) |
+| PineconeVectorProvider | Pinecone cloud vector DB (future) |
+| Native store vectors | Neo4j/SurrealDB/FalkorDB can implement VectorProvider using native indexes (future) |
 
-Stores with native vector support use their optimized implementations. Stores without (or with limited support) use simpler approaches.
-
-### Future: VectorProvider Override
-
-Post-MVP, stores may support delegating `searchByVector()` to an external VectorProvider:
+### Configuration
 
 ```yaml
-# Default: DocStore uses built-in SQLite brute-force
+# Implicit: uses SqliteVectorProvider (default)
 providers:
   store:
     type: docstore
 
-# Override: DocStore delegates vector search to external provider
+# Explicit: swap in Pinecone
 providers:
   store:
     type: docstore
@@ -127,18 +132,18 @@ providers:
     apiKey: xxx
 ```
 
-When a VectorProvider is configured, stores that support delegation use it instead of their built-in implementation. This enables:
+When a VectorProvider is configured, stores use it instead of the default. This enables:
 - Scale mismatch scenarios (simple document store + industrial vector search)
 - Specialized optimization (purpose-built vector DBs outperform general-purpose stores)
 - Upgrade path (start with brute-force, add Pinecone later without changing document store)
 
-**This is not an MVP feature.** The architecture accommodates it without requiring interface changes later.
-
 ### MVP Scope
 
 For MVP:
-- DocStore implements `searchByVector()` with brute-force cosine similarity in SQLite
-- No VectorProvider override capability
+- `VectorProvider` interface defined
+- `SqliteVectorProvider` implements brute-force cosine similarity
+- DocStore delegates to injected VectorProvider (defaults to SqliteVectorProvider)
+- Vectors stored as Float32Array (matches model output, half the memory of Float64)
 - Sufficient for hundreds to low thousands of nodes
 
 ### Embedding Metadata
@@ -165,16 +170,17 @@ Manual override: `roux sync --full` forces complete re-embed regardless of setti
 
 ### Rationale
 
-- **Standardized interface:** `searchByVector()` on StoreProvider gives a consistent contract regardless of backend.
-- **Backend-appropriate implementation:** Each store uses its native capabilities. Neo4j uses native vectors. DocStore uses SQLite.
+- **Modular from day one:** VectorProvider is a separate concern from StoreProvider. Swap implementations via config.
+- **Same pattern as EmbeddingProvider:** `text → EmbeddingProvider → vector → VectorProvider → storage/search`. Consistent mental model.
 - **Stateless EmbeddingProvider:** Trivial to implement, test, swap. Just `text in → vector out`.
-- **Future flexibility:** VectorProvider override can be added without changing the interface. Two-way door.
-- **No premature complexity:** MVP ships with simple brute-force. Optimization comes when needed.
+- **Float32 efficiency:** Matches model output. Half the memory of Float64 with no practical precision loss for similarity search.
+- **No premature complexity:** MVP ships with simple brute-force. Pinecone can be added later with zero changes to DocStore.
 
 ## Related
 
 - [[Decisions]] — Decision hub
 - [[decisions/Search Ownership]] — Related decision
+- [[VectorProvider]] — Vector storage interface
 - [[EmbeddingProvider]] — Vector generation
 - [[StoreProvider]] — Data persistence
 - [[DocStore]] — MVP implementation

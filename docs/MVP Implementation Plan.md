@@ -130,21 +130,26 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 
 ---
 
-### Phase 6: Embedding Provider
-**Goal:** Local vector generation via transformers.js
+### Phase 6: Embedding & Vector Providers ✓
+**Goal:** Local vector generation via transformers.js + modular vector storage
 
 **Tasks:**
-- [ ] TransformersEmbeddingProvider implementation
-- [ ] Batch embedding support
-- [ ] Model ID tracking
-- [ ] Dimension reporting
-- [ ] Vector storage in DocStore (SQLite)
-- [ ] Brute-force similarity search
+- [x] VectorProvider interface in types
+- [x] Fix Cache to use Float32Array (not Float64)
+- [x] SqliteVectorProvider implementation (brute-force cosine similarity)
+- [x] TransformersEmbeddingProvider implementation
+- [x] Batch embedding support
+- [x] Model ID tracking
+- [x] Dimension reporting
+- [x] Update DocStore to inject VectorProvider
 
 **Key files:**
+- `src/types/provider.ts` (VectorProvider interface + type guard)
+- `src/providers/vector/sqlite.ts`
 - `src/providers/embedding/transformers.ts`
-- `src/providers/docstore/vectors.ts`
-- `tests/unit/embedding/`
+- `tests/unit/vector/sqlite.test.ts` (22 tests)
+- `tests/unit/embedding/transformers.test.ts` (14 tests)
+- `tests/unit/types/provider.test.ts` (14 tests)
 
 **Dependencies:** Phase 2 (interface), Phase 4 (storage)
 

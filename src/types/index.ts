@@ -9,12 +9,14 @@ export type { Edge, Direction, NeighborOptions } from './edge.js';
 export type {
   StoreProvider,
   EmbeddingProvider,
+  VectorProvider,
   VectorSearchResult,
   LinkInfo,
   Metric,
   TagMode,
   CentralityMetrics,
 } from './provider.js';
+export { isVectorProvider } from './provider.js';
 
 // GraphCore types
 export type { GraphCore, SearchOptions } from './graphcore.js';
