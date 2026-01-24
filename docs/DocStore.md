@@ -56,6 +56,20 @@ title: Research Notes
 ```
 This enables migration support: IDs from other stores can be preserved in frontmatter.
 
+## Filename Rules (Obsidian-compatible)
+
+When creating nodes, titles map to filenames:
+
+| Rule | Behavior |
+|------|----------|
+| **Slashes** | Path separator. `notes/Research` creates `notes/Research.md` in subdirectory. |
+| **Forbidden chars** | Stripped: `* " < > \| ? : \ [ ] # ^` |
+| **Leading dot** | Stripped. No hidden files. |
+| **Trailing/leading spaces** | Trimmed. |
+| **Parent directories** | Created automatically if needed. |
+
+A title is effectively a path, not just a display name.
+
 ## Supported Formats
 
 **MVP:** Markdown only (`.md`) with YAML frontmatter.
@@ -95,9 +109,31 @@ tags:
 
 **Future:** Inline `#tag` syntax (Obsidian-compatible). Not MVP.
 
+## Link Parsing
+
+When parsing a file, DocStore extracts [[Wiki-links]] into edges:
+
+1. Scan content for `[[...]]` patterns
+2. Extract target (text inside brackets)
+3. Resolve target to node ID (lowercased, with extension)
+4. Add to node's `outgoingLinks`
+
+```
+File: concepts/ml.md
+Content: "See also [[Neural Networks]] and [[Deep Learning]]"
+
+Edges created:
+  concepts/ml.md → neural networks.md
+  concepts/ml.md → deep learning.md
+```
+
 ## File Watching
 
 DocStore monitors the directory while serving. See [[Decision - Graphology Lifecycle]].
+
+**Exclusions:**
+- `.roux/` is always excluded (hardcoded). Prevents infinite loops from cache writes.
+- Additional exclusions via `source.exclude` in [[Config]] (e.g., `.obsidian/`, `.git/`, `node_modules/`).
 
 **Sync process (debounced):**
 1. File change detected → queued
@@ -106,6 +142,9 @@ DocStore monitors the directory while serving. See [[Decision - Graphology Lifec
    - Update graphology graph (nodes + edges)
    - Recompute centrality
 3. Done. Everything fresh.
+
+**Partial read handling:**
+If a file is mid-write when processed (truncated frontmatter, incomplete content), parse will fail. Behavior: log warning, skip the file. The next save triggers another event and we retry. Brief staleness is acceptable; crashing is not.
 
 **Events handled:**
 - File changed → re-parse, update node
@@ -116,10 +155,14 @@ Target latency: <1 second for changes to reflect in queries (debounce + sync).
 
 ## Write Operations
 
-When [[MCP Server]] calls `create_node` or `update_node`:
-1. Write/update the file on disk
-2. Update cache immediately
-3. No delay—writes are instantly queryable
+When creating or updating nodes:
+1. Write file to disk (frontmatter + content)
+2. Parse wiki-links → populate `outgoingLinks`
+3. Generate embedding via [[EmbeddingProvider]] (if configured)
+4. Update SQLite cache and in-memory graph
+5. Recompute centrality
+
+Writes are immediately queryable—no waiting for file watcher.
 
 ## Vector Search
 

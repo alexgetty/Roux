@@ -77,11 +77,11 @@ MVP is complete when:
 2. Initialize
    cd ~/my-notes
    roux init .
-   # Scans directory, parses files, generates embeddings, builds cache
+   # Creates roux.yaml config and .roux/ directory
 
 3. Serve
    roux serve
-   # Starts MCP server, watches for file changes
+   # Builds cache, generates embeddings, starts MCP server, watches for changes
 
 4. Use via Claude Code (or any MCP client)
    "Search my notes for distributed systems concepts"
@@ -94,12 +94,12 @@ MVP is complete when:
 
 ## CLI Commands
 
+See [[CLI]] for full details.
+
 ```bash
-roux init <directory>     # Scan directory, build cache, generate embeddings
-roux serve                # Start MCP server with file watching
-roux serve --no-watch     # Start without file watching (lower resource usage)
-roux sync                 # Manual resync (rarely needed)
-roux sync --full          # Full rebuild: regenerate everything
+roux init <directory>     # Create config and .roux/ directory
+roux serve                # Build cache, start MCP server, watch for changes
+roux serve --no-watch     # Start without file watching
 roux status               # Show stats: node count, edge count, cache freshness
 ```
 

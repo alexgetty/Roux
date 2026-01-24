@@ -62,17 +62,7 @@ providers:
 
 ## First Run Behavior
 
-On first `roux init`, the model downloads automatically:
-
-```
-$ roux init .
-Downloading embedding model (first run only)... 92MB
-Scanning files... 147 documents
-Generating embeddings... done
-Cache built in 34s
-```
-
-Model cached in `~/.cache/transformers/` (or platform equivalent). Subsequent runs skip download.
+Model downloads automatically on first embedding request (~90MB). Cached in `~/.cache/transformers/` (or platform equivalent). Subsequent runs skip download.
 
 ## When to Upgrade
 

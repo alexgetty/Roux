@@ -101,10 +101,6 @@ Post-MVP, stores may support delegating `searchByVector()` to an external Vector
 
 Internal/auto-generated IDs (e.g., Neo4j numeric IDs) are implementation details, never exposed through the interface. See [[Decision - Node Identity]].
 
-## Design Decisions
-
-**Path Algorithm:** BFS (Breadth-First Search). Optimal for unweighted shortest path. Graphology supports multiple algorithms—can swap later if needed.
-
 ## Open Questions (Deferred)
 
 - **Scale Boundaries**: At what node count does SQLite + in-memory graph become inadequate? Empirical—learn from usage.

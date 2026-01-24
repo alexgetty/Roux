@@ -24,15 +24,8 @@ Not all data is natively a graph. Markdown files, documents, even some databases
 
 ## Projection Rules
 
-For [[DocStore]], projection follows these rules:
-
-1. **Node ID generation**: Derive from file path (see [[Decision - Node Identity]])
-   - `Notes/Research.md` → `notes/research.md`
-   - Future: frontmatter `id` field takes precedence
-2. **Node creation**: Each file becomes a [[Node]]
-3. **Edge extraction**: [[Wiki-links]] and other link syntaxes become edges
-4. **Metadata mapping**: Frontmatter becomes node properties
-5. **Content parsing**: Full text becomes node content
+Each store implementation defines its own projection rules. See specific store docs:
+- [[DocStore]] — Files to nodes, wiki-links to edges
 
 ## Link Syntaxes
 
@@ -44,7 +37,7 @@ Different sources use different link formats:
 | Markdown | `[text](target.md)` | Standard markdown |
 | HTML | `<a href="target">` | HTML documents |
 
-[[DocStore]] supports configurable parsers for each.
+Store implementations may support multiple parsers.
 
 ## Challenges
 
@@ -62,9 +55,7 @@ Different sources use different link formats:
 
 ## When Projection Happens
 
-- `roux init`: Full projection of directory
-- File change (watcher): Incremental re-projection of changed file
-- `roux sync --full`: Complete rebuild
+Projection timing depends on the store implementation. For file-based stores like [[DocStore]], projection happens on server startup and incrementally on file changes.
 
 ## Related
 

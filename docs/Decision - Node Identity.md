@@ -49,6 +49,20 @@ Each StoreProvider uses IDs optimized for its context. Migrations are transforma
 | **Ambiguity** | Match Obsidian: resolve at write time, store minimum path needed for disambiguation. Full path becomes ID when needed. |
 | **Collision** | Error on true duplicates (same full path). Obsidian handles disambiguation via path—if we see a true collision, surface for manual resolution. |
 
+### Filename Rules (Obsidian-compatible)
+
+When creating nodes, titles map to filenames:
+
+| Rule | Behavior |
+|------|----------|
+| **Slashes** | Path separator. `notes/Research` creates `notes/Research.md` in subdirectory. |
+| **Forbidden chars** | Stripped: `* " < > \| ? : \ [ ] # ^` |
+| **Leading dot** | Stripped. No hidden files. |
+| **Trailing/leading spaces** | Trimmed. |
+| **Parent directories** | Created automatically if needed. |
+
+This matches Obsidian's behavior. A title is effectively a path, not just a display name.
+
 ### Wiki-link Syntax
 
 ```

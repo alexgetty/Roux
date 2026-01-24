@@ -11,7 +11,8 @@ Canonical schema for `roux.yaml`. Created by `roux init`, lives in project root.
 source:
   path: .                           # Directory to scan (relative to config file)
   include: ["*.md"]                 # Glob patterns to include
-  exclude: ["_templates/*", ".roux/*"]  # Patterns to exclude
+  exclude: []                       # Patterns to exclude (e.g., [".obsidian/*", ".git/*"])
+  # Note: .roux/ is always excluded (hardcoded). Cannot be overridden.
 
 # Cache location
 cache:

@@ -30,21 +30,12 @@ interface SourceRef {
 
 ## Node Identity
 
-See [[Decision - ID Format]] for full rationale.
+`Node.id` is the **canonical identifier within a StoreProvider**. Each store uses IDs optimized for its context. See specific store docs for ID format and generation rules:
 
-`Node.id` is the **canonical identifier within a StoreProvider**. Each store uses IDs optimized for its context:
+- [[DocStore]] — File path-based IDs, Obsidian-compatible
+- Neo4j (future) — Neo4j-native conventions
 
-- **DocStore:** File path with extension, lowercased (`notes/research.md`)
-- **Neo4j (future):** Neo4j-native conventions
-- **Other stores:** Store-specific formats
-
-**MVP (DocStore):** ID derived from file path, lowercased, with extension.
-
-**Future:** Explicit ID in file (frontmatter `id:`) takes precedence over derived ID.
-
-**Migration:** IDs are not portable across stores. Migration tooling handles ID translation and link rewriting.
-
-**Case sensitivity:** Links are matched case-insensitively. `[[Note]]` matches `note.md`.
+IDs are not portable across stores. Migration tooling handles ID translation and link rewriting.
 
 ## Design Decisions
 
@@ -53,6 +44,18 @@ Edges are directional. A Node knows what it links *to*, not what links to it. Bi
 
 **Why `properties` as a bag?**
 Different use cases need different metadata. A document node might have `wordCount`, a person node might have `birthDate`. The bag allows extension without schema changes.
+
+**Reserved names:**
+`id`, `title`, and `tags` are reserved—they map to dedicated Node fields and never appear in `properties`. When stores parse source data:
+
+| Field | Behavior | In properties? |
+|-------|----------|----------------|
+| `id` | Maps to Node.id | No |
+| `title` | Maps to Node.title | No |
+| `tags` | Maps to Node.tags | No |
+| anything else | Passed through | Yes |
+
+Reserved names are never duplicated into `properties`.
 
 **Why `sourceRef`?**
 Nodes can come from files, APIs, or manual creation. Tracking origin enables sync logic (has the source changed?) and debugging (where did this come from?).

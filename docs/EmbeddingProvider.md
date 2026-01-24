@@ -46,12 +46,9 @@ providers:
     type: docstore
 ```
 
-## How Semantic Search Works
+## Role in Search
 
-1. User queries: "notes about distributed systems"
-2. EmbeddingProvider converts query to vector
-3. Vector similarity search finds nearest neighbors
-4. Results ranked by distance, returned as Nodes
+EmbeddingProvider's only job is converting text to vectors. Search orchestration (query → embed → search → rank) is handled by [[GraphCore]].
 
 ## Storage
 

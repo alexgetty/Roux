@@ -12,8 +12,6 @@ The CLI provides terminal access to Roux. For administration, automation, shell 
 roux init <directory>     # Install Roux in project (creates roux.yaml, .roux/)
 roux serve                # Start MCP server (stdio transport, with file watching)
 roux serve --no-watch     # Start without file watching
-roux sync                 # Manual resync (rarely needed)
-roux sync --full          # Full rebuild: regenerate everything
 roux status               # Show stats: node count, edge count, cache freshness
 ```
 
@@ -39,6 +37,8 @@ First `serve` after `init` is slower (building cache, generating embeddings). Su
 ## Future Commands
 
 ```bash
+roux sync                 # Manual resync (rebuild cache without starting server)
+roux sync --full          # Full rebuild: regenerate everything
 roux search <query>       # Semantic search from terminal
 roux get <id>             # Get node by ID
 roux create               # Interactive node creation

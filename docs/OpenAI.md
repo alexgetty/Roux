@@ -23,7 +23,7 @@ OpenAI provides state-of-the-art embeddings and language models via API. Higher 
 In `roux.yaml`:
 ```yaml
 providers:
-  embeddings:
+  embedding:
     type: openai
     model: text-embedding-3-small
     # API key from environment: OPENAI_API_KEY

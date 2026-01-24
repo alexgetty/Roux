@@ -109,7 +109,7 @@ Summary: Point Roux at a markdown directory, query via MCP, edit in Obsidian, ch
 - [ ] [[GraphCore]]: query orchestration
 - [ ] Graphology integration for path/centrality operations
 - [ ] [[MCP Server]] with 10 tools
-- [ ] [[CLI]]: `init`, `serve`, `sync`, `status`
+- [ ] [[CLI]]: `init`, `serve`, `status`
 - [ ] File watcher for live sync
 - [ ] Test against existing markdown directory
 
@@ -192,6 +192,7 @@ Items explicitly scoped out of MVP, to revisit in later phases:
 **StoreProvider**
 - Scale boundary testing (when SQLite + in-memory becomes inadequate)
 - ~~Centrality caching strategy (PageRank recomputation frequency)~~ Decided: piggyback on file sync. See [[Decision - Graphology Lifecycle]].
+- `searchByTags` pagination/limits (MVP returns all matches; add limits when scale matters)
 
 **Operations**
 - Concurrent access handling (multiple MCP clients)
@@ -220,11 +221,11 @@ Research questions have been distributed to relevant atomic notes. Cross-cutting
 
 These don't block MVP but need answers during implementation:
 
-- **File Watching Details**: ~~What debounce interval?~~ 100ms. See [[Decision - Graphology Lifecycle]]. Still open: How to handle partial reads during write? `.roux/` ignored automatically?
+- ~~**File Watching Details**: What debounce interval? How to handle partial reads during write? `.roux/` ignored automatically?~~ Resolved. 100ms debounce, parse failure = skip + retry, `.roux/` always excluded. See [[DocStore]].
 - ~~**Centrality Computation Timing**: Compute PageRank on init, invalidate on change, recompute lazily on query? Or background job?~~ Decided: piggyback on file sync. See [[Decision - Graphology Lifecycle]].
 - **Tag Format**: YAML array in frontmatter? Inline `#tag` syntax? Case-sensitive matching? Document in [[DocStore]].
 - **Broken Link Handling**: MVP logs warning and skips edge. No mode configuration until a real use case demands it.
-- **ID Derivation Edge Cases**: What if title contains special characters? Slashes? Unicode? Document normalization rules.
+- ~~**ID Derivation Edge Cases**: What if title contains special characters? Slashes? Unicode? Document normalization rules.~~ Resolved. See [[Decision - Node Identity]].
 
 See also:
 - [[GraphCore#Open Questions]]

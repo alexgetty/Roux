@@ -23,7 +23,7 @@ Ollama runs AI models locally. No data leaves your machine, no API costs, works 
 In `roux.yaml`:
 ```yaml
 providers:
-  embeddings:
+  embedding:
     type: ollama
     model: nomic-embed-text
     endpoint: http://localhost:11434

@@ -21,19 +21,14 @@ Edges are directional by storage:
 
 No edge properties, types, or weights.
 
-## Direction in DocStore
+## Direction
 
-[[DocStore]] infers direction from link placement:
+Direction is inferred from link placement: the node containing the link has the outgoing edge; the target has the incoming edge.
 
-```markdown
-# Note A
-This links to [[Note B]].
-```
+- A links to B → outgoing from A, incoming to B
+- Bidirectional queries (`direction: 'both'`) return both
 
-- **Outgoing from A**: A → B (A contains the link)
-- **Incoming to B**: A → B (B is the target)
-
-Bidirectional queries (`direction: 'both'`) return both.
+See specific store docs for how links are parsed (e.g., [[DocStore]] for wiki-link handling).
 
 ## Edge Types via Frontmatter
 

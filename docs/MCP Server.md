@@ -102,30 +102,18 @@ Get a random node for discovery/serendipity.
 ### Write Operations
 
 #### `create_node`
-Create a new node (and backing file in DocStore).
+Create a new node.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `title` | string | Yes | - | Node title (used for filename) |
+| `title` | string | Yes | - | Node title (see [[Node]] identity rules) |
 | `content` | string | Yes | - | Full text content |
 | `tags` | string[] | No | `[]` | Classification tags |
 
 **Returns:** `Node` (the created node with final ID)
 
 **Behavior:**
-- Creates file at `{title}.md`
-- ID derived from path: `{title}.md` lowercased
-- File includes frontmatter (title, tags) and content
-- Parses wiki-links in content to populate `outgoingLinks`
-- Generates embedding if EmbeddingProvider configured
-- Fails if file already exists
-
-**Example:**
-```
-create_node({ title: "Research Notes", content: "..." })
-→ File: Research Notes.md
-→ ID: research notes.md
-```
+- Fails if node already exists
 
 ---
 
@@ -142,9 +130,6 @@ Update an existing node.
 **Returns:** `Node` (the updated node)
 
 **Behavior:**
-- Updates file with new frontmatter/content
-- Re-parses wiki-links if content changed
-- Re-generates embedding if content changed
 - Fails if node doesn't exist
 
 ---
@@ -159,9 +144,7 @@ Delete a node.
 **Returns:** `boolean` (true if deleted, false if not found)
 
 **Behavior:**
-- Deletes backing file
-- Removes from cache
-- Does NOT update nodes that link to this one (broken links logged as warning)
+- Returns false if node not found
 
 ---
 

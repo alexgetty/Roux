@@ -21,21 +21,9 @@ Fragment support (heading/block links) is deferred. See [[Decision - MVP Scope C
 
 ## How They Become Edges
 
-When [[DocStore]] parses a file:
+Wiki-links are parsed into edges by the store implementation. See [[DocStore]] for parsing details.
 
-1. **Scan content** for `[[...]]` patterns
-2. **Extract target** (the text inside brackets)
-3. **Resolve target** to a node ID (lowercased, with extension)
-4. **Create edge** from current node to target
-
-```
-File: concepts/ml.md
-Content: "See also [[Neural Networks]] and [[Deep Learning]]"
-
-Resolved IDs (assuming files exist):
-  concepts/ml.md → neural networks.md
-  concepts/ml.md → deep learning.md
-```
+The link target becomes an edge to that node's ID. Resolution rules below.
 
 ## Resolution Rules
 
