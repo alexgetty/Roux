@@ -5,7 +5,7 @@
 
 ## Problem
 
-[[Decision - Error Contract]] defines what IS an error vs what isn't. But it doesn't define:
+[[decisions/Error Contract]] defines what IS an error vs what isn't. But it doesn't define:
 
 - Where do errors go? (stderr, log file, MCP response)
 - Where do warnings go? (broken links, parse failures)
@@ -219,6 +219,6 @@ Decided. MVP uses simple approach: CLI shows errors/warnings in terminal, MCP bu
 ## Related
 
 - [[Decisions]] — Decision hub
-- [[Decision - Error Contract]] — What is an error
+- [[decisions/Error Contract]] — What is an error
 - [[CLI]] — Command output
 - [[MCP Server]] — Tool responses

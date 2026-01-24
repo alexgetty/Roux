@@ -73,7 +73,7 @@ Store implementations span a spectrum from zero infrastructure to enterprise sca
 ## Design Decisions
 
 **Why separate Store from Embedding?**
-Storage and vector generation are orthogonal. You might want OpenAI embeddings with file storage, or local embeddings with Neo4j. Decoupling enables mix-and-match. See [[Decision - Search Ownership]] and [[Decision - Vector Storage]].
+Storage and vector generation are orthogonal. You might want OpenAI embeddings with file storage, or local embeddings with Neo4j. Decoupling enables mix-and-match. See [[decisions/Search Ownership]] and [[decisions/Vector Storage]].
 
 **Why include graph operations in Store?**
 Graph traversal is inherently tied to how data is stored. A graph database handles `findPath` natively; a file store needs to build an in-memory graph. The implementation differs, the interface doesn't.
@@ -91,7 +91,7 @@ Graph traversal is inherently tied to how data is stored. A graph database handl
 The interface is standardized. The implementation is backend-specific.
 
 **Future: VectorProvider Override**
-Post-MVP, stores may support delegating `searchByVector()` to an external VectorProvider (e.g., Pinecone). This enables scenarios like DocStore for documents + Pinecone for industrial-scale vector search. See [[Decision - Vector Storage]] for details.
+Post-MVP, stores may support delegating `searchByVector()` to an external VectorProvider (e.g., Pinecone). This enables scenarios like DocStore for documents + Pinecone for industrial-scale vector search. See [[decisions/Vector Storage]] for details.
 
 **Canonical IDs vs Internal Storage**
 `Node.id` is the canonical, portable identifier defined by Roux. Each StoreProvider maps it to native storage:
@@ -102,7 +102,7 @@ Post-MVP, stores may support delegating `searchByVector()` to an external Vector
 | Neo4j | `notes/research.md` | `id` property |
 | SurrealDB | `notes/research.md` | Record ID or field |
 
-Internal/auto-generated IDs (e.g., Neo4j numeric IDs) are implementation details, never exposed through the interface. See [[Decision - Node Identity]].
+Internal/auto-generated IDs (e.g., Neo4j numeric IDs) are implementation details, never exposed through the interface. See [[decisions/Node Identity]].
 
 **Why `resolveTitles()`?**
 MCP responses include outgoing links with human-readable titles for LLM context. The mapping from ID to title is store-specific:
@@ -118,7 +118,7 @@ This keeps the MCP layer store-agnostic while enabling rich context in responses
 ## Open Questions (Deferred)
 
 - **Scale Boundaries**: At what node count does SQLite + in-memory graph become inadequate? Empirical—learn from usage.
-- ~~**Centrality Caching**: PageRank recomputation frequency.~~ Decided: recompute during file sync (piggybacked). See [[Decision - Graphology Lifecycle]].
+- ~~**Centrality Caching**: PageRank recomputation frequency.~~ Decided: recompute during file sync (piggybacked). See [[decisions/Graphology Lifecycle]].
 
 ## Related
 
@@ -126,4 +126,4 @@ This keeps the MCP layer store-agnostic while enabling rich context in responses
 - [[Node]] — What gets stored
 - [[DocStore]] — MVP implementation
 - [[EmbeddingProvider]] — Often used alongside for semantic search
-- [[Decision - Graphology Lifecycle]] — Graph construction and sync timing
+- [[decisions/Graphology Lifecycle]] — Graph construction and sync timing

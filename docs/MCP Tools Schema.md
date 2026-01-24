@@ -655,4 +655,4 @@ Warnings accumulate from file watcher and clear after being returned.
 - [[MCP Server]] - Implementation overview
 - [[GraphCore]] - Underlying operations
 - [[Node]] - Data model
-- [[Decision - Error Contract]] - Error philosophy
+- [[decisions/Error Contract]] - Error philosophy

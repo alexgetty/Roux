@@ -91,7 +91,7 @@ async search(query: string, limit: number): Promise<Node[]> {
 - Store as single source of truth aligns with "human-usable interface at every layer" philosophy
 - Clean failure isolation: embedding down = no semantic search, but CRUD and traversal still work
 - Future stores (Neo4j 5.x, SurrealDB) have native vector indexes—this pattern lets them use their optimized implementations
-- Interface allows future VectorProvider override without changes (see [[Decision - Vector Storage]])
+- Interface allows future VectorProvider override without changes (see [[decisions/Vector Storage]])
 
 ## Related
 

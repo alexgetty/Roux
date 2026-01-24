@@ -203,5 +203,5 @@ This design enables:
 
 - [[Decisions]] — Decision hub
 - [[GraphCore]] — Where lifecycle lives
-- [[Decision - Error Contract]] — What happens when providers fail
+- [[decisions/Error Contract]] — What happens when providers fail
 - [[CLI]] — Reads config, creates providers

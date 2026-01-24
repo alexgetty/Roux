@@ -57,7 +57,7 @@ interface GraphCore {
 
 ## Search Orchestration
 
-See [[Decision - Search Ownership]].
+See [[decisions/Search Ownership]].
 
 GraphCore orchestrates semantic search by coordinating stateless providers:
 
@@ -84,8 +84,8 @@ Full-featured (production system):
 
 ## Design Decisions
 
-- **Provider lifecycle**: See [[Decision - Provider Lifecycle]] — config-driven, dynamic capability exposure
-- **Error handling**: See [[Decision - Error Contract]] — capability-based tool exposure, fail loudly on runtime errors
+- **Provider lifecycle**: See [[decisions/Provider Lifecycle]] — config-driven, dynamic capability exposure
+- **Error handling**: See [[decisions/Error Contract]] — capability-based tool exposure, fail loudly on runtime errors
 
 ## Open Questions (Deferred)
 
@@ -107,4 +107,4 @@ These are internal to GraphCore—not architectural components, but the language
 - [[EmbeddingProvider]] — Vector generation
 - [[LLMProvider]] — Text generation
 - [[MCP Server]] — Primary external interface
-- [[Decision - Graphology Lifecycle]] — Graph construction and sync timing
+- [[decisions/Graphology Lifecycle]] — Graph construction and sync timing

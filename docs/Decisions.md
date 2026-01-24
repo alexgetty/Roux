@@ -18,26 +18,26 @@ Tracking document for architectural decisions. Each is a one-way door or affects
 
 | Decision | Status | Affects |
 |----------|--------|---------|
-| [[Decision - Search Ownership]] | Decided | [[GraphCore]], [[StoreProvider]], [[EmbeddingProvider]] |
-| [[Decision - Vector Storage]] | Decided | [[EmbeddingProvider]], [[DocStore]], [[StoreProvider]] |
-| [[Decision - Node Identity]] | Decided | [[Node]], [[StoreProvider]], [[Wiki-links]] |
-| [[Decision - Edge Futureproofing]] | Decided | [[Edge]], [[Node]], [[StoreProvider]] |
-| [[Decision - Error Contract]] | Decided | [[GraphCore]], all providers, [[MCP Server]] |
-| [[Decision - Provider Lifecycle]] | Decided | [[GraphCore]], [[MCP Server]] |
-| [[Decision - Default Embeddings]] | Decided | [[EmbeddingProvider]], [[Config]], [[MVP]] |
-| [[Decision - ID Format]] | Decided | [[Node]], [[Decision - Node Identity]], [[DocStore]] |
-| [[Decision - SQLite Schema]] | Decided | [[DocStore]], [[StoreProvider]], [[EmbeddingProvider]] |
-| [[Decision - MVP Scope Clarifications]] | Decided | [[MVP]], [[DocStore]], [[MCP Server]] |
-| [[Decision - Graphology Lifecycle]] | Decided | [[DocStore]], [[GraphCore]], [[StoreProvider]] |
-| [[Decision - MCP Transport]] | Decided | [[MCP Server]], [[CLI]], [[Config]] |
-| [[Decision - CLI Workflow]] | Decided | [[CLI]], [[DocStore]], [[Config]] |
-| [[Decision - Error Output]] | Decided | [[CLI]], [[MCP Server]], [[DocStore]] |
+| [[decisions/Search Ownership]] | Decided | [[GraphCore]], [[StoreProvider]], [[EmbeddingProvider]] |
+| [[decisions/Vector Storage]] | Decided | [[EmbeddingProvider]], [[DocStore]], [[StoreProvider]] |
+| [[decisions/Node Identity]] | Decided | [[Node]], [[StoreProvider]], [[Wiki-links]] |
+| [[decisions/Edge Futureproofing]] | Decided | [[Edge]], [[Node]], [[StoreProvider]] |
+| [[decisions/Error Contract]] | Decided | [[GraphCore]], all providers, [[MCP Server]] |
+| [[decisions/Provider Lifecycle]] | Decided | [[GraphCore]], [[MCP Server]] |
+| [[decisions/Default Embeddings]] | Decided | [[EmbeddingProvider]], [[Config]], [[MVP]] |
+| [[decisions/ID Format]] | Decided | [[Node]], [[decisions/Node Identity]], [[DocStore]] |
+| [[decisions/SQLite Schema]] | Decided | [[DocStore]], [[StoreProvider]], [[EmbeddingProvider]] |
+| [[decisions/MVP Scope Clarifications]] | Decided | [[MVP]], [[DocStore]], [[MCP Server]] |
+| [[decisions/Graphology Lifecycle]] | Decided | [[DocStore]], [[GraphCore]], [[StoreProvider]] |
+| [[decisions/MCP Transport]] | Decided | [[MCP Server]], [[CLI]], [[Config]] |
+| [[decisions/CLI Workflow]] | Decided | [[CLI]], [[DocStore]], [[Config]] |
+| [[decisions/Error Output]] | Decided | [[CLI]], [[MCP Server]], [[DocStore]] |
 
 ### Deferred (Not Blocking MVP)
 
 | Decision | Status | Affects |
 |----------|--------|---------|
-| [[Decision - Performance Thresholds]] | Deferred | [[MVP]], [[DocStore]], [[StoreProvider]] |
+| [[decisions/Performance Thresholds]] | Deferred | [[MVP]], [[DocStore]], [[StoreProvider]] |
 
 ## Process
 

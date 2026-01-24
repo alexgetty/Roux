@@ -17,7 +17,7 @@ roux status               # Show stats: node count, edge count, cache freshness
 
 ## Workflow
 
-See [[Decision - CLI Workflow]].
+See [[decisions/CLI Workflow]].
 
 **`init`** = Install Roux in project (like `git init`). One-time setup.
 - Creates `roux.yaml` with defaults
@@ -32,7 +32,7 @@ See [[Decision - CLI Workflow]].
 
 First `serve` after `init` is slower (building cache, generating embeddings). Subsequent runs are fast.
 
-**Transport:** stdio — Claude Code spawns it as a subprocess. See [[Decision - MCP Transport]].
+**Transport:** stdio — Claude Code spawns it as a subprocess. See [[decisions/MCP Transport]].
 
 ## Future Commands
 
@@ -84,6 +84,6 @@ Command structure can evolve (add commands freely). Changing existing command si
 - [[MCP Server]] — Alternative interface for AI
 - [[API]] — Alternative interface for web apps
 - [[Config]] — Configuration file created by init
-- [[Decision - CLI Workflow]] — init/serve relationship
-- [[Decision - MCP Transport]] — stdio vs SSE transport decision
-- [[Decision - Error Output]] — Error/warning output behavior
+- [[decisions/CLI Workflow]] — init/serve relationship
+- [[decisions/MCP Transport]] — stdio vs SSE transport decision
+- [[decisions/Error Output]] — Error/warning output behavior

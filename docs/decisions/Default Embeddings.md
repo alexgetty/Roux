@@ -148,7 +148,7 @@ Generating embeddings... done
 
 ### Upgrade Path
 
-Users can switch to Ollama or OpenAI anytime via config. No code changes. The [[Decision - Vector Storage]] `on_model_change` setting handles the transition.
+Users can switch to Ollama or OpenAI anytime via config. No code changes. The [[decisions/Vector Storage]] `on_model_change` setting handles the transition.
 
 ### Rationale
 
@@ -164,4 +164,4 @@ Users can switch to Ollama or OpenAI anytime via config. No code changes. The [[
 - [[Transformers]] — Implementation details
 - [[EmbeddingProvider]] — Interface definition
 - [[Config]] — Configuration schema
-- [[Decision - Vector Storage]] — Model change handling
+- [[decisions/Vector Storage]] — Model change handling

@@ -8,7 +8,7 @@ EmbeddingProvider transforms text into vectors that capture meaning. This enable
 
 ## Interface
 
-See [[Decision - Search Ownership]] and [[Decision - Vector Storage]] for rationale.
+See [[decisions/Search Ownership]] and [[decisions/Vector Storage]] for rationale.
 
 ```typescript
 interface EmbeddingProvider {
@@ -52,7 +52,7 @@ EmbeddingProvider's only job is converting text to vectors. Search orchestration
 
 ## Storage
 
-Embeddings are persisted by [[StoreProvider]], not EmbeddingProvider. See [[Decision - Vector Storage]].
+Embeddings are persisted by [[StoreProvider]], not EmbeddingProvider. See [[decisions/Vector Storage]].
 
 - EmbeddingProvider generates vectors (stateless)
 - StoreProvider stores vectors alongside node data
@@ -77,9 +77,9 @@ These are [[Structural Embeddings]] research questions, not MVP blockers:
 
 ## Related
 
-- [[Decision - Default Embeddings]] — Why Transformers is the default
-- [[Decision - Search Ownership]] — Search orchestration
-- [[Decision - Vector Storage]] — Where embeddings are stored
+- [[decisions/Default Embeddings]] — Why Transformers is the default
+- [[decisions/Search Ownership]] — Search orchestration
+- [[decisions/Vector Storage]] — Where embeddings are stored
 - [[GraphCore]] — Coordinates embedding with store for search
 - [[StoreProvider]] — Works alongside for semantic search
 - [[Transformers]] — Default local implementation

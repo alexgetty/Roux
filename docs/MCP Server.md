@@ -72,7 +72,7 @@ Get most central nodes by graph metric.
 
 **Returns:** `Array<{ id: string, score: number }>`
 
-See [[Decision - MVP Scope Clarifications]] for rationale on `in_degree` default.
+See [[decisions/MVP Scope Clarifications]] for rationale on `in_degree` default.
 
 ---
 
@@ -150,7 +150,7 @@ Delete a node.
 
 ## Dynamic Tool Exposure
 
-Tools are exposed based on configured providers. See [[Decision - Provider Lifecycle]].
+Tools are exposed based on configured providers. See [[decisions/Provider Lifecycle]].
 
 | Tool | Required Provider | Exposed When... |
 |------|-------------------|-----------------|
@@ -162,7 +162,7 @@ If EmbeddingProvider is not configured, `search` tool does not exist in the MCP 
 
 ## Error Handling
 
-See [[Decision - Error Contract]] and [[Decision - Error Output]].
+See [[decisions/Error Contract]] and [[decisions/Error Output]].
 
 | Scenario | Behavior |
 |----------|----------|
@@ -184,7 +184,7 @@ Warnings (broken links, parse issues) are included in response objects:
 }
 ```
 
-File watcher warnings accumulate and surface on the next MCP response, then clear. See [[Decision - Error Output]].
+File watcher warnings accumulate and surface on the next MCP response, then clear. See [[decisions/Error Output]].
 
 ## Future Tools
 
@@ -199,7 +199,7 @@ These require LLMProvider and are deferred to Phase 0.5:
 ## Implementation Notes
 
 - Built with `@modelcontextprotocol/sdk`
-- **Transport:** stdio (MVP). Claude Code spawns Roux as subprocess. See [[Decision - MCP Transport]].
+- **Transport:** stdio (MVP). Claude Code spawns Roux as subprocess. See [[decisions/MCP Transport]].
 - Each tool maps to a [[GraphCore]] operation
 - Tool signatures can evolve (add tools freely, deprecation cycle for removal)
 - All tools are synchronous from client perspective (async internally)
@@ -210,7 +210,7 @@ These require LLMProvider and are deferred to Phase 0.5:
 - [[GraphCore]] — Provides the operations
 - [[GPI]] — What the MCP server exposes
 - [[Config]] — Server configuration
-- [[Decision - Provider Lifecycle]] — Tool exposure logic
-- [[Decision - Error Contract]] — Error handling
-- [[Decision - Error Output]] — Where warnings/errors go
-- [[Decision - MCP Transport]] — stdio vs SSE transport
+- [[decisions/Provider Lifecycle]] — Tool exposure logic
+- [[decisions/Error Contract]] — Error handling
+- [[decisions/Error Output]] — Where warnings/errors go
+- [[decisions/MCP Transport]] — stdio vs SSE transport

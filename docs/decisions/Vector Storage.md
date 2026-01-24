@@ -174,7 +174,7 @@ Manual override: `roux sync --full` forces complete re-embed regardless of setti
 ## Related
 
 - [[Decisions]] — Decision hub
-- [[Decision - Search Ownership]] — Related decision
+- [[decisions/Search Ownership]] — Related decision
 - [[EmbeddingProvider]] — Vector generation
 - [[StoreProvider]] — Data persistence
 - [[DocStore]] — MVP implementation

@@ -178,5 +178,5 @@ Spike/prototype code lives in branches and gets deleted. Production code follows
 ## Related
 
 - [[implementation-plan]] — Roadmap (all phases follow TDD)
-- [[Decision - Error Contract]] — Error types that tests verify
+- [[decisions/Error Contract]] — Error types that tests verify
 - [[GraphCore]] — Core interfaces to test against

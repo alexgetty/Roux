@@ -16,6 +16,7 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 4. CRUD operations create/modify/delete markdown files
 5. File watcher syncs external changes <1 second
 6. Works on Alex's Obsidian vault (target: <200 nodes)
+7. `roux viz` generates inspectable graph visualization for QA
 
 ---
 
@@ -217,22 +218,29 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 ---
 
 ### Phase 10: CLI
-**Goal:** Three commands for user interaction
+**Goal:** Four commands for user interaction
 
 **Commands:**
 - [ ] `roux init <directory>` - create config and cache
 - [ ] `roux serve` - start MCP server with file watching
 - [ ] `roux serve --no-watch` - start without watching
 - [ ] `roux status` - show stats (nodes, edges, cache freshness)
+- [ ] `roux viz` - generate static HTML graph visualization for QA
 
 **Key files:**
 - `src/cli/index.ts`
 - `src/cli/commands/init.ts`
 - `src/cli/commands/serve.ts`
 - `src/cli/commands/status.ts`
+- `src/cli/commands/viz.ts`
 - `tests/integration/cli/`
 
-**Dependencies:** Phases 7, 8, 9
+**Visualization notes:**
+- Static HTML output (force-directed graph via d3/sigma/vis.js)
+- Opens in browser or outputs to file
+- Future: live visualization in `roux serve` (see [[roadmap/Serve Visualization]])
+
+**Dependencies:** Phases 7, 8, 9 (viz only needs Phase 5)
 
 ---
 
@@ -340,15 +348,9 @@ roux serve
 
 ## Post-MVP / Future
 
-Deferred features tracked here for future phases.
+See [[Roadmap]] for all deferred features with individual notes.
 
-| Item | Description | Complexity |
-|------|-------------|------------|
-| `search` threshold | Min similarity score (0-1) filter | Low |
-| `list_tags` tool | Discover available tags in graph | Low |
-| Pagination | `offset`/`cursor` for large result sets | Medium |
-| `pagerank` metric | Expensive centrality calculation | Medium |
-| Link integrity on rename | Handle broken links when title changes | High |
+**Critical before shipping:** [[roadmap/Link Integrity]] — title rename breaks incoming links.
 
 ---
 

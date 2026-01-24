@@ -57,7 +57,7 @@ Start with brute-force, define interface that allows swap to sqlite-vec.
 **Pros:** Ship faster. Learn real performance needs.
 **Cons:** May need to rewrite. Users hit performance wall.
 
-**Decision:** This is the MVP approach. See [[Decision - Vector Storage]] for full rationale. The `searchByVector()` interface on StoreProvider allows implementation to change without affecting callers.
+**Decision:** This is the MVP approach. See [[decisions/Vector Storage]] for full rationale. The `searchByVector()` interface on StoreProvider allows implementation to change without affecting callers.
 
 ### Schema Structure
 
@@ -142,7 +142,7 @@ CREATE TABLE centrality (
 
 ## Questions to Resolve
 
-1. ~~What's the acceptable query latency for semantic search at 500 nodes? 1000? 5000?~~ See [[Decision - Performance Thresholds]]
+1. ~~What's the acceptable query latency for semantic search at 500 nodes? 1000? 5000?~~ See [[decisions/Performance Thresholds]]
 2. ~~Is sqlite-vec installation complexity acceptable for MVP?~~ No. Brute-force for MVP.
 3. ~~Should we store vectors as JSON text or binary BLOB?~~ BLOB. No need for human-debuggable vectors.
 4. ~~How is embedding dimension tracked when models change?~~ Store `model` in embeddings table.
@@ -151,7 +151,7 @@ CREATE TABLE centrality (
 
 ### Vector Search: Option C (Brute-force MVP)
 
-Brute-force cosine similarity in application code for MVP. Interface (`searchByVector()` on StoreProvider) allows swap to sqlite-vec later. See [[Decision - Vector Storage]].
+Brute-force cosine similarity in application code for MVP. Interface (`searchByVector()` on StoreProvider) allows swap to sqlite-vec later. See [[decisions/Vector Storage]].
 
 ### Schema Structure: Option C (Hybrid)
 
@@ -171,4 +171,4 @@ Decided. Three tables: `nodes` (denormalized with JSON columns), `embeddings` (B
 
 - [[Decisions]] — Decision hub
 - [[DocStore]] — Implementation
-- [[Decision - Vector Storage]] — Where embeddings live (decided: in StoreProvider)
+- [[decisions/Vector Storage]] — Where embeddings live (decided: in StoreProvider)

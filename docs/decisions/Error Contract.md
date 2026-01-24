@@ -210,4 +210,4 @@ The original problem statement is largely dissolved:
 - [[Decisions]] — Decision hub
 - [[GraphCore]] — Orchestration and error handling
 - [[MCP Server]] — Must surface errors to clients
-- [[Decision - Provider Lifecycle]] — Related: what happens at startup
+- [[decisions/Provider Lifecycle]] — Related: what happens at startup

@@ -45,7 +45,7 @@ The choice affects:
 - Cold start on every new session
 - Harder to debug (no curl access)
 
-**Decision:** stdio for MVP. Cold start is fast enough (graph loads from SQLite in <100ms at 500 nodes per [[Decision - Graphology Lifecycle]]). No need for graph persistence across sessions. SSE deferred to roadmap for multi-client/production scenarios.
+**Decision:** stdio for MVP. Cold start is fast enough (graph loads from SQLite in <100ms at 500 nodes per [[decisions/Graphology Lifecycle]]). No need for graph persistence across sessions. SSE deferred to roadmap for multi-client/production scenarios.
 
 ### Option B: SSE (HTTP) only
 

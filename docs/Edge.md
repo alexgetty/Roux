@@ -72,7 +72,7 @@ This enables:
 
 ## Open Questions (Deferred)
 
-See [[Decision - Edge Futureproofing]] for the interface stability decision.
+See [[decisions/Edge Futureproofing]] for the interface stability decision.
 
 - **When to promote edges?** Phase 3+ alongside [[IngestionProvider]]. MVP works without explicit edges.
 - **Type inference**: Deferred. Revisit when typed edges ship.

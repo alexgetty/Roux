@@ -43,7 +43,7 @@ Store implementations may support multiple parsers.
 
 **Ambiguous references**
 - `[[Note]]` could match `note.md`, `Note.md`, `notes/note.md`
-- Resolution: Obsidian-compatible case-insensitive matching. On ambiguity, resolve at write time and store qualified path. See [[Decision - Node Identity]].
+- Resolution: Obsidian-compatible case-insensitive matching. On ambiguity, resolve at write time and store qualified path. See [[decisions/Node Identity]].
 
 **Missing targets**
 - Link to `[[Nonexistent]]` → broken edge

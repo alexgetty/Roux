@@ -92,7 +92,7 @@ const output = await embedder(text, {
 
 ## Related
 
-- [[Decision - Default Embeddings]] — Why this is the default
+- [[decisions/Default Embeddings]] — Why this is the default
 - [[EmbeddingProvider]] — Interface this implements
 - [[Ollama]] — Alternative for better models
 - [[OpenAI]] — Alternative for cloud-based

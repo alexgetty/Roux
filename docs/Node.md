@@ -64,7 +64,7 @@ Nodes can come from files, APIs, or manual creation. Tracking origin enables syn
 
 ## Open Questions (Deferred)
 
-- **Edge Properties**: See [[Decision - Edge Futureproofing]]. MVP uses simple links.
+- **Edge Properties**: See [[decisions/Edge Futureproofing]]. MVP uses simple links.
 - **Node Versioning**: Not MVP. Last write wins. Track history in future phases.
 - **Soft Deletes**: Hard delete for MVP. Revisit when versioning is addressed.
 - **Schema Evolution**: Address when Node interface actually changes. Premature to solve now.

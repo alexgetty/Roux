@@ -41,7 +41,7 @@ DocStore treats a directory of text files as a graph. Documents become [[Node|No
 
 ## ID Generation
 
-See [[Decision - ID Format]] for full rationale.
+See [[decisions/ID Format]] for full rationale.
 
 **MVP:** Node ID derived from relative file path, lowercased, with extension.
 - `Notes/Research.md` → `notes/research.md`
@@ -147,7 +147,7 @@ Edges created:
 
 ## File Watching
 
-DocStore monitors the directory while serving. See [[Decision - Graphology Lifecycle]].
+DocStore monitors the directory while serving. See [[decisions/Graphology Lifecycle]].
 
 **Exclusions:**
 - `.roux/` is always excluded (hardcoded). Prevents infinite loops from cache writes.
@@ -190,7 +190,7 @@ DocStore implements `searchByVector()` (part of [[StoreProvider]] interface) usi
 
 **Future:** sqlite-vec extension for native vector operations. Scales to 100K+ vectors with proper indexing.
 
-See [[Decision - Vector Storage]] for the full rationale on vector search architecture.
+See [[decisions/Vector Storage]] for the full rationale on vector search architecture.
 
 ## Design Decisions
 
@@ -198,7 +198,7 @@ See [[Decision - Vector Storage]] for the full rationale on vector search archit
 
 **Link Resolution:** Match Obsidian behavior. Full path used as ID when disambiguation is needed. Error on true duplicates (same full path after Obsidian's disambiguation) for manual resolution.
 
-**Vector Search:** Brute-force for MVP. The interface (`searchByVector()`) allows swapping to sqlite-vec later without changing callers. See [[Decision - Vector Storage]].
+**Vector Search:** Brute-force for MVP. The interface (`searchByVector()`) allows swapping to sqlite-vec later without changing callers. See [[decisions/Vector Storage]].
 
 ## Usage
 
@@ -295,7 +295,7 @@ See [[Config]] for full schema. DocStore uses `source.path`, `source.include`, `
 - [[Wiki-links]] — How edges are extracted
 - [[Graph Projection]] — The transformation concept
 - [[EmbeddingProvider]] — Generates vectors for semantic search
-- [[Decision - SQLite Schema]] — Cache schema (hybrid: nodes, embeddings, centrality tables)
-- [[Decision - Vector Storage]] — Vector search architecture
-- [[Decision - Graphology Lifecycle]] — Graph construction, file sync, centrality timing
-- [[Decision - Error Output]] — Warning handling during file sync
+- [[decisions/SQLite Schema]] — Cache schema (hybrid: nodes, embeddings, centrality tables)
+- [[decisions/Vector Storage]] — Vector search architecture
+- [[decisions/Graphology Lifecycle]] — Graph construction, file sync, centrality timing
+- [[decisions/Error Output]] — Warning handling during file sync

@@ -17,7 +17,7 @@ Link to block [[Another Note#^blockid]]
 - `[[Note#Heading]]` — fragment stripped, resolves to Note
 - `[[Note#^blockid]]` — fragment stripped, resolves to Note
 
-Fragment support (heading/block links) is deferred. See [[Decision - MVP Scope Clarifications]].
+Fragment support (heading/block links) is deferred. See [[decisions/MVP Scope Clarifications]].
 
 ## How They Become Edges
 
@@ -27,7 +27,7 @@ The link target becomes an edge to that node's ID. Resolution rules below.
 
 ## Resolution Rules
 
-See [[Decision - Node Identity]] for full rationale.
+See [[decisions/Node Identity]] for full rationale.
 
 Target text resolves to a Node ID following Obsidian-compatible rules:
 
@@ -62,7 +62,7 @@ Obsidian shows "backlinks"—this is computed at query time, not stored.
 
 ## Aliases
 
-**Not MVP.** See [[Decision - MVP Scope Clarifications]].
+**Not MVP.** See [[decisions/MVP Scope Clarifications]].
 
 Some systems support aliases:
 ```yaml
@@ -78,4 +78,4 @@ Then `[[ML]]` resolves to this note. DocStore could support this via frontmatter
 - [[DocStore]] — Uses wiki-links for edge extraction
 - [[Graph Projection]] — Wiki-links enable projection
 - [[Node]] — Links become `outgoingLinks` array
-- [[Decision - MVP Scope Clarifications]] — Fragment and alias scope decisions
+- [[decisions/MVP Scope Clarifications]] — Fragment and alias scope decisions

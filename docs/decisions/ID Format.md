@@ -1,13 +1,13 @@
 # Decision - ID Format
 
 **Status:** Decided
-**Affects:** [[Node]], [[Decision - Node Identity]], [[DocStore]], [[Wiki-links]]
+**Affects:** [[Node]], [[decisions/Node Identity]], [[DocStore]], [[Wiki-links]]
 
 ## Part 1: ID Portability (Decided)
 
 ### Problem
 
-The original [[Decision - Node Identity]] spec states that Node.id must "survive migration between any two stores unchanged." This assumes IDs should be portable across all StoreProvider implementations.
+The original [[decisions/Node Identity]] spec states that Node.id must "survive migration between any two stores unchanged." This assumes IDs should be portable across all StoreProvider implementations.
 
 But this creates tension: optimizing IDs for cross-store portability may compromise each store's native performance and functionality.
 
@@ -107,7 +107,7 @@ Multi-format ambiguity (future): if `[[Note]]` matches multiple files, need reso
 ## Related
 
 - [[Decisions]] — Decision hub
-- [[Decision - Node Identity]] — Parent decision
+- [[decisions/Node Identity]] — Parent decision
 - [[Node]] — Data model
 - [[DocStore]] — Implementation
 - [[MCP Server]] — create_node behavior

@@ -28,7 +28,7 @@ This matters immediately for MVP. A file `Research Notes.md` could be referenced
 
 ### Core Principle: Store-Native IDs
 
-See [[Decision - ID Format]] for full rationale.
+See [[decisions/ID Format]] for full rationale.
 
 Each StoreProvider uses IDs optimized for its context. Migrations are transformation jobs that include ID translation. There is no requirement for cross-store ID portability.
 
@@ -103,7 +103,7 @@ MVP targets Obsidian users with existing markdown vaults. Matching Obsidian's li
 
 ## Related
 
-- [[Decision - ID Format]] — ID portability and DocStore format decisions
+- [[decisions/ID Format]] — ID portability and DocStore format decisions
 - [[Decisions]] — Decision hub
 - [[Node]] — Data model
 - [[Wiki-links]] — Link syntax
