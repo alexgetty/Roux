@@ -7,9 +7,9 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 - 50+ architecture docs in `/docs/`
 - 15 major decisions made and documented
 - All interfaces specified (Node, providers, GraphCore, MCP tools, CLI)
-- Phases 1-7 complete: scaffold, types, schemas, DocStore, Graphology, Embedding/Vector, GraphCore
-- 333 tests, 100% coverage
-- Ready for Phase 8: File Watcher
+- Phases 1-9 complete: scaffold, types, schemas, DocStore, Graphology, Embedding/Vector, GraphCore, File Watcher, MCP Server
+- 506 tests, 100% coverage
+- Ready for Phase 10: CLI
 
 ## Success Criteria
 1. `roux init` creates config and `.roux/` cache
@@ -214,7 +214,7 @@ Note: DocStore implements `getRandomNode()` using its internal `getAllNodeIds()`
 
 ---
 
-### Phase 8: File Watcher
+### Phase 8: File Watcher ✓
 **Goal:** Live sync of external file changes. User edits in Obsidian → Roux sees it in <2 seconds.
 
 **Architecture Decision:** Watcher lives inside DocStore, not as a standalone module.
@@ -232,18 +232,18 @@ isWatching(): boolean
 The `onChange` callback notifies the serve layer which nodes changed, enabling re-embedding coordination at the CLI/serve level. DocStore handles cache/graph updates internally; the serve layer handles embedding generation.
 
 **Tasks:**
-- [ ] Add `startWatching()`, `stopWatching()`, `isWatching()` to DocStore
-- [ ] Chokidar integration watching `sourceRoot` for `.md` files
-- [ ] Debounce (1 second) — batches rapid edits, no perceptible delay for users
-- [ ] Add/change/delete event handling:
+- [x] Add `startWatching()`, `stopWatching()`, `isWatching()` to DocStore
+- [x] Chokidar integration watching `sourceRoot` for `.md` files
+- [x] Debounce (1 second) — batches rapid edits, no perceptible delay for users
+- [x] Add/change/delete event handling:
   - `add`: parse file → upsert cache → queue ID
   - `change`: parse file → upsert cache → queue ID
   - `unlink`: delete from cache → delete embedding → queue ID
-- [ ] After debounce: rebuild graph, call `onChange(changedIds)`
-- [ ] Graceful parse failures: if file mid-write (truncated), log warning, skip file, retry on next event
-- [ ] Hardcoded exclusions: `.roux/`, `.git/`, `node_modules/`, `.obsidian/`
-- [ ] Unit tests for watcher lifecycle and event handling
-- [ ] Integration tests with real filesystem events
+- [x] After debounce: rebuild graph, call `onChange(changedIds)`
+- [x] Graceful parse failures: if file mid-write (truncated), log warning, skip file, retry on next event
+- [x] Hardcoded exclusions: `.roux/`, `.git/`, `node_modules/`, `.obsidian/`
+- [x] Unit tests for watcher lifecycle and event handling
+- [x] Integration tests with real filesystem events
 
 **Re-embedding Flow:**
 DocStore does NOT have access to EmbeddingProvider. The serve layer (Phase 10) coordinates re-embedding:
@@ -266,29 +266,86 @@ This keeps DocStore focused on storage/graph and GraphCore/CLI on embedding orch
 
 ---
 
-### Phase 9: MCP Server
-**Goal:** 10 tools exposed via Model Context Protocol
+### Phase 9: MCP Server ✓
+**Goal:** 10 tools exposed via Model Context Protocol over stdio
 
-**Implementation follows Phase 3 tool schemas exactly.**
+**Implementation follows [[MCP Tools Schema]] exactly.**
 
-**Tools to implement:**
-- [ ] `search` - semantic similarity
-- [ ] `get_node` - single node with optional neighbors
-- [ ] `get_neighbors` - adjacent nodes
-- [ ] `find_path` - shortest path
-- [ ] `get_hubs` - most central nodes
-- [ ] `search_by_tags` - filter by tags
-- [ ] `random_node` - discovery
-- [ ] `create_node` - create document
-- [ ] `update_node` - modify document
-- [ ] `delete_node` - remove document
+#### Setup Tasks
+- [x] Install `@modelcontextprotocol/sdk`
+- [x] Scaffold `src/mcp/` directory structure
+- [x] Create MCP server with stdio transport
+- [x] Wire server to accept `GraphCore` instance
 
-**Key files:**
-- `src/mcp/server.ts`
-- `src/mcp/tools/*.ts`
-- `tests/integration/mcp/`
+#### Response Types (implement in `src/mcp/types.ts`)
+- [x] `LinkInfo` — `{ id: string, title: string }`
+- [x] `NodeResponse` — `{ id, title, content, tags, links: LinkInfo[] }`
+- [x] `NodeWithContextResponse` — extends `NodeResponse` with `incomingNeighbors`, `outgoingNeighbors`, `incomingCount`, `outgoingCount`
+- [x] `SearchResultResponse` — extends `NodeResponse` with `score`
+- [x] `HubResponse` — `{ id, title, score }`
+- [x] `PathResponse` — `{ path: string[], length: number }`
+- [x] `ErrorResponse` — `{ error: { code, message } }`
 
-**Dependencies:** Phases 3 (schemas), 7 (GraphCore)
+#### Content Truncation (implement in `src/mcp/truncate.ts`)
+- [x] Primary node: 10,000 chars max
+- [x] List results: 500 chars max
+- [x] Neighbor context: 200 chars max
+- [x] Append `... [truncated]` when truncated
+
+#### Tool Implementations (TDD — tests first)
+
+**Read Operations:**
+- [x] `get_node` — depth=0 returns `NodeResponse`, depth=1 returns `NodeWithContextResponse`
+- [x] `get_neighbors` — direction param (in/out/both), limit param
+- [x] `find_path` — returns `PathResponse | null`
+- [x] `get_hubs` — metric param (in_degree/out_degree), limit param
+- [x] `search_by_tags` — tags array, mode param (any/all), limit param
+- [x] `random_node` — optional tags filter
+
+**Search (requires EmbeddingProvider):**
+- [x] `search` — semantic similarity, returns `SearchResultResponse[]`
+- [x] Dynamic exposure: only register tool if EmbeddingProvider configured
+
+**Write Operations:**
+- [x] `create_node` — title, content, tags, optional directory
+- [x] `update_node` — id required, title/content/tags optional; reject title change if incoming links exist
+- [x] `delete_node` — returns `{ deleted: boolean }`
+
+#### Link Resolution
+- [x] Call `StoreProvider.resolveTitles()` to populate `LinkInfo` with human-readable titles
+- [x] Handle missing titles gracefully (use ID as fallback)
+
+#### Error Handling
+- [x] `INVALID_PARAMS` — schema validation failed
+- [x] `NODE_EXISTS` — create_node on existing node
+- [x] `NODE_NOT_FOUND` — update_node on missing node
+- [x] `LINK_INTEGRITY` — update_node title change rejected (incoming links exist)
+- [x] `PROVIDER_ERROR` — provider operation failed
+- [x] Non-errors: `get_node` missing → `null`, `delete_node` missing → `{ deleted: false }`, `find_path` no path → `null`, empty results → `[]`
+
+#### Phase 9 Decisions (from planning session)
+
+| Decision | Resolution |
+|----------|------------|
+| `get_node` depth=1 neighbors | Split into `incomingNeighbors` and `outgoingNeighbors` arrays |
+| `create_node` directory param | Already supported by DocStore (`mkdir -p` on write) |
+| `update_node` title change | **Reject if incoming links exist** (MVP safe mode per [[roadmap/Link Integrity]]) |
+| `_warnings` field | **Deferred to post-MVP** — no warning accumulation in Phase 9 |
+
+#### Key Files
+- `src/mcp/server.ts` — MCP server setup, tool registration
+- `src/mcp/types.ts` — Response type definitions
+- `src/mcp/truncate.ts` — Content truncation utilities
+- `src/mcp/handlers.ts` — Individual tool handler functions
+- `src/mcp/transforms.ts` — Node to response transformations
+- `tests/unit/mcp/` — Unit tests (68 tests)
+
+#### Test Strategy
+- Unit tests: response type transforms, truncation logic, error mapping, all tool handlers
+- 100% coverage achieved (506 total tests)
+- MCP SDK callback integration deferred to Phase 11 (marked with v8 ignore)
+
+**Dependencies:** Phases 3 (schemas), 7 (GraphCore), 8 (watcher for re-embedding coordination)
 
 ---
 

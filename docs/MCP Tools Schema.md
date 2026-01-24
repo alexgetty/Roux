@@ -52,18 +52,14 @@ Extended response for `get_node` with depth > 0.
 
 ```typescript
 interface NodeWithContextResponse extends NodeResponse {
-  neighbors: NodeResponse[];  // Adjacent nodes (truncated content)
-  incomingCount: number;      // Nodes linking TO this node
-  outgoingCount: number;      // Nodes this links TO
+  incomingNeighbors: NodeResponse[];  // Nodes linking TO this node (truncated content)
+  outgoingNeighbors: NodeResponse[];  // Nodes this links TO (truncated content)
+  incomingCount: number;              // Total nodes linking TO this node
+  outgoingCount: number;              // Total nodes this links TO
 }
 ```
 
-**Requirement:** Implementation must differentiate incoming vs outgoing neighbors in the `neighbors` array. Options:
-1. Split into `incomingNeighbors` / `outgoingNeighbors` arrays
-2. Add `direction: 'in' | 'out'` field to each neighbor
-3. Return neighbors in order: outgoing first, then incoming (with counts as boundaries)
-
-Decision needed during Phase 9 implementation.
+**Note:** `incomingCount` and `outgoingCount` may exceed array lengths due to the 20-neighbor limit per direction.
 
 ### SearchResultResponse
 
@@ -243,7 +239,7 @@ Retrieve single node with optional neighbor context.
   ],
   "incomingCount": 15,
   "outgoingCount": 8,
-  "neighbors": [
+  "outgoingNeighbors": [
     {
       "id": "notes/storeprovider.md",
       "title": "StoreProvider",
@@ -251,6 +247,17 @@ Retrieve single node with optional neighbor context.
       "tags": ["provider"],
       "links": [
         { "id": "notes/node.md", "title": "Node" }
+      ]
+    }
+  ],
+  "incomingNeighbors": [
+    {
+      "id": "notes/architecture.md",
+      "title": "Architecture Overview",
+      "content": "Roux is built around the Grap... [truncated]",
+      "tags": ["overview"],
+      "links": [
+        { "id": "notes/graphcore.md", "title": "GraphCore" }
       ]
     }
   ]
@@ -545,14 +552,12 @@ Update an existing node.
 
 **Note:** At least one of `title`, `content`, or `tags` must be provided.
 
-**⚠️ CRITICAL - Link Integrity:** Renaming `title` changes the file path (ID), which breaks incoming `[[wikilinks]]` from other nodes. This must be handled before MVP ships. Options:
-1. Scan and update all incoming links (expensive but correct)
-2. Reject title changes that would break links (safe but limiting)
-3. Track old→new ID mapping for resolution (complex)
+**⚠️ Link Integrity (MVP Behavior):** Renaming `title` changes the file path (ID), which would break incoming `[[wikilinks]]`. For MVP safety:
+- If node has incoming links, title changes are **rejected** with `LINK_INTEGRITY` error
+- Content and tag updates are always allowed
+- See [[roadmap/Link Integrity]] for post-MVP scan-and-update approach
 
-See [[MVP Implementation Plan]] Phase 9 requirements.
-
-**Error:** Returns error if node doesn't exist.
+**Error:** Returns error if node doesn't exist or if title change would break links.
 
 ---
 
@@ -610,6 +615,7 @@ interface ErrorResponse {
 | `INVALID_PARAMS` | Schema validation failed | Missing required field |
 | `NODE_EXISTS` | create_node on existing node | File already exists |
 | `NODE_NOT_FOUND` | update_node on missing node | ID doesn't exist |
+| `LINK_INTEGRITY` | update_node title change would break links | Node has incoming links |
 | `PROVIDER_ERROR` | Provider operation failed | SQLite error, file permission |
 
 ### Not Errors
@@ -626,27 +632,11 @@ These return successful responses, not errors:
 
 ---
 
-## Warnings
+## Warnings (Post-MVP)
 
-Non-fatal issues are included in a `_warnings` array:
+> **Deferred to post-MVP.** No `_warnings` field in Phase 9 responses.
 
-```json
-{
-  "id": "notes/example.md",
-  "title": "Example",
-  "content": "...",
-  "tags": [],
-  "links": [
-    { "id": "notes/related.md", "title": "Related" }
-  ],
-  "_warnings": [
-    "Broken link: [[missing-note]]",
-    "Duplicate tag ignored: tutorial"
-  ]
-}
-```
-
-Warnings accumulate from file watcher and clear after being returned.
+Future: Non-fatal issues (broken links, parse warnings) will be included in a `_warnings` array. See [[roadmap/Warning System]].
 
 ---
 
