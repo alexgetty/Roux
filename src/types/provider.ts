@@ -67,6 +67,7 @@ export interface VectorProvider {
   search(vector: number[], limit: number): Promise<VectorSearchResult[]>;
   delete(id: string): Promise<void>;
   getModel(id: string): Promise<string | null>;
+  hasEmbedding(id: string): boolean;
 }
 
 export function isVectorProvider(value: unknown): value is VectorProvider {

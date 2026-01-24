@@ -114,6 +114,13 @@ export class SqliteVectorProvider implements VectorProvider {
     return row?.model ?? null;
   }
 
+  hasEmbedding(id: string): boolean {
+    const row = this.db
+      .prepare('SELECT 1 FROM vectors WHERE id = ?')
+      .get(id);
+    return row !== undefined;
+  }
+
   /** For testing: get table names */
   getTableNames(): string[] {
     const rows = this.db
@@ -128,6 +135,14 @@ export class SqliteVectorProvider implements VectorProvider {
       .prepare('SELECT LENGTH(vector) as size FROM vectors WHERE id = ?')
       .get(id) as { size: number } | undefined;
     return row?.size ?? null;
+  }
+
+  /** Get total number of stored embeddings */
+  getEmbeddingCount(): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) as count FROM vectors')
+      .get() as { count: number };
+    return row.count;
   }
 
   close(): void {

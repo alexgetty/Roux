@@ -8,7 +8,8 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 - 15 major decisions made and documented
 - All interfaces specified (Node, providers, GraphCore, MCP tools, CLI)
 - Phases 1-9 complete: scaffold, types, schemas, DocStore, Graphology, Embedding/Vector, GraphCore, File Watcher, MCP Server
-- 506 tests, 100% coverage
+- 517 tests, 100% coverage
+- Outstanding MCP layer issues documented in `docs/issues/MCP Layer Gaps.md` (to be fixed in Phase 10)
 - Ready for Phase 10: CLI
 
 ## Success Criteria
@@ -350,29 +351,80 @@ This keeps DocStore focused on storage/graph and GraphCore/CLI on embedding orch
 ---
 
 ### Phase 10: CLI
-**Goal:** Four commands for user interaction
+**Goal:** Four commands for user interaction + fix outstanding MCP layer issues
 
-**Commands:**
-- [ ] `roux init <directory>` - create config and cache
-- [ ] `roux serve` - start MCP server with file watching
-- [ ] `roux serve --no-watch` - start without watching
-- [ ] `roux status` - show stats (nodes, edges, cache freshness)
-- [ ] `roux viz` - generate static HTML graph visualization for QA
+**Framework:** Commander.js
 
-**Key files:**
-- `src/cli/index.ts`
+#### MCP Layer Fixes (from Phase 9 red-team)
+Address issues from `docs/issues/MCP Layer Gaps.md` as part of this phase:
+
+- [ ] `sanitizeFilename` empty result → return `"untitled"` fallback
+- [ ] Type assertions without validation → add runtime checks for `direction`, `metric`, `mode`
+- [ ] String limit coercion → add explicit `Number()` coercion
+- [ ] Missing test coverage gaps (see issue doc for specifics)
+
+#### Commands
+
+**`roux init <directory>`**
+- [ ] Create `roux.yaml` with minimal defaults
+- [ ] Create `.roux/` directory
+- [ ] No-op if already initialized (print config location)
+- [ ] Validate directory exists
+
+**`roux serve`**
+- [ ] Fail fast if not initialized (no `roux.yaml`)
+- [ ] Load config, instantiate providers via `GraphCore.fromConfig()`
+- [ ] Build/sync cache (parse files, store in SQLite)
+- [ ] Generate embeddings for nodes missing them
+- [ ] **Progress indicator** — required for embedding generation (can be hundreds of files)
+- [ ] Start MCP server (stdio transport)
+- [ ] Start file watcher, wire `onChange` to re-embed changed nodes
+- [ ] `--no-watch` flag disables file watching
+- [ ] Graceful shutdown on SIGINT/SIGTERM
+
+**`roux status`**
+- [ ] Node count
+- [ ] Edge count
+- [ ] Cache freshness (last sync time)
+- [ ] Embedding coverage (nodes with/without embeddings)
+- [ ] Fail gracefully if not initialized
+
+**`roux viz`**
+- [ ] Generate static HTML with D3 force-directed graph
+- [ ] Output to `.roux/graph.html` by default
+- [ ] `--output <path>` flag for custom location
+- [ ] `--open` flag to open in browser after generation
+- [ ] Node size by in-degree, color by tag (if tagged)
+
+#### Key Files
+- `src/cli/index.ts` — Commander setup, command registration
 - `src/cli/commands/init.ts`
 - `src/cli/commands/serve.ts`
 - `src/cli/commands/status.ts`
 - `src/cli/commands/viz.ts`
-- `tests/integration/cli/`
+- `src/cli/progress.ts` — Progress indicator utilities
+- `tests/unit/cli/` — Unit tests for command logic
+- `tests/integration/cli/` — Integration tests
 
-**Visualization notes:**
-- Static HTML output (force-directed graph via d3/sigma/vis.js)
-- Opens in browser or outputs to file
+#### Progress Indicator
+`roux serve` on first run generates embeddings for all nodes. With 200+ files, this takes time. User must see progress.
+
+Options:
+- Simple: `[12/200] Generating embeddings...`
+- Fancy: Progress bar with ETA
+
+Decision: Start simple, upgrade if needed.
+
+#### Visualization Notes
+- D3 force-directed layout
+- Static HTML (no server required to view)
+- Nodes: circles sized by in-degree
+- Edges: lines with arrows showing direction
+- Hover: show node title
+- Click: (future) open in Obsidian
 - Future: live visualization in `roux serve` (see [[roadmap/Serve Visualization]])
 
-**Dependencies:** Phases 7, 8, 9 (viz only needs Phase 5)
+**Dependencies:** Phases 7, 8, 9
 
 ---
 
@@ -442,6 +494,9 @@ Phase 11 (Integration)
 | Config loading | CLI loads `roux.yaml`, passes `RouxConfig` to `GraphCore.fromConfig()`. GraphCore never touches filesystem. |
 | Score conversion | `searchByVector()` returns distance; GraphCore converts to similarity score (0-1, higher=better) |
 | Phase 7 tests | Unit tests with mocked providers. Integration tests deferred to Phase 11. |
+| CLI framework | Commander.js — familiar, minimal, boring, works |
+| Visualization | D3 force-directed graph. Static HTML output. |
+| Progress | Required for `roux serve` embedding generation. Simple counter format: `[12/200] Generating embeddings...` |
 
 ---
 

@@ -25,6 +25,17 @@ export interface HandlerContext {
   hasEmbedding: boolean;
 }
 
+function coerceLimit(value: unknown, defaultValue: number): number {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return defaultValue;
+  }
+  return Math.floor(num);
+}
+
 export type ToolResult =
   | NodeResponse
   | NodeWithContextResponse
@@ -44,7 +55,7 @@ export async function handleSearch(
   }
 
   const query = args.query;
-  const limit = (args.limit as number) ?? 10;
+  const limit = coerceLimit(args.limit, 10);
 
   if (typeof query !== 'string' || query.trim() === '') {
     throw new McpError('INVALID_PARAMS', 'query is required and must be a non-empty string');
@@ -90,17 +101,27 @@ export async function handleGetNode(
   return nodeToContextResponse(node, incomingNeighbors, outgoingNeighbors, ctx.store);
 }
 
+const VALID_DIRECTIONS = ['in', 'out', 'both'] as const;
+
 export async function handleGetNeighbors(
   ctx: HandlerContext,
   args: Record<string, unknown>
 ): Promise<NodeResponse[]> {
   const id = args.id as string;
-  const direction = (args.direction as 'in' | 'out' | 'both') ?? 'both';
-  const limit = (args.limit as number) ?? 20;
+  const directionRaw = args.direction ?? 'both';
+  const limit = coerceLimit(args.limit, 20);
 
   if (!id || typeof id !== 'string') {
     throw new McpError('INVALID_PARAMS', 'id is required and must be a string');
   }
+
+  if (!VALID_DIRECTIONS.includes(directionRaw as (typeof VALID_DIRECTIONS)[number])) {
+    throw new McpError(
+      'INVALID_PARAMS',
+      `direction must be one of: ${VALID_DIRECTIONS.join(', ')}`
+    );
+  }
+  const direction = directionRaw as 'in' | 'out' | 'both';
 
   const neighbors = await ctx.core.getNeighbors(id, { direction, limit });
   return nodesToResponses(neighbors, ctx.store, 'list');
@@ -128,24 +149,36 @@ export async function handleFindPath(
   return pathToResponse(path);
 }
 
+const VALID_METRICS = ['pagerank', 'in_degree', 'out_degree'] as const;
+
 export async function handleGetHubs(
   ctx: HandlerContext,
   args: Record<string, unknown>
 ): Promise<HubResponse[]> {
-  const metric = (args.metric as Metric) ?? 'in_degree';
-  const limit = (args.limit as number) ?? 10;
+  const metricRaw = args.metric ?? 'in_degree';
+  const limit = coerceLimit(args.limit, 10);
+
+  if (!VALID_METRICS.includes(metricRaw as Metric)) {
+    throw new McpError(
+      'INVALID_PARAMS',
+      `metric must be one of: ${VALID_METRICS.join(', ')}`
+    );
+  }
+  const metric = metricRaw as Metric;
 
   const hubs = await ctx.core.getHubs(metric, limit);
   return hubsToResponses(hubs, ctx.store);
 }
+
+const VALID_TAG_MODES = ['any', 'all'] as const;
 
 export async function handleSearchByTags(
   ctx: HandlerContext,
   args: Record<string, unknown>
 ): Promise<NodeResponse[]> {
   const tags = args.tags;
-  const mode = (args.mode as TagMode) ?? 'any';
-  const limit = (args.limit as number) ?? 20;
+  const modeRaw = args.mode ?? 'any';
+  const limit = coerceLimit(args.limit, 20);
 
   if (!Array.isArray(tags) || tags.length === 0) {
     throw new McpError('INVALID_PARAMS', 'tags is required and must be a non-empty array');
@@ -156,6 +189,14 @@ export async function handleSearchByTags(
     throw new McpError('INVALID_PARAMS', 'tags must contain only strings');
   }
 
+  if (!VALID_TAG_MODES.includes(modeRaw as TagMode)) {
+    throw new McpError(
+      'INVALID_PARAMS',
+      `mode must be one of: ${VALID_TAG_MODES.join(', ')}`
+    );
+  }
+  const mode = modeRaw as TagMode;
+
   const nodes = await ctx.core.searchByTags(tags, mode, limit);
   return nodesToResponses(nodes, ctx.store, 'list');
 }
@@ -164,9 +205,15 @@ export async function handleRandomNode(
   ctx: HandlerContext,
   args: Record<string, unknown>
 ): Promise<NodeResponse | null> {
-  const tags = args.tags as string[] | undefined;
+  const tags = args.tags;
 
-  const node = await ctx.core.getRandomNode(tags);
+  if (tags !== undefined) {
+    if (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string')) {
+      throw new McpError('INVALID_PARAMS', 'tags must contain only strings');
+    }
+  }
+
+  const node = await ctx.core.getRandomNode(tags as string[] | undefined);
   if (!node) {
     return null;
   }
@@ -180,7 +227,7 @@ export async function handleCreateNode(
 ): Promise<NodeResponse> {
   const title = args.title as string;
   const content = args.content as string;
-  const tags = (args.tags as string[]) ?? [];
+  const tagsRaw = args.tags;
   const directory = args.directory as string | undefined;
 
   if (!title || typeof title !== 'string') {
@@ -188,6 +235,14 @@ export async function handleCreateNode(
   }
   if (!content || typeof content !== 'string') {
     throw new McpError('INVALID_PARAMS', 'content is required and must be a string');
+  }
+
+  let tags: string[] = [];
+  if (tagsRaw !== undefined) {
+    if (!Array.isArray(tagsRaw) || !tagsRaw.every((t) => typeof t === 'string')) {
+      throw new McpError('INVALID_PARAMS', 'tags must contain only strings');
+    }
+    tags = tagsRaw;
   }
 
   const filename = sanitizeFilename(title) + '.md';
@@ -215,17 +270,25 @@ export async function handleUpdateNode(
   const id = args.id as string;
   const title = args.title as string | undefined;
   const content = args.content as string | undefined;
-  const tags = args.tags as string[] | undefined;
+  const tagsRaw = args.tags;
 
   if (!id || typeof id !== 'string') {
     throw new McpError('INVALID_PARAMS', 'id is required and must be a string');
   }
 
-  if (title === undefined && content === undefined && tags === undefined) {
+  if (title === undefined && content === undefined && tagsRaw === undefined) {
     throw new McpError(
       'INVALID_PARAMS',
       'At least one of title, content, or tags must be provided'
     );
+  }
+
+  let tags: string[] | undefined;
+  if (tagsRaw !== undefined) {
+    if (!Array.isArray(tagsRaw) || !tagsRaw.every((t) => typeof t === 'string')) {
+      throw new McpError('INVALID_PARAMS', 'tags must contain only strings');
+    }
+    tags = tagsRaw;
   }
 
   const existing = await ctx.core.getNode(id);
@@ -267,12 +330,14 @@ export async function handleDeleteNode(
 }
 
 export function sanitizeFilename(title: string): string {
-  return title
+  const sanitized = title
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
-    .trim();
+    .replace(/^-+|-+$/g, '');
+
+  return sanitized || 'untitled';
 }
 
 export async function dispatchTool(

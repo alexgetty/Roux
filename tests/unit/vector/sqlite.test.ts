@@ -62,6 +62,36 @@ describe('SqliteVectorProvider', () => {
       const model = await provider.getModel('doc1');
       expect(model).toBe('model-v2');
     });
+
+    it('concurrent stores to same id are atomic (exactly one entry survives)', async () => {
+      // Trigger near-simultaneous writes
+      await Promise.all([
+        provider.store('concurrent', [1, 0, 0], 'model-first'),
+        provider.store('concurrent', [0, 1, 0], 'model-second'),
+      ]);
+
+      // Should have exactly one entry (atomicity)
+      const model = await provider.getModel('concurrent');
+      expect(model).toBeDefined();
+
+      // Verify search returns consistent state (only one vector)
+      const results = await provider.search([1, 0, 0], 10);
+      const concurrentResults = results.filter((r) => r.id === 'concurrent');
+      expect(concurrentResults).toHaveLength(1);
+
+      // Verify model and vector are consistent (from the same write)
+      // If model is 'model-first', vector should be [1,0,0] (distance ~0 from query)
+      // If model is 'model-second', vector should be [0,1,0] (distance ~1 from query)
+      const distance = concurrentResults[0]!.distance;
+      if (model === 'model-first') {
+        // Vector [1,0,0] vs query [1,0,0] = distance 0
+        expect(distance).toBeCloseTo(0, 5);
+      } else {
+        // Vector [0,1,0] vs query [1,0,0] = distance 1 (orthogonal)
+        expect(model).toBe('model-second');
+        expect(distance).toBeCloseTo(1, 5);
+      }
+    });
   });
 
   describe('search', () => {
@@ -114,6 +144,36 @@ describe('SqliteVectorProvider', () => {
 
       expect(results).toHaveLength(2);
       expect(results[0]!.id).toBe('sin');
+      expect(results[0]!.distance).toBeCloseTo(0, 5);
+    });
+
+    it('handles 768-dimensional vectors (BERT)', async () => {
+      const dim = 768;
+      const v1 = new Array(dim).fill(0).map((_, i) => Math.sin(i * 0.01));
+      const v2 = new Array(dim).fill(0).map((_, i) => Math.cos(i * 0.01));
+
+      await provider.store('bert1', v1, 'bert-model');
+      await provider.store('bert2', v2, 'bert-model');
+
+      const results = await provider.search(v1, 10);
+
+      expect(results).toHaveLength(2);
+      expect(results[0]!.id).toBe('bert1');
+      expect(results[0]!.distance).toBeCloseTo(0, 5);
+    });
+
+    it('handles 1536-dimensional vectors (OpenAI)', async () => {
+      const dim = 1536;
+      const v1 = new Array(dim).fill(0).map((_, i) => Math.sin(i * 0.005));
+      const v2 = new Array(dim).fill(0).map((_, i) => Math.cos(i * 0.005));
+
+      await provider.store('openai1', v1, 'text-embedding-ada-002');
+      await provider.store('openai2', v2, 'text-embedding-ada-002');
+
+      const results = await provider.search(v1, 10);
+
+      expect(results).toHaveLength(2);
+      expect(results[0]!.id).toBe('openai1');
       expect(results[0]!.distance).toBeCloseTo(0, 5);
     });
   });
@@ -176,6 +236,29 @@ describe('SqliteVectorProvider', () => {
 
         const model = await provider.getModel('a');
         expect(model).toBe('model-v2');
+      });
+
+      it('search works after overwriting with different dimensions', async () => {
+        // Store ID "a" with 3-dim, overwrite with 5-dim, store ID "b" with 5-dim
+        await provider.store('a', [0.1, 0.2, 0.3], 'model-v1');
+        await provider.store('a', [0.1, 0.2, 0.3, 0.4, 0.5], 'model-v2');
+        await provider.store('b', [0.2, 0.3, 0.4, 0.5, 0.6], 'model-v2');
+
+        // Search with 5-dim query should work
+        const results = await provider.search([0.1, 0.2, 0.3, 0.4, 0.5], 10);
+
+        expect(results).toHaveLength(2);
+        expect(results[0]!.id).toBe('a');
+        expect(results[0]!.distance).toBeCloseTo(0, 5);
+      });
+
+      it('throws dimension mismatch when searching with old dimensions after overwrite', async () => {
+        // Store ID "a" with 3-dim, overwrite with 5-dim
+        await provider.store('a', [0.1, 0.2, 0.3], 'model-v1');
+        await provider.store('a', [0.1, 0.2, 0.3, 0.4, 0.5], 'model-v2');
+
+        // Search with 3-dim query should throw - current dimension is 5
+        await expect(provider.search([0.1, 0.2, 0.3], 10)).rejects.toThrow(/dimension/i);
       });
 
       it('allows storing after all vectors deleted', async () => {
@@ -300,6 +383,23 @@ describe('SqliteVectorProvider', () => {
       expect(model).toBe('model');
 
       providerWithDb.close();
+    });
+  });
+
+  describe('hasEmbedding', () => {
+    it('returns false for non-existent id', () => {
+      expect(provider.hasEmbedding('nonexistent')).toBe(false);
+    });
+
+    it('returns true for stored embedding', async () => {
+      await provider.store('doc1', [0.1, 0.2, 0.3], 'test-model');
+      expect(provider.hasEmbedding('doc1')).toBe(true);
+    });
+
+    it('returns false after embedding is deleted', async () => {
+      await provider.store('doc1', [0.1, 0.2, 0.3], 'test-model');
+      await provider.delete('doc1');
+      expect(provider.hasEmbedding('doc1')).toBe(false);
     });
   });
 });

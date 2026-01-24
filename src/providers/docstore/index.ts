@@ -248,6 +248,10 @@ export class DocStore implements StoreProvider {
     return this.vectorProvider.search(vector, limit);
   }
 
+  hasEmbedding(id: string): boolean {
+    return this.vectorProvider.hasEmbedding(id);
+  }
+
   close(): void {
     this.stopWatching();
     this.cache.close();
@@ -256,23 +260,27 @@ export class DocStore implements StoreProvider {
     }
   }
 
-  startWatching(onChange?: (changedIds: string[]) => void): void {
+  startWatching(onChange?: (changedIds: string[]) => void): Promise<void> {
     if (this.watcher) {
       throw new Error('Already watching. Call stopWatching() first.');
     }
 
     this.onChangeCallback = onChange;
-    this.watcher = watch(this.sourceRoot, {
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 100,
-      },
-    });
 
-    this.watcher
-      .on('add', (path) => this.queueChange(path, 'add'))
-      .on('change', (path) => this.queueChange(path, 'change'))
-      .on('unlink', (path) => this.queueChange(path, 'unlink'));
+    return new Promise((resolve) => {
+      this.watcher = watch(this.sourceRoot, {
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+        },
+      });
+
+      this.watcher
+        .on('ready', () => resolve())
+        .on('add', (path) => this.queueChange(path, 'add'))
+        .on('change', (path) => this.queueChange(path, 'change'))
+        .on('unlink', (path) => this.queueChange(path, 'unlink'));
+    });
   }
 
   stopWatching(): void {

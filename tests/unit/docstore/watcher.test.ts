@@ -31,15 +31,30 @@ function getMockWatcher() {
   return mock.__mockWatcher;
 }
 
-function triggerEvent(event: string, path: string) {
+function triggerEvent(event: string, path?: string) {
   const mockWatcher = getMockWatcher();
   const onCalls = mockWatcher.on.mock.calls;
   const handler = onCalls.find((call: unknown[]) => call[0] === event)?.[1] as
-    | ((path: string) => void)
+    | ((path?: string) => void)
     | undefined;
   if (handler) {
     handler(path);
   }
+}
+
+// Trigger 'ready' event to resolve startWatching promise
+function triggerReady() {
+  triggerEvent('ready');
+}
+
+// Helper to start watching and wait for ready in one step
+async function startWatchingAndReady(
+  store: DocStore,
+  onChange?: (changedIds: string[]) => void
+): Promise<void> {
+  const promise = store.startWatching(onChange);
+  triggerReady();
+  await promise;
 }
 
 describe('DocStore File Watcher', () => {
@@ -112,16 +127,38 @@ describe('DocStore File Watcher', () => {
       expect(() => store.startWatching()).toThrow(/already watching/i);
     });
 
-    it('registers handlers for add, change, and unlink events', () => {
+    it('registers handlers for ready, add, change, and unlink events', () => {
       store.startWatching();
       const mockWatcher = getMockWatcher();
 
       const registeredEvents = mockWatcher.on.mock.calls.map(
         (call: unknown[]) => call[0]
       );
+      expect(registeredEvents).toContain('ready');
       expect(registeredEvents).toContain('add');
       expect(registeredEvents).toContain('change');
       expect(registeredEvents).toContain('unlink');
+    });
+
+    it('returns promise that resolves when ready event fires', async () => {
+      const promise = store.startWatching();
+
+      // Promise should be pending until ready fires
+      let resolved = false;
+      promise.then(() => {
+        resolved = true;
+      });
+
+      // Not resolved yet
+      await Promise.resolve(); // Flush microtasks
+      expect(resolved).toBe(false);
+
+      // Trigger ready
+      triggerReady();
+
+      // Now it should resolve
+      await promise;
+      expect(resolved).toBe(true);
     });
 
     it('accepts optional onChange callback', async () => {
@@ -526,8 +563,11 @@ describe('DocStore File Watcher', () => {
 
       await vi.waitFor(
         () => {
-          // Warning should have been logged
-          expect(consoleSpy).toHaveBeenCalled();
+          // Warning should have been logged with useful info
+          expect(consoleSpy).toHaveBeenCalledWith(
+            expect.stringContaining('nonexistent.md'),
+            expect.anything()
+          );
           // Batch should continue with valid file
           expect(onChange).toHaveBeenCalledWith(expect.arrayContaining(['valid.md']));
         },
@@ -629,20 +669,35 @@ describe('DocStore File Watcher', () => {
 
       await vi.waitFor(
         async () => {
-          // Graph should be rebuilt - b should be reachable from a
-          const neighbors = await store.getNeighbors('a.md', { direction: 'out' });
-          expect(neighbors.map((n) => n.id)).toContain('b.md');
+          // Graph should be rebuilt - verify bidirectional edge relationships
+          // 1. b should be reachable from a (outgoing from source)
+          const outgoing = await store.getNeighbors('a.md', { direction: 'out' });
+          expect(outgoing.map((n) => n.id)).toContain('b.md');
+
+          // 2. a should be in b's incoming neighbors (incoming to target)
+          const incoming = await store.getNeighbors('b.md', { direction: 'in' });
+          expect(incoming.map((n) => n.id)).toContain('a.md');
         },
         { timeout: 2000 }
       );
     });
 
     it('deletes embedding from vector store on unlink', async () => {
+      // Track whether embedding exists via stateful mock
+      const embeddingState = new Map<string, boolean>();
+
       const mockVector = {
-        store: vi.fn().mockResolvedValue(undefined),
+        store: vi.fn().mockImplementation(async (id: string) => {
+          embeddingState.set(id, true);
+        }),
         search: vi.fn().mockResolvedValue([]),
-        delete: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockImplementation(async (id: string) => {
+          embeddingState.delete(id);
+        }),
         getModel: vi.fn().mockResolvedValue(null),
+        hasEmbedding: vi.fn().mockImplementation((id: string) => {
+          return embeddingState.has(id);
+        }),
       };
 
       const customCacheDir = join(tempDir, 'vector-test-cache');
@@ -651,12 +706,19 @@ describe('DocStore File Watcher', () => {
       await writeMarkdownFile('with-embedding.md', '# Has embedding');
       await customStore.sync();
 
+      // Simulate that an embedding was stored for this file
+      // (DocStore.sync doesn't store embeddings - that's done by embedding provider)
+      embeddingState.set('with-embedding.md', true);
+      expect(mockVector.hasEmbedding('with-embedding.md')).toBe(true);
+
       customStore.startWatching();
       triggerEvent('unlink', join(sourceDir, 'with-embedding.md'));
 
       await vi.waitFor(
         () => {
           expect(mockVector.delete).toHaveBeenCalledWith('with-embedding.md');
+          // Verify embedding is actually gone, not just that delete was called
+          expect(mockVector.hasEmbedding('with-embedding.md')).toBe(false);
         },
         { timeout: 2000 }
       );

@@ -13,6 +13,8 @@ roux init <directory>     # Install Roux in project (creates roux.yaml, .roux/)
 roux serve                # Start MCP server (stdio transport, with file watching)
 roux serve --no-watch     # Start without file watching
 roux status               # Show stats: node count, edge count, cache freshness
+roux viz                  # Generate static HTML graph visualization
+roux viz --open           # Generate and open in browser
 ```
 
 ## Workflow
@@ -33,6 +35,24 @@ See [[decisions/CLI Workflow]].
 First `serve` after `init` is slower (building cache, generating embeddings). Subsequent runs are fast.
 
 **Transport:** stdio — Claude Code spawns it as a subprocess. See [[decisions/MCP Transport]].
+
+## Visualization
+
+`roux viz` generates a static HTML file with a D3 force-directed graph.
+
+```bash
+roux viz                  # Output to .roux/graph.html
+roux viz --output path    # Custom output location
+roux viz --open           # Open in browser after generation
+```
+
+**Graph features:**
+- Nodes sized by in-degree (hubs are larger)
+- Edges with directional arrows
+- Hover to see node title
+- Pan and zoom
+
+Future: live visualization in `roux serve` (see [[roadmap/Serve Visualization]])
 
 ## Future Commands
 
@@ -73,7 +93,9 @@ roux health               # Graph health check
 
 ## Implementation Notes
 
-Built with standard Node.js CLI patterns. Commands map to [[GraphCore]] operations.
+Built with Commander.js. Commands map to [[GraphCore]] operations.
+
+**Progress indicator:** `roux serve` on first run generates embeddings for all nodes. Progress is required: `[12/200] Generating embeddings...`
 
 Command structure can evolve (add commands freely). Changing existing command signatures requires migration guidance.
 

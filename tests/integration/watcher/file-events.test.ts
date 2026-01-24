@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DocStore } from '../../../src/providers/docstore/index.js';
+import { SqliteVectorProvider } from '../../../src/providers/vector/index.js';
 
 describe('File Watcher Integration', () => {
   let tempDir: string;
@@ -40,10 +41,7 @@ describe('File Watcher Integration', () => {
   describe('real filesystem watching', () => {
     it('detects new file and adds to cache', async () => {
       const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      // Give chokidar time to initialize
-      await new Promise((r) => setTimeout(r, 200));
+      await store.startWatching(onChange);
 
       // Create new file
       await writeMarkdownFile('new-note.md', '---\ntitle: New Note\n---\nContent');
@@ -65,7 +63,7 @@ describe('File Watcher Integration', () => {
       await store.sync();
 
       const onChange = vi.fn();
-      store.startWatching(onChange);
+      await store.startWatching(onChange);
 
       // Modify file
       await writeMarkdownFile('existing.md', '---\ntitle: Updated\n---\nNew content');
@@ -75,7 +73,7 @@ describe('File Watcher Integration', () => {
           const node = await store.getNode('existing.md');
           expect(node?.title).toBe('Updated');
         },
-        { timeout: 5000 }
+        { timeout: 8000 }
       );
 
       expect(onChange).toHaveBeenCalled();
@@ -88,10 +86,7 @@ describe('File Watcher Integration', () => {
       expect(await store.getNode('to-delete.md')).not.toBeNull();
 
       const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      // Give chokidar time to initialize
-      await new Promise((r) => setTimeout(r, 200));
+      await store.startWatching(onChange);
 
       // Delete file
       await unlink(filePath);
@@ -111,7 +106,7 @@ describe('File Watcher Integration', () => {
       await store.sync();
 
       const onChange = vi.fn();
-      store.startWatching(onChange);
+      await store.startWatching(onChange);
 
       // Rapid edits
       await writeMarkdownFile('rapid.md', '---\ntitle: V2\n---\nContent');
@@ -128,13 +123,16 @@ describe('File Watcher Integration', () => {
         { timeout: 5000 }
       );
 
-      // Should be called once (batched) or a few times but with final state correct
-      expect(onChange).toHaveBeenCalled();
+      // Batching should limit calls - at most 3 (one per debounce window reset)
+      // Ideally batched into 1 call, but filesystem timing may cause 2-3
+      const callCount = onChange.mock.calls.length;
+      expect(callCount).toBeGreaterThanOrEqual(1);
+      expect(callCount).toBeLessThanOrEqual(3);
     });
 
     it('handles transient files (create then delete quickly)', async () => {
       const onChange = vi.fn();
-      store.startWatching(onChange);
+      await store.startWatching(onChange);
 
       // Also create a persistent file to verify watcher is working
       await writeMarkdownFile('persistent.md', '# Persistent');
@@ -165,7 +163,7 @@ describe('File Watcher Integration', () => {
       let neighbors = await store.getNeighbors('source.md', { direction: 'out' });
       expect(neighbors.map((n) => n.id)).not.toContain('target.md');
 
-      store.startWatching();
+      await store.startWatching();
 
       // Add link to target
       await writeMarkdownFile('source.md', '---\ntitle: Source\n---\nLink to [[target]]');
@@ -181,7 +179,7 @@ describe('File Watcher Integration', () => {
 
     it('ignores non-markdown files', async () => {
       const onChange = vi.fn();
-      store.startWatching(onChange);
+      await store.startWatching(onChange);
 
       // Create non-md files
       await writeFile(join(sourceDir, 'image.png'), Buffer.from('fake png'));
@@ -204,7 +202,7 @@ describe('File Watcher Integration', () => {
 
     it('ignores .obsidian directory', async () => {
       const onChange = vi.fn();
-      store.startWatching(onChange);
+      await store.startWatching(onChange);
 
       // Create files in .obsidian
       await mkdir(join(sourceDir, '.obsidian'), { recursive: true });
@@ -225,10 +223,7 @@ describe('File Watcher Integration', () => {
     });
 
     it('handles deeply nested directories', async () => {
-      store.startWatching();
-
-      // Give chokidar time to initialize
-      await new Promise((r) => setTimeout(r, 200));
+      await store.startWatching();
 
       await writeMarkdownFile('a/b/c/d/deep.md', '---\ntitle: Deep\n---\nContent');
 
@@ -240,6 +235,43 @@ describe('File Watcher Integration', () => {
         },
         { timeout: 8000 }
       );
+    });
+
+    it('cleans up vector embedding when file is deleted', async () => {
+      // Create a separate store with explicit vector provider to verify embedding cleanup
+      const vectorCacheDir = join(tempDir, 'vector-cache');
+      await mkdir(vectorCacheDir, { recursive: true });
+      const vectorProvider = new SqliteVectorProvider(vectorCacheDir);
+      const storeWithVector = new DocStore(sourceDir, cacheDir, vectorProvider);
+
+      // Create file and sync to populate cache
+      const filePath = await writeMarkdownFile(
+        'with-embedding.md',
+        '---\ntitle: With Embedding\n---\nContent for embedding'
+      );
+      await storeWithVector.sync();
+
+      // Store an embedding for this file
+      await vectorProvider.store('with-embedding.md', [0.1, 0.2, 0.3], 'test-model');
+      expect(vectorProvider.hasEmbedding('with-embedding.md')).toBe(true);
+
+      await storeWithVector.startWatching();
+
+      // Delete the file
+      await unlink(filePath);
+
+      await vi.waitFor(
+        async () => {
+          // Node should be removed from cache
+          expect(await storeWithVector.getNode('with-embedding.md')).toBeNull();
+          // Embedding should also be cleaned up
+          expect(vectorProvider.hasEmbedding('with-embedding.md')).toBe(false);
+        },
+        { timeout: 8000 }
+      );
+
+      storeWithVector.close();
+      vectorProvider.close();
     });
   });
 });

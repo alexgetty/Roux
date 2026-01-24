@@ -296,6 +296,27 @@ export class Cache {
     };
   }
 
+  getStats(): { nodeCount: number; embeddingCount: number; edgeCount: number } {
+    const nodeCount = this.db
+      .prepare('SELECT COUNT(*) as count FROM nodes')
+      .get() as { count: number };
+
+    const embeddingCount = this.db
+      .prepare('SELECT COUNT(*) as count FROM embeddings')
+      .get() as { count: number };
+
+    // Sum all in_degree values to get edge count
+    const edgeSum = this.db
+      .prepare('SELECT SUM(in_degree) as total FROM centrality')
+      .get() as { total: number | null };
+
+    return {
+      nodeCount: nodeCount.count,
+      embeddingCount: embeddingCount.count,
+      edgeCount: edgeSum.total ?? 0,
+    };
+  }
+
   clear(): void {
     this.db.exec('DELETE FROM centrality');
     this.db.exec('DELETE FROM embeddings');

@@ -148,6 +148,44 @@ describe('handleSearch', () => {
 
     expect(ctx.core.search).toHaveBeenCalledWith('test', { limit: 10 });
   });
+
+  it('coerces string limit to number', async () => {
+    const ctx = createContext();
+    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await handleSearch(ctx, { query: 'test', limit: '5' });
+
+    expect(ctx.core.search).toHaveBeenCalledWith('test', { limit: 5 });
+  });
+
+  it('floors float limit to integer', async () => {
+    const ctx = createContext();
+    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await handleSearch(ctx, { query: 'test', limit: 5.7 });
+
+    expect(ctx.core.search).toHaveBeenCalledWith('test', { limit: 5 });
+  });
+
+  it('uses default limit for non-numeric string', async () => {
+    const ctx = createContext();
+    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await handleSearch(ctx, { query: 'test', limit: 'abc' });
+
+    expect(ctx.core.search).toHaveBeenCalledWith('test', { limit: 10 });
+  });
+
+  it('coerces negative string limit to negative number', async () => {
+    const ctx = createContext();
+    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await handleSearch(ctx, { query: 'test', limit: '-5' });
+
+    // Documents current behavior: negative strings coerce to negative numbers
+    // The underlying provider handles negative limits by returning empty array
+    expect(ctx.core.search).toHaveBeenCalledWith('test', { limit: -5 });
+  });
 });
 
 describe('handleGetNode', () => {
@@ -208,6 +246,36 @@ describe('handleGetNode', () => {
 
     expect(result).not.toHaveProperty('incomingNeighbors');
   });
+
+  it('truncates neighbors to max 20 in context response', async () => {
+    const node = createNode();
+    // Create 25 incoming and 30 outgoing neighbors
+    const incoming = Array.from({ length: 25 }, (_, i) =>
+      createNode({ id: `in-${i}.md`, title: `Incoming ${i}` })
+    );
+    const outgoing = Array.from({ length: 30 }, (_, i) =>
+      createNode({ id: `out-${i}.md`, title: `Outgoing ${i}` })
+    );
+    const ctx = createContext();
+    (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(node);
+    (ctx.core.getNeighbors as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(incoming)
+      .mockResolvedValueOnce(outgoing);
+
+    const result = await handleGetNode(ctx, { id: 'test.md', depth: 1 });
+
+    // Response should truncate neighbors to 20 but report full counts
+    const contextResult = result as {
+      incomingNeighbors: unknown[];
+      outgoingNeighbors: unknown[];
+      incomingCount: number;
+      outgoingCount: number;
+    };
+    expect(contextResult.incomingNeighbors).toHaveLength(20);
+    expect(contextResult.outgoingNeighbors).toHaveLength(20);
+    expect(contextResult.incomingCount).toBe(25);
+    expect(contextResult.outgoingCount).toBe(30);
+  });
 });
 
 describe('handleGetNeighbors', () => {
@@ -253,6 +321,28 @@ describe('handleGetNeighbors', () => {
       code: 'INVALID_PARAMS',
     });
   });
+
+  it('throws INVALID_PARAMS for invalid direction', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleGetNeighbors(ctx, { id: 'test.md', direction: 'sideways' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('direction'),
+    });
+  });
+
+  it('propagates unexpected errors from core.getNeighbors', async () => {
+    const ctx = createContext();
+    (ctx.core.getNeighbors as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Database connection failed')
+    );
+
+    await expect(handleGetNeighbors(ctx, { id: 'test.md' })).rejects.toThrow(
+      'Database connection failed'
+    );
+  });
 });
 
 describe('handleFindPath', () => {
@@ -295,6 +385,17 @@ describe('handleFindPath', () => {
       code: 'INVALID_PARAMS',
     });
   });
+
+  it('propagates unexpected errors from core.findPath', async () => {
+    const ctx = createContext();
+    (ctx.core.findPath as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Graph traversal failed')
+    );
+
+    await expect(
+      handleFindPath(ctx, { source: 'a.md', target: 'b.md' })
+    ).rejects.toThrow('Graph traversal failed');
+  });
 });
 
 describe('handleGetHubs', () => {
@@ -334,6 +435,26 @@ describe('handleGetHubs', () => {
     await handleGetHubs(ctx, { metric: 'out_degree', limit: 5 });
 
     expect(ctx.core.getHubs).toHaveBeenCalledWith('out_degree', 5);
+  });
+
+  it('throws INVALID_PARAMS for invalid metric', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleGetHubs(ctx, { metric: 'betweenness' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('metric'),
+    });
+  });
+
+  it('propagates unexpected errors from core.getHubs', async () => {
+    const ctx = createContext();
+    (ctx.core.getHubs as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Hub calculation failed')
+    );
+
+    await expect(handleGetHubs(ctx, {})).rejects.toThrow('Hub calculation failed');
   });
 });
 
@@ -392,6 +513,17 @@ describe('handleSearchByTags', () => {
       message: expect.stringContaining('only strings'),
     });
   });
+
+  it('throws INVALID_PARAMS for invalid mode', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleSearchByTags(ctx, { tags: ['test'], mode: 'none' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('mode'),
+    });
+  });
 });
 
 describe('handleRandomNode', () => {
@@ -421,6 +553,17 @@ describe('handleRandomNode', () => {
 
     expect(ctx.core.getRandomNode).toHaveBeenCalledWith(['idea']);
   });
+
+  it('throws INVALID_PARAMS when tags contain non-strings', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleRandomNode(ctx, { tags: [123, 'valid'] })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
+  });
 });
 
 describe('handleCreateNode', () => {
@@ -440,6 +583,26 @@ describe('handleCreateNode', () => {
       title: 'New Node',
       content: 'Content',
       tags: [],
+    });
+  });
+
+  it('passes valid tags to core.createNode', async () => {
+    const created = createNode({ id: 'tagged.md', tags: ['idea', 'important'] });
+    const ctx = createContext();
+    (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
+
+    const result = await handleCreateNode(ctx, {
+      title: 'Tagged',
+      content: 'Content',
+      tags: ['idea', 'important'],
+    });
+
+    expect(result.tags).toEqual(['idea', 'important']);
+    expect(ctx.core.createNode).toHaveBeenCalledWith({
+      id: 'tagged.md',
+      title: 'Tagged',
+      content: 'Content',
+      tags: ['idea', 'important'],
     });
   });
 
@@ -483,6 +646,39 @@ describe('handleCreateNode', () => {
     await expect(
       handleCreateNode(ctx, { title: 'Title' })
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+
+  it('throws INVALID_PARAMS when tags contain non-strings', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleCreateNode(ctx, { title: 'Test', content: 'x', tags: [123, 'valid'] })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
+  });
+
+  it('throws INVALID_PARAMS when tags contain null', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleCreateNode(ctx, { title: 'Test', content: 'x', tags: [null, 'valid'] })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
+  });
+
+  it('propagates path traversal error from core', async () => {
+    const ctx = createContext();
+    (ctx.core.createNode as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Path traversal detected: ../escape/test.md resolves outside source root')
+    );
+
+    await expect(
+      handleCreateNode(ctx, { title: 'Test', content: 'x', directory: '../escape' })
+    ).rejects.toThrow(/outside.*source/i);
   });
 });
 
@@ -585,6 +781,34 @@ describe('handleUpdateNode', () => {
     );
   });
 
+  it('throws INVALID_PARAMS when tags contain non-strings', async () => {
+    const existing = createNode();
+    const ctx = createContext();
+    (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(existing);
+
+    await expect(
+      handleUpdateNode(ctx, { id: 'test.md', tags: [123, null] })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
+  });
+
+  it('accepts valid string tags array', async () => {
+    const existing = createNode({ tags: ['old'] });
+    const updated = { ...existing, tags: ['valid', 'tags'] };
+    const ctx = createContext();
+    (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(existing);
+    (ctx.core.updateNode as ReturnType<typeof vi.fn>).mockResolvedValue(updated);
+
+    const result = await handleUpdateNode(ctx, {
+      id: 'test.md',
+      tags: ['valid', 'tags'],
+    });
+
+    expect(result.tags).toEqual(['valid', 'tags']);
+  });
+
   it('propagates error when core.updateNode throws after validation', async () => {
     const existing = createNode();
     const ctx = createContext();
@@ -647,9 +871,22 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('Note 123')).toBe('note-123');
   });
 
-  it('returns empty string when only special characters', () => {
-    expect(sanitizeFilename('!!!')).toBe('');
-    expect(sanitizeFilename('@#$%')).toBe('');
+  it('returns untitled when only special characters', () => {
+    expect(sanitizeFilename('!!!')).toBe('untitled');
+    expect(sanitizeFilename('@#$%')).toBe('untitled');
+  });
+
+  it('returns untitled for empty string', () => {
+    expect(sanitizeFilename('')).toBe('untitled');
+  });
+
+  it('returns untitled for whitespace-only input', () => {
+    expect(sanitizeFilename('   ')).toBe('untitled');
+  });
+
+  it('returns untitled for unicode-only input', () => {
+    expect(sanitizeFilename('\u4e2d\u6587')).toBe('untitled');
+    expect(sanitizeFilename('\u{1F600}')).toBe('untitled');
   });
 });
 

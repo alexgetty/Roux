@@ -199,6 +199,79 @@ Every ignore comment is a flag for future review. If the codebase accumulates mo
 - Code review verifies TDD was followed (test commits precede implementation commits where visible)
 - Code review audits any `v8 ignore` comments
 
+## No Flaky Tests
+
+**A test that passes sometimes and fails other times is worse than no test.** Flaky tests erode trust in the entire test suite and train developers to ignore failures.
+
+### What Makes a Test Flaky
+
+- **Race conditions**: Async operations completing in unpredictable order
+- **Timing dependencies**: Hardcoded delays that work on fast machines but fail on slow CI
+- **Non-deterministic state**: Tests depending on execution order or shared mutable state
+- **External resources**: Network, filesystem, or time-of-day dependencies without proper isolation
+
+### Prevention Rules
+
+1. **Never use `setTimeout` as synchronization.** If you're waiting for something to be "ready", there must be a deterministic signal (promise, event, callback). `setTimeout` is a hope, not a guarantee.
+
+2. **Async resources must expose readiness.** File watchers, database connections, and event emitters need explicit "ready" signals. If a library doesn't provide one, wrap it.
+
+3. **Use `waitFor` with assertions, not delays.** Poll for the expected state rather than guessing how long it will take.
+
+4. **Isolate external dependencies.** Each test gets its own temp directory, database, or mock. No shared state between tests.
+
+5. **Make assertions deterministic.** Don't assert on timing, order, or exact counts unless the behavior guarantees them.
+
+### Legitimate Uses of `setTimeout` in Tests
+
+Some delays ARE legitimate and not synchronization hacks:
+
+```typescript
+// LEGITIMATE: Testing debounce behavior — intentionally spacing events
+triggerEvent('add', 'file1.md');
+await new Promise(r => setTimeout(r, 100));  // Space out events
+triggerEvent('add', 'file2.md');
+// Assert both events were batched
+
+// LEGITIMATE: Filesystem mtime resolution (must document WHY)
+await writeFile(path, 'v1');
+await new Promise(r => setTimeout(r, 50));  // mtime needs to change
+await writeFile(path, 'v2');
+
+// NOT LEGITIMATE: Hoping a resource is ready
+startWatching();
+await new Promise(r => setTimeout(r, 200));  // WRONG: Use ready signal
+await writeFile('test.md', 'content');
+```
+
+**Rule:** If you use `setTimeout`, add a comment explaining WHY. If the comment would be "wait for X to be ready", you need a ready signal instead.
+
+### If You Find a Flaky Test
+
+1. **Treat it as a critical bug.** Stop what you're doing and fix it.
+2. **Identify the race condition.** Usually it's a missing "ready" wait or a synchronization hack.
+3. **Fix the API, not the test.** If a resource doesn't expose readiness, make it expose readiness. Don't paper over it with longer sleeps.
+4. **Run the test 10+ times to verify the fix.** Once is not enough.
+
+### Example: File Watcher Tests
+
+```typescript
+// BAD: Race condition — watcher may not be ready when file is modified
+store.startWatching(onChange);
+await writeFile('test.md', 'content');  // Might be missed!
+
+// BAD: setTimeout as synchronization hack
+store.startWatching(onChange);
+await new Promise(r => setTimeout(r, 200));  // Hope it's ready by now
+await writeFile('test.md', 'content');
+
+// GOOD: API exposes readiness — promise resolves on chokidar 'ready' event
+await store.startWatching(onChange);  // Deterministic: resolves when ready
+await writeFile('test.md', 'content');  // Guaranteed to be caught
+```
+
+The fix isn't making tests more lenient — it's making the API more correct. `startWatching()` returning `Promise<void>` that resolves on ready is better design regardless of testing.
+
 ## Exceptions
 
 None. If you think you need an exception, you're wrong.
