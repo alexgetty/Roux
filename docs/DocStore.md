@@ -200,6 +200,84 @@ See [[Decision - Vector Storage]] for the full rationale on vector search archit
 
 **Vector Search:** Brute-force for MVP. The interface (`searchByVector()`) allows swapping to sqlite-vec later without changing callers. See [[Decision - Vector Storage]].
 
+## Usage
+
+### Initialization
+
+```typescript
+import { DocStore } from './providers/docstore/index.js';
+
+const store = new DocStore({
+  sourcePath: '/path/to/markdown/files',
+  cachePath: '/path/to/markdown/files/.roux/cache.db'
+});
+
+// Sync files to cache (scans directory, parses files, updates SQLite)
+await store.sync();
+```
+
+### CRUD Operations
+
+```typescript
+// Create a node (writes markdown file + updates cache)
+await store.createNode({
+  id: 'notes/new-note.md',
+  title: 'New Note',
+  content: 'Content with [[wiki-links]]',
+  tags: ['example', 'demo'],
+  outgoingLinks: [], // Auto-populated from wiki-links
+  properties: { custom: 'value' }
+});
+
+// Read a node
+const node = await store.getNode('notes/new-note.md');
+
+// Update a node (partial updates supported)
+await store.updateNode('notes/new-note.md', {
+  content: 'Updated content'
+});
+
+// Delete a node
+await store.deleteNode('notes/new-note.md');
+```
+
+### Search
+
+```typescript
+// Search by tags (mode: 'any' = OR, 'all' = AND)
+const results = await store.searchByTags(['machine-learning', 'research'], 'any');
+```
+
+### Title Resolution
+
+```typescript
+// Resolve IDs to human-readable titles (zero IO)
+const titles = await store.resolveTitles(['notes/ml.md', 'concepts/neural-networks.md']);
+// Map { 'notes/ml.md' => 'Ml', 'concepts/neural-networks.md' => 'Neural Networks' }
+```
+
+### Parser Utilities
+
+```typescript
+import { parseMarkdown, extractWikiLinks, normalizeId, titleFromPath, serializeToMarkdown } from './providers/docstore/parser.js';
+
+// Parse markdown with frontmatter
+const { title, content, tags, properties } = parseMarkdown(markdownString);
+
+// Extract wiki-links from content
+const links = extractWikiLinks('See [[Target]] and [[Other|alias]]');
+// ['target.md', 'other.md']
+
+// Normalize file path to ID
+const id = normalizeId('Notes/Research.md'); // 'notes/research.md'
+
+// Derive title from path
+const title = titleFromPath('notes/machine-learning.md'); // 'Machine Learning'
+
+// Serialize node back to markdown
+const markdown = serializeToMarkdown(node);
+```
+
 ## Open Questions (Deferred)
 
 - **Frontmatter Schema**: Don't enforce for MVP. Bag of properties.

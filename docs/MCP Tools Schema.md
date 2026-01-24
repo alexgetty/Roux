@@ -58,6 +58,13 @@ interface NodeWithContextResponse extends NodeResponse {
 }
 ```
 
+**Requirement:** Implementation must differentiate incoming vs outgoing neighbors in the `neighbors` array. Options:
+1. Split into `incomingNeighbors` / `outgoingNeighbors` arrays
+2. Add `direction: 'in' | 'out'` field to each neighbor
+3. Return neighbors in order: outgoing first, then incoming (with counts as boundaries)
+
+Decision needed during Phase 9 implementation.
+
 ### SearchResultResponse
 
 Search results include similarity score.
@@ -137,6 +144,8 @@ Semantic similarity search.
 ```
 
 **Response:** `SearchResultResponse[]`
+
+**Future:** `threshold` parameter (0-1 min similarity) deferred. See Post-MVP in [[MVP Implementation Plan]].
 
 **Example:**
 ```json
@@ -342,7 +351,7 @@ Get most central nodes by graph metric.
   "properties": {
     "metric": {
       "type": "string",
-      "enum": ["in_degree", "out_degree", "pagerank"],
+      "enum": ["in_degree", "out_degree"],
       "default": "in_degree",
       "description": "Centrality metric"
     },
@@ -372,7 +381,7 @@ Get most central nodes by graph metric.
 ]
 ```
 
-**Note:** MVP uses `in_degree` only. `pagerank` deferred.
+**Future:** `pagerank` metric deferred. See Post-MVP in [[MVP Implementation Plan]].
 
 ---
 
@@ -436,7 +445,9 @@ Get random node for discovery.
 }
 ```
 
-**Response:** `NodeResponse`
+**Response:** `NodeResponse | null`
+
+Returns `null` if graph is empty (or no nodes match tag filter).
 
 **Example:**
 ```json
@@ -491,6 +502,7 @@ Create a new node (writes file for DocStore).
 
 **Behavior:**
 - Creates file at `{directory}/{title}.md` (or `{title}.md` if no directory)
+- If directory doesn't exist, create it
 - Title sanitized for filesystem (spaces → hyphens, lowercase)
 - Fails if file already exists
 
@@ -532,6 +544,13 @@ Update an existing node.
 **Response:** `NodeResponse` (the updated node)
 
 **Note:** At least one of `title`, `content`, or `tags` must be provided.
+
+**⚠️ CRITICAL - Link Integrity:** Renaming `title` changes the file path (ID), which breaks incoming `[[wikilinks]]` from other nodes. This must be handled before MVP ships. Options:
+1. Scan and update all incoming links (expensive but correct)
+2. Reject title changes that would break links (safe but limiting)
+3. Track old→new ID mapping for resolution (complex)
+
+See [[MVP Implementation Plan]] Phase 9 requirements.
 
 **Error:** Returns error if node doesn't exist.
 

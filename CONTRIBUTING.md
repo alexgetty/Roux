@@ -61,3 +61,15 @@ src/
 ├── mcp/            # MCP server and tools (Phase 9)
 └── watcher/        # File watcher (Phase 8)
 ```
+
+## Component Usage
+
+High-level pointers to detailed docs.
+
+| Component | What it does | Docs |
+|-----------|--------------|------|
+| DocStore | File-based StoreProvider with SQLite cache | [[DocStore#Usage]] |
+| Parser | Markdown/frontmatter parsing, wiki-link extraction | [[DocStore#Usage]] |
+| Cache | SQLite layer for nodes, embeddings, centrality | [[Decision - SQLite Schema]] |
+
+More components added as phases complete.

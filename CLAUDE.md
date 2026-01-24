@@ -23,6 +23,11 @@ See [[TDD]] for full methodology and tooling.
 
 Architecture docs live in `docs/` as an Obsidian vault. `docs/GPI.md` and `docs/GraphCore.md` are the primary references.
 
+**Usage docs strategy:**
+- Detailed usage examples go in component-specific docs (e.g., `docs/DocStore.md#Usage`)
+- `CONTRIBUTING.md` has a "Component Usage" table with high-level descriptions + wikilinks to detailed sections
+- After each phase, update both: add `## Usage` to component doc, add row to CONTRIBUTING table
+
 ## Code Style
 
 **Comments:** Only when adding information invisible to the code itself.

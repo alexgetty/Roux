@@ -85,19 +85,19 @@ Working personal knowledge base: `roux init ~/docs && roux serve` → Claude que
 
 ---
 
-### Phase 4: DocStore Implementation
+### Phase 4: DocStore Implementation ✓
 **Goal:** File-based storage with SQLite cache
 
 **Tasks:**
-- [ ] Markdown parser (frontmatter + wiki-links)
-- [ ] SQLite schema (nodes, embeddings, centrality)
-- [ ] File → Node transformation
-- [ ] Node → File transformation (for writes)
-- [ ] CRUD operations
-- [ ] Link resolution (case-insensitive, handle missing)
-- [ ] ID normalization (relative path, lowercase)
-- [ ] Title resolution (resolveTitles implementation)
-- [ ] Unit tests for each operation
+- [x] Markdown parser (frontmatter + wiki-links)
+- [x] SQLite schema (nodes, embeddings, centrality)
+- [x] File → Node transformation
+- [x] Node → File transformation (for writes)
+- [x] CRUD operations
+- [x] Link resolution (case-insensitive, handle missing)
+- [x] ID normalization (relative path, lowercase)
+- [x] Title resolution (resolveTitles implementation)
+- [x] Unit tests for each operation
 
 **Key files:**
 - `src/providers/docstore/parser.ts`
@@ -335,6 +335,20 @@ roux serve
 # 5. Functional validation
 # All 10 MCP tools work as specified in Phase 3 schemas
 ```
+
+---
+
+## Post-MVP / Future
+
+Deferred features tracked here for future phases.
+
+| Item | Description | Complexity |
+|------|-------------|------------|
+| `search` threshold | Min similarity score (0-1) filter | Low |
+| `list_tags` tool | Discover available tags in graph | Low |
+| Pagination | `offset`/`cursor` for large result sets | Medium |
+| `pagerank` metric | Expensive centrality calculation | Medium |
+| Link integrity on rename | Handle broken links when title changes | High |
 
 ---
 
