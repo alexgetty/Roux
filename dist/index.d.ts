@@ -58,6 +58,11 @@ interface NodeSummary {
     id: string;
     title: string;
 }
+interface ListNodesResult {
+    nodes: NodeSummary[];
+    /** Total matching nodes (before limit/offset applied) */
+    total: number;
+}
 type ResolveStrategy = 'exact' | 'fuzzy' | 'semantic';
 interface ResolveOptions {
     /** Filter candidates by tag */
@@ -106,7 +111,7 @@ interface StoreProvider {
     searchByTags(tags: string[], mode: TagMode): Promise<Node[]>;
     getRandomNode(tags?: string[]): Promise<Node | null>;
     resolveTitles(ids: string[]): Promise<Map<string, string>>;
-    listNodes(filter: ListFilter, options?: ListOptions): Promise<NodeSummary[]>;
+    listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
     nodesExist(ids: string[]): Promise<Map<string, boolean>>;
 }
@@ -149,7 +154,7 @@ interface GraphCore {
     getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
     searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
     getRandomNode(tags?: string[]): Promise<Node | null>;
-    listNodes(filter: ListFilter, options?: ListOptions): Promise<NodeSummary[]>;
+    listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
 }
 
@@ -237,7 +242,7 @@ declare class GraphCoreImpl implements GraphCore {
     getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
     searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
     getRandomNode(tags?: string[]): Promise<Node | null>;
-    listNodes(filter: ListFilter, options?: ListOptions): Promise<NodeSummary[]>;
+    listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
     private cosineSimilarity;
     static fromConfig(config: RouxConfig): GraphCoreImpl;
@@ -264,7 +269,7 @@ declare class DocStore implements StoreProvider {
     searchByTags(tags: string[], mode: TagMode): Promise<Node[]>;
     getRandomNode(tags?: string[]): Promise<Node | null>;
     resolveTitles(ids: string[]): Promise<Map<string, string>>;
-    listNodes(filter: ListFilter, options?: ListOptions): Promise<NodeSummary[]>;
+    listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
     nodesExist(ids: string[]): Promise<Map<string, boolean>>;
     getNeighbors(id: string, options: NeighborOptions): Promise<Node[]>;

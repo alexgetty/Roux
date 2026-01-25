@@ -79,6 +79,16 @@ describe('graph operations', () => {
       });
       expect(result.sort()).toEqual(['b', 'd']);
     });
+
+    it('returns empty array for negative limit', () => {
+      const result = getNeighborIds(graph, 'a', { direction: 'out', limit: -1 });
+      expect(result).toEqual([]);
+    });
+
+    it('returns empty array for large negative limit', () => {
+      const result = getNeighborIds(graph, 'a', { direction: 'out', limit: -5 });
+      expect(result).toEqual([]);
+    });
   });
 
   describe('findPath', () => {
@@ -154,6 +164,21 @@ describe('graph operations', () => {
     it('returns all nodes when limit exceeds node count', () => {
       const hubs = getHubs(graph, 'in_degree', 100);
       expect(hubs).toHaveLength(5);
+    });
+
+    it('returns empty array for limit: 0', () => {
+      const hubs = getHubs(graph, 'in_degree', 0);
+      expect(hubs).toEqual([]);
+    });
+
+    it('returns empty array for negative limit', () => {
+      const hubs = getHubs(graph, 'in_degree', -1);
+      expect(hubs).toEqual([]);
+    });
+
+    it('returns empty array for large negative limit', () => {
+      const hubs = getHubs(graph, 'out_degree', -10);
+      expect(hubs).toEqual([]);
     });
   });
 

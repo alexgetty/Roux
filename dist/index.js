@@ -105,7 +105,7 @@ function isVectorProvider(value) {
     return false;
   }
   const obj = value;
-  return typeof obj.store === "function" && typeof obj.search === "function" && typeof obj.delete === "function" && typeof obj.getModel === "function";
+  return typeof obj.store === "function" && typeof obj.search === "function" && typeof obj.delete === "function" && typeof obj.getModel === "function" && typeof obj.hasEmbedding === "function";
 }
 
 // src/types/config.ts
@@ -299,10 +299,13 @@ var Cache = class {
       params.push(filter.path);
     }
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const countQuery = `SELECT COUNT(*) as count FROM nodes ${whereClause}`;
+    const countRow = this.db.prepare(countQuery).get(...params);
+    const total = countRow.count;
     const query = `SELECT id, title FROM nodes ${whereClause} LIMIT ? OFFSET ?`;
-    params.push(limit, offset);
-    const rows = this.db.prepare(query).all(...params);
-    return rows.map((row) => ({ id: row.id, title: row.title }));
+    const rows = this.db.prepare(query).all(...params, limit, offset);
+    const nodes = rows.map((row) => ({ id: row.id, title: row.title }));
+    return { nodes, total };
   }
   resolveNodes(names, options) {
     if (names.length === 0) return [];
@@ -311,7 +314,7 @@ var Cache = class {
     const filter = {};
     if (options?.tag) filter.tag = options.tag;
     if (options?.path) filter.path = options.path;
-    const candidates = this.listNodes(filter, { limit: 1e3 });
+    const { nodes: candidates } = this.listNodes(filter, { limit: 1e3 });
     if (candidates.length === 0) {
       return names.map((query) => ({ query, match: null, score: 0 }));
     }
@@ -676,8 +679,13 @@ function getNeighborIds(graph, id, options) {
       neighbors = graph.neighbors(id);
       break;
   }
-  if (options.limit !== void 0 && options.limit < neighbors.length) {
-    return neighbors.slice(0, options.limit);
+  if (options.limit !== void 0) {
+    if (options.limit <= 0) {
+      return [];
+    }
+    if (options.limit < neighbors.length) {
+      return neighbors.slice(0, options.limit);
+    }
   }
   return neighbors;
 }
@@ -692,6 +700,9 @@ function findPath(graph, source, target) {
   return path;
 }
 function getHubs(graph, metric, limit) {
+  if (limit <= 0) {
+    return [];
+  }
   const scores = [];
   graph.forEachNode((id) => {
     let score;
@@ -1186,9 +1197,15 @@ var GraphCoreImpl = class _GraphCoreImpl {
   store = null;
   embedding = null;
   registerStore(provider) {
+    if (!provider) {
+      throw new Error("Store provider is required");
+    }
     this.store = provider;
   }
   registerEmbedding(provider) {
+    if (!provider) {
+      throw new Error("Embedding provider is required");
+    }
     this.embedding = provider;
   }
   requireStore() {
@@ -1239,8 +1256,8 @@ var GraphCoreImpl = class _GraphCoreImpl {
   }
   async createNode(partial) {
     const store = this.requireStore();
-    if (!partial.id) {
-      throw new Error("Node id is required");
+    if (!partial.id || partial.id.trim() === "") {
+      throw new Error("Node id is required and cannot be empty");
     }
     if (!partial.title) {
       throw new Error("Node title is required");
@@ -1271,8 +1288,11 @@ var GraphCoreImpl = class _GraphCoreImpl {
     try {
       await store.deleteNode(id);
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      if (err instanceof Error && /not found/i.test(err.message)) {
+        return false;
+      }
+      throw err;
     }
   }
   async getNeighbors(id, options) {
@@ -1312,7 +1332,7 @@ var GraphCoreImpl = class _GraphCoreImpl {
       const filter = {};
       if (options?.tag) filter.tag = options.tag;
       if (options?.path) filter.path = options.path;
-      const candidates = await store.listNodes(filter, { limit: 1e3 });
+      const { nodes: candidates } = await store.listNodes(filter, { limit: 1e3 });
       if (candidates.length === 0 || names.length === 0) {
         return names.map((query) => ({ query, match: null, score: 0 }));
       }
@@ -1320,6 +1340,15 @@ var GraphCoreImpl = class _GraphCoreImpl {
       const queryVectors = await this.embedding.embedBatch(names);
       const candidateTitles = candidates.map((c) => c.title);
       const candidateVectors = await this.embedding.embedBatch(candidateTitles);
+      if (queryVectors.length > 0 && candidateVectors.length > 0) {
+        const queryDim = queryVectors[0].length;
+        const candidateDim = candidateVectors[0].length;
+        if (queryDim !== candidateDim) {
+          throw new Error(
+            `Embedding dimension mismatch: query=${queryDim}, candidate=${candidateDim}`
+          );
+        }
+      }
       return names.map((query, qIdx) => {
         const queryVector = queryVectors[qIdx];
         let bestScore = 0;
@@ -1361,6 +1390,10 @@ var GraphCoreImpl = class _GraphCoreImpl {
       const cachePath = config.cache?.path ?? ".roux";
       const store = new DocStore(sourcePath, cachePath);
       core.registerStore(store);
+    } else {
+      throw new Error(
+        `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
+      );
     }
     const embeddingConfig = config.providers.embedding;
     if (!embeddingConfig || embeddingConfig.type === "local") {

@@ -50,6 +50,21 @@ function coerceLimit(value: unknown, defaultValue: number): number {
   return floored;
 }
 
+function coerceOffset(value: unknown, defaultValue: number): number {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return defaultValue;
+  }
+  const floored = Math.floor(num);
+  if (floored < 0) {
+    throw new McpError('INVALID_PARAMS', 'offset must be at least 0');
+  }
+  return floored;
+}
+
 export interface ListNodesResponse {
   nodes: NodeSummary[];
   total: number;
@@ -102,12 +117,23 @@ export async function handleSearch(
   return nodesToSearchResults(nodes, scores, ctx.store, includeContent);
 }
 
+function coerceDepth(value: unknown): number {
+  if (value === undefined || value === null) {
+    return 0;
+  }
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return 0;
+  }
+  return num >= 1 ? 1 : 0;
+}
+
 export async function handleGetNode(
   ctx: HandlerContext,
   args: Record<string, unknown>
 ): Promise<NodeResponse | NodeWithContextResponse | null> {
   const id = args.id as string;
-  const depth = (args.depth as number) ?? 0;
+  const depth = coerceDepth(args.depth);
 
   if (!id || typeof id !== 'string') {
     throw new McpError('INVALID_PARAMS', 'id is required and must be a string');
@@ -369,7 +395,7 @@ export async function handleListNodes(
   const tag = args.tag as string | undefined;
   const path = args.path as string | undefined;
   const limit = coerceLimit(args.limit, 100);
-  const offset = coerceLimit(args.offset, 0);
+  const offset = coerceOffset(args.offset, 0);
 
   const filter: ListFilter = {};
   if (tag) filter.tag = tag;

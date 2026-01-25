@@ -24,10 +24,16 @@ export class GraphCoreImpl implements GraphCore {
   private embedding: EmbeddingProvider | null = null;
 
   registerStore(provider: StoreProvider): void {
+    if (!provider) {
+      throw new Error('Store provider is required');
+    }
     this.store = provider;
   }
 
   registerEmbedding(provider: EmbeddingProvider): void {
+    if (!provider) {
+      throw new Error('Embedding provider is required');
+    }
     this.embedding = provider;
   }
 
@@ -95,8 +101,8 @@ export class GraphCoreImpl implements GraphCore {
   async createNode(partial: Partial<Node>): Promise<Node> {
     const store = this.requireStore();
 
-    if (!partial.id) {
-      throw new Error('Node id is required');
+    if (!partial.id || partial.id.trim() === '') {
+      throw new Error('Node id is required and cannot be empty');
     }
     if (!partial.title) {
       throw new Error('Node title is required');
@@ -131,8 +137,12 @@ export class GraphCoreImpl implements GraphCore {
     try {
       await store.deleteNode(id);
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      // Only swallow "not found" errors - propagate everything else
+      if (err instanceof Error && /not found/i.test(err.message)) {
+        return false;
+      }
+      throw err;
     }
   }
 

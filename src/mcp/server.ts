@@ -60,7 +60,8 @@ const TOOL_SCHEMAS = {
     properties: {
       id: {
         type: 'string',
-        description: 'Node ID (file path for DocStore)',
+        description:
+          'Node ID (file path for DocStore). ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
       },
       depth: {
         type: 'integer',
@@ -78,7 +79,8 @@ const TOOL_SCHEMAS = {
     properties: {
       id: {
         type: 'string',
-        description: 'Source node ID',
+        description:
+          'Source node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
       },
       direction: {
         type: 'string',
@@ -108,11 +110,13 @@ const TOOL_SCHEMAS = {
     properties: {
       source: {
         type: 'string',
-        description: 'Start node ID',
+        description:
+          'Start node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
       },
       target: {
         type: 'string',
-        description: 'End node ID',
+        description:
+          'End node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
       },
     },
     required: ['source', 'target'],
@@ -179,7 +183,8 @@ const TOOL_SCHEMAS = {
     properties: {
       title: {
         type: 'string',
-        description: 'Node title (becomes filename for DocStore)',
+        description:
+          'Node title (becomes filename for DocStore). Returned ID will be normalized to lowercase.',
       },
       content: {
         type: 'string',
@@ -204,7 +209,8 @@ const TOOL_SCHEMAS = {
     properties: {
       id: {
         type: 'string',
-        description: 'Node ID to update',
+        description:
+          'Node ID to update. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
       },
       title: {
         type: 'string',
@@ -228,7 +234,8 @@ const TOOL_SCHEMAS = {
     properties: {
       id: {
         type: 'string',
-        description: 'Node ID to delete',
+        description:
+          'Node ID to delete. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
       },
     },
     required: ['id'],
@@ -275,7 +282,7 @@ const TOOL_SCHEMAS = {
         enum: ['exact', 'fuzzy', 'semantic'],
         default: 'fuzzy',
         description:
-          'How to match names to nodes. "exact": case-insensitive title equality. "fuzzy": string similarity (Dice coefficient) — use for typos, misspellings, partial matches. "semantic": embedding cosine similarity — use for synonyms or related concepts, NOT typos (misspellings embed poorly).',
+          'How to match names to nodes. "exact": case-insensitive title equality. "fuzzy": string similarity (Dice coefficient) — use for typos, misspellings, partial matches. "semantic": embedding cosine similarity — use for synonyms or related concepts (NOT typos). Misspellings embed poorly because they produce unrelated vectors.',
       },
       threshold: {
         type: 'number',
@@ -371,7 +378,7 @@ export function getToolDefinitions(hasEmbedding: boolean): Tool[] {
     {
       name: 'resolve_nodes',
       description:
-        'Batch resolve names to existing node IDs. Use "fuzzy" for typos/misspellings (string similarity). Use "semantic" for synonyms/related concepts (embedding similarity). Semantic does NOT handle typos well.',
+        'Batch resolve names to existing node IDs. Strategy selection: "exact" for known titles, "fuzzy" for typos/misspellings (e.g., "chikken" -> "chicken"), "semantic" for synonyms/concepts (e.g., "poultry leg meat" -> "chicken thigh"). Semantic does NOT handle typos — misspellings produce garbage embeddings.',
       inputSchema: TOOL_SCHEMAS.resolve_nodes,
     },
     {

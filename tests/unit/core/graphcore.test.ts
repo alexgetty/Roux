@@ -88,6 +88,57 @@ describe('GraphCore', () => {
 
       await expect(core.getNode('test.md')).rejects.toThrow(/store/i);
     });
+
+    it('throws when registering null store', () => {
+      const core = new GraphCoreImpl();
+      expect(() => core.registerStore(null as unknown as StoreProvider)).toThrow(/store provider is required/i);
+    });
+
+    it('throws when registering undefined store', () => {
+      const core = new GraphCoreImpl();
+      expect(() => core.registerStore(undefined as unknown as StoreProvider)).toThrow(/store provider is required/i);
+    });
+
+    it('throws when registering null embedding provider', () => {
+      const core = new GraphCoreImpl();
+      expect(() => core.registerEmbedding(null as unknown as EmbeddingProvider)).toThrow(/embedding provider is required/i);
+    });
+
+    it('throws when registering undefined embedding provider', () => {
+      const core = new GraphCoreImpl();
+      expect(() => core.registerEmbedding(undefined as unknown as EmbeddingProvider)).toThrow(/embedding provider is required/i);
+    });
+
+    it('uses most recently registered store', async () => {
+      const store1 = createMockStore();
+      const store2 = createMockStore();
+      vi.mocked(store2.getNode).mockResolvedValue(createMockNode('from-store2'));
+
+      const core = new GraphCoreImpl();
+      core.registerStore(store1);
+      core.registerStore(store2);
+
+      await core.getNode('test');
+
+      expect(store2.getNode).toHaveBeenCalled();
+      expect(store1.getNode).not.toHaveBeenCalled();
+    });
+
+    it('uses most recently registered embedding provider', async () => {
+      const embedding1 = createMockEmbedding();
+      const embedding2 = createMockEmbedding();
+      vi.mocked(embedding2.embed).mockResolvedValue([0.5, 0.5, 0.5]);
+
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+      core.registerEmbedding(embedding1);
+      core.registerEmbedding(embedding2);
+
+      await core.search('test');
+
+      expect(embedding2.embed).toHaveBeenCalled();
+      expect(embedding1.embed).not.toHaveBeenCalled();
+    });
   });
 
   describe('search', () => {
@@ -353,7 +404,34 @@ describe('GraphCore', () => {
 
       await expect(
         core.createNode({ title: 'No ID', content: '' })
-      ).rejects.toThrow(/id/i);
+      ).rejects.toThrow(/id.*required/i);
+    });
+
+    it('throws if id is empty string', async () => {
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+
+      await expect(
+        core.createNode({ id: '', title: 'Empty ID', content: '' })
+      ).rejects.toThrow(/id.*required.*cannot be empty/i);
+    });
+
+    it('throws if id is whitespace only', async () => {
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+
+      await expect(
+        core.createNode({ id: '   ', title: 'Whitespace ID', content: '' })
+      ).rejects.toThrow(/id.*required.*cannot be empty/i);
+    });
+
+    it('throws if id is whitespace variants', async () => {
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+
+      await expect(
+        core.createNode({ id: '\t\n', title: 'Tab Newline ID', content: '' })
+      ).rejects.toThrow(/id.*required.*cannot be empty/i);
     });
 
     it('throws if title is missing', async () => {
@@ -405,9 +483,9 @@ describe('GraphCore', () => {
       expect(result).toBe(true);
     });
 
-    it('returns false when store throws', async () => {
+    it('returns false when store throws "not found" error', async () => {
       vi.mocked(mockStore.deleteNode).mockRejectedValue(
-        new Error('Not found')
+        new Error('Node not found: missing.md')
       );
 
       const core = new GraphCoreImpl();
@@ -415,6 +493,36 @@ describe('GraphCore', () => {
 
       const result = await core.deleteNode('missing.md');
       expect(result).toBe(false);
+    });
+
+    it('propagates permission errors instead of swallowing them', async () => {
+      const permissionError = new Error('EACCES: permission denied');
+      vi.mocked(mockStore.deleteNode).mockRejectedValue(permissionError);
+
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+
+      await expect(core.deleteNode('protected.md')).rejects.toThrow('EACCES');
+    });
+
+    it('propagates disk errors instead of swallowing them', async () => {
+      const diskError = new Error('ENOSPC: no space left on device');
+      vi.mocked(mockStore.deleteNode).mockRejectedValue(diskError);
+
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+
+      await expect(core.deleteNode('file.md')).rejects.toThrow('ENOSPC');
+    });
+
+    it('propagates generic errors that are not "not found"', async () => {
+      const genericError = new Error('Database connection failed');
+      vi.mocked(mockStore.deleteNode).mockRejectedValue(genericError);
+
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+
+      await expect(core.deleteNode('file.md')).rejects.toThrow('Database connection failed');
     });
   });
 

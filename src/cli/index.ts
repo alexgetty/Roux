@@ -26,8 +26,16 @@ program
     if (result.created) {
       console.log(`Initialized Roux in ${resolvedDir}`);
       console.log(`  Config: ${result.configPath}`);
+      if (result.hooksInstalled) {
+        console.log(`  Claude hooks: installed`);
+      }
     } else {
-      console.log(`Already initialized: ${result.configPath}`);
+      if (result.hooksInstalled) {
+        console.log(`Upgraded Roux in ${resolvedDir}`);
+        console.log(`  Claude hooks: installed`);
+      } else {
+        console.log(`Already initialized: ${result.configPath}`);
+      }
     }
   });
 

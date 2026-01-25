@@ -16,6 +16,7 @@ import {
   handleCreateNode,
   handleUpdateNode,
   handleDeleteNode,
+  handleListNodes,
   type HandlerContext,
 } from '../../../src/mcp/handlers.js';
 import { McpError } from '../../../src/mcp/types.js';
@@ -465,6 +466,57 @@ describe('MCP Handlers Integration', () => {
     it('returns deleted=false for non-existent node', async () => {
       const result = await handleDeleteNode(ctx, { id: 'nonexistent.md' });
       expect(result.deleted).toBe(false);
+    });
+  });
+
+  describe('handleListNodes', () => {
+    beforeEach(async () => {
+      // Create 5 nodes
+      for (let i = 1; i <= 5; i++) {
+        await writeMarkdownFile(
+          `list-node-${i}.md`,
+          `---\ntitle: List Node ${i}\ntags:\n  - list-test\n---\nContent ${i}.`
+        );
+      }
+      await store.sync();
+    });
+
+    it('returns total matching nodes, not just returned slice', async () => {
+      // Request with limit=2, should return 2 nodes but total=5
+      const result = await handleListNodes(ctx, { limit: 2 });
+
+      expect(result.nodes).toHaveLength(2);
+      expect(result.total).toBe(5);
+      // total must NOT equal nodes.length when paginated
+      expect(result.total).not.toBe(result.nodes.length);
+    });
+
+    it('returns correct total with tag filter', async () => {
+      // Add nodes with different tags
+      await writeMarkdownFile(
+        'other-tag.md',
+        '---\ntitle: Other Tag\ntags:\n  - different\n---\nOther content.'
+      );
+      await store.sync();
+
+      const result = await handleListNodes(ctx, { tag: 'list-test', limit: 2 });
+
+      expect(result.nodes).toHaveLength(2);
+      expect(result.total).toBe(5); // Only 5 have list-test tag
+    });
+
+    it('returns correct total with path filter', async () => {
+      await writeMarkdownFile(
+        'subdir/nested.md',
+        '---\ntitle: Nested\n---\nNested content.'
+      );
+      await store.sync();
+
+      // All 5 list-node files are in root, nested is in subdir
+      const result = await handleListNodes(ctx, { path: 'list-node', limit: 2 });
+
+      expect(result.nodes).toHaveLength(2);
+      expect(result.total).toBe(5); // 5 nodes match path prefix "list-node"
     });
   });
 });

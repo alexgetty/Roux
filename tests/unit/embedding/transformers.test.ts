@@ -54,6 +54,17 @@ describe('TransformersEmbeddingProvider', () => {
       expect(embedding.every((v) => Number.isFinite(v))).toBe(true);
     }, 60000);
 
+    it('handles very long input without throwing', async () => {
+      const longText = 'a'.repeat(10000);
+      const embedding = await provider.embed(longText);
+      expect(embedding).toHaveLength(384);
+      // Verify normalized (magnitude ~1)
+      const magnitude = Math.sqrt(
+        embedding.reduce((sum, val) => sum + val * val, 0)
+      );
+      expect(magnitude).toBeCloseTo(1, 1);
+    }, 60000);
+
     it('returns normalized vector (magnitude approximately 1)', async () => {
       const embedding = await provider.embed('hello world');
       const magnitude = Math.sqrt(

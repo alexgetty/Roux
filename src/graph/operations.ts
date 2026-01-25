@@ -33,8 +33,13 @@ export function getNeighborIds(
       break;
   }
 
-  if (options.limit !== undefined && options.limit < neighbors.length) {
-    return neighbors.slice(0, options.limit);
+  if (options.limit !== undefined) {
+    if (options.limit <= 0) {
+      return [];
+    }
+    if (options.limit < neighbors.length) {
+      return neighbors.slice(0, options.limit);
+    }
   }
 
   return neighbors;
@@ -70,6 +75,10 @@ export function getHubs(
   metric: Metric,
   limit: number
 ): Array<[string, number]> {
+  if (limit <= 0) {
+    return [];
+  }
+
   const scores: Array<[string, number]> = [];
 
   graph.forEachNode((id) => {

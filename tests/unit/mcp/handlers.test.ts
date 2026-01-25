@@ -290,6 +290,41 @@ describe('handleGetNode', () => {
     expect(result).not.toHaveProperty('incomingNeighbors');
   });
 
+  it('coerces string depth "1" to number 1', async () => {
+    const node = createNode();
+    const incoming = [createNode({ id: 'in.md', title: 'Incoming' })];
+    const outgoing = [createNode({ id: 'out.md', title: 'Outgoing' })];
+    const ctx = createContext();
+    (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(node);
+    (ctx.core.getNeighbors as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(incoming)
+      .mockResolvedValueOnce(outgoing);
+
+    const result = await handleGetNode(ctx, { id: 'test.md', depth: '1' });
+
+    expect(result).toHaveProperty('incomingNeighbors');
+    expect(result).toHaveProperty('outgoingNeighbors');
+  });
+
+  it('coerces string depth "0" to number 0', async () => {
+    const node = createNode();
+    const ctx = createContext();
+    (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(node);
+
+    const result = await handleGetNode(ctx, { id: 'test.md', depth: '0' });
+
+    expect(result).not.toHaveProperty('incomingNeighbors');
+  });
+
+  it('throws INVALID_PARAMS for non-string id', async () => {
+    const ctx = createContext();
+
+    await expect(handleGetNode(ctx, { id: 123 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('string'),
+    });
+  });
+
   it('truncates neighbors to max 20 in context response', async () => {
     const node = createNode();
     // Create 25 incoming and 30 outgoing neighbors
@@ -388,6 +423,15 @@ describe('handleGetNeighbors', () => {
     });
   });
 
+  it('throws INVALID_PARAMS for non-string id', async () => {
+    const ctx = createContext();
+
+    await expect(handleGetNeighbors(ctx, { id: 123 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('string'),
+    });
+  });
+
   it('throws INVALID_PARAMS for invalid direction', async () => {
     const ctx = createContext();
 
@@ -471,6 +515,24 @@ describe('handleFindPath', () => {
 
     await expect(handleFindPath(ctx, { source: 'a.md' })).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
+    });
+  });
+
+  it('throws INVALID_PARAMS for non-string source', async () => {
+    const ctx = createContext();
+
+    await expect(handleFindPath(ctx, { source: 123, target: 'b.md' })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('string'),
+    });
+  });
+
+  it('throws INVALID_PARAMS for non-string target', async () => {
+    const ctx = createContext();
+
+    await expect(handleFindPath(ctx, { source: 'a.md', target: 456 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('string'),
     });
   });
 
@@ -901,6 +963,17 @@ describe('handleUpdateNode', () => {
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
+  it('throws INVALID_PARAMS for non-string id', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleUpdateNode(ctx, { id: 123, content: 'Updated' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('string'),
+    });
+  });
+
   it('throws INVALID_PARAMS when no updates provided', async () => {
     const ctx = createContext();
 
@@ -974,6 +1047,15 @@ describe('handleDeleteNode', () => {
 
     await expect(handleDeleteNode(ctx, {})).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
+    });
+  });
+
+  it('throws INVALID_PARAMS for non-string id', async () => {
+    const ctx = createContext();
+
+    await expect(handleDeleteNode(ctx, { id: 123 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('string'),
     });
   });
 });
@@ -1110,6 +1192,39 @@ describe('handleListNodes', () => {
       code: 'INVALID_PARAMS',
       message: expect.stringContaining('limit'),
     });
+  });
+
+  it('throws INVALID_PARAMS for negative offset', async () => {
+    const ctx = createContext();
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(handleListNodes(ctx, { offset: -1 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('offset'),
+    });
+  });
+
+  it('throws INVALID_PARAMS for large negative offset', async () => {
+    const ctx = createContext();
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(handleListNodes(ctx, { offset: -100 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('offset'),
+    });
+  });
+
+  it('accepts zero offset explicitly', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, { offset: 0 });
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({}, { limit: 100, offset: 0 });
   });
 });
 

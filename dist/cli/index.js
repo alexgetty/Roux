@@ -100,6 +100,12 @@ var ROUX_MCP_CONFIG = {
   args: ["roux", "serve", "."],
   env: {}
 };
+var HOOK_MARKER = "roux-enforce-mcp";
+var ENFORCE_MCP_HOOK_COMMAND = `node -e "/* ${HOOK_MARKER} */ const d=JSON.parse(require('fs').readFileSync(0,'utf8'));const p=d.tool_input?.file_path||'';if(p.endsWith('.md')){console.error('Use mcp__roux__* tools for markdown files instead of Read/Edit/Write');process.exit(2)}"`;
+var ROUX_HOOK_ENTRY = {
+  matcher: "Read|Edit|Write",
+  hooks: [{ type: "command", command: ENFORCE_MCP_HOOK_COMMAND }]
+};
 async function initCommand(directory) {
   const configPath = join(directory, "roux.yaml");
   const rouxDir = join(directory, ".roux");
@@ -111,11 +117,16 @@ async function initCommand(directory) {
   }
   await mkdir(rouxDir, { recursive: true });
   await updateMcpConfig(directory);
+  const storeType = await getStoreType(directory, configExists);
+  let hooksInstalled = false;
+  if (storeType === "docstore") {
+    hooksInstalled = await updateClaudeSettings(directory);
+  }
   if (configExists) {
-    return { created: false, configPath };
+    return { created: false, configPath, hooksInstalled };
   }
   await writeFile(configPath, DEFAULT_CONFIG, "utf-8");
-  return { created: true, configPath };
+  return { created: true, configPath, hooksInstalled };
 }
 async function updateMcpConfig(directory) {
   const mcpPath = join(directory, ".mcp.json");
@@ -130,6 +141,51 @@ async function updateMcpConfig(directory) {
   }
   config.mcpServers.roux = ROUX_MCP_CONFIG;
   await writeFile(mcpPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+}
+async function getStoreType(directory, configExists) {
+  if (!configExists) {
+    return "docstore";
+  }
+  try {
+    const configPath = join(directory, "roux.yaml");
+    const content = await readFile(configPath, "utf-8");
+    const typeMatch = content.match(/store:\s*\n\s*type:\s*(\w+)/);
+    if (typeMatch?.[1]) {
+      return typeMatch[1];
+    }
+  } catch {
+  }
+  return "docstore";
+}
+async function updateClaudeSettings(directory) {
+  const claudeDir = join(directory, ".claude");
+  const settingsPath = join(claudeDir, "settings.json");
+  await mkdir(claudeDir, { recursive: true });
+  let config = {};
+  let existingContent = null;
+  try {
+    existingContent = await readFile(settingsPath, "utf-8");
+    config = JSON.parse(existingContent);
+  } catch (err) {
+    if (existingContent !== null) {
+      return false;
+    }
+  }
+  if (!config.hooks) {
+    config.hooks = {};
+  }
+  if (!config.hooks.PreToolUse) {
+    config.hooks.PreToolUse = [];
+  }
+  const hasRouxHook = config.hooks.PreToolUse.some(
+    (entry) => entry.hooks?.some((h) => h.command?.includes(HOOK_MARKER))
+  );
+  if (hasRouxHook) {
+    return false;
+  }
+  config.hooks.PreToolUse.push(ROUX_HOOK_ENTRY);
+  await writeFile(settingsPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  return true;
 }
 
 // src/cli/commands/status.ts
@@ -302,10 +358,13 @@ var Cache = class {
       params.push(filter.path);
     }
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const countQuery = `SELECT COUNT(*) as count FROM nodes ${whereClause}`;
+    const countRow = this.db.prepare(countQuery).get(...params);
+    const total = countRow.count;
     const query = `SELECT id, title FROM nodes ${whereClause} LIMIT ? OFFSET ?`;
-    params.push(limit, offset);
-    const rows = this.db.prepare(query).all(...params);
-    return rows.map((row) => ({ id: row.id, title: row.title }));
+    const rows = this.db.prepare(query).all(...params, limit, offset);
+    const nodes = rows.map((row) => ({ id: row.id, title: row.title }));
+    return { nodes, total };
   }
   resolveNodes(names, options) {
     if (names.length === 0) return [];
@@ -314,7 +373,7 @@ var Cache = class {
     const filter = {};
     if (options?.tag) filter.tag = options.tag;
     if (options?.path) filter.path = options.path;
-    const candidates = this.listNodes(filter, { limit: 1e3 });
+    const { nodes: candidates } = this.listNodes(filter, { limit: 1e3 });
     if (candidates.length === 0) {
       return names.map((query) => ({ query, match: null, score: 0 }));
     }
@@ -716,8 +775,13 @@ function getNeighborIds(graph, id, options) {
       neighbors = graph.neighbors(id);
       break;
   }
-  if (options.limit !== void 0 && options.limit < neighbors.length) {
-    return neighbors.slice(0, options.limit);
+  if (options.limit !== void 0) {
+    if (options.limit <= 0) {
+      return [];
+    }
+    if (options.limit < neighbors.length) {
+      return neighbors.slice(0, options.limit);
+    }
   }
   return neighbors;
 }
@@ -732,6 +796,9 @@ function findPath(graph, source, target) {
   return path;
 }
 function getHubs(graph, metric, limit) {
+  if (limit <= 0) {
+    return [];
+  }
   const scores = [];
   graph.forEachNode((id) => {
     let score;
@@ -1226,9 +1293,15 @@ var GraphCoreImpl = class _GraphCoreImpl {
   store = null;
   embedding = null;
   registerStore(provider) {
+    if (!provider) {
+      throw new Error("Store provider is required");
+    }
     this.store = provider;
   }
   registerEmbedding(provider) {
+    if (!provider) {
+      throw new Error("Embedding provider is required");
+    }
     this.embedding = provider;
   }
   requireStore() {
@@ -1279,8 +1352,8 @@ var GraphCoreImpl = class _GraphCoreImpl {
   }
   async createNode(partial) {
     const store = this.requireStore();
-    if (!partial.id) {
-      throw new Error("Node id is required");
+    if (!partial.id || partial.id.trim() === "") {
+      throw new Error("Node id is required and cannot be empty");
     }
     if (!partial.title) {
       throw new Error("Node title is required");
@@ -1311,8 +1384,11 @@ var GraphCoreImpl = class _GraphCoreImpl {
     try {
       await store.deleteNode(id);
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      if (err instanceof Error && /not found/i.test(err.message)) {
+        return false;
+      }
+      throw err;
     }
   }
   async getNeighbors(id, options) {
@@ -1352,7 +1428,7 @@ var GraphCoreImpl = class _GraphCoreImpl {
       const filter = {};
       if (options?.tag) filter.tag = options.tag;
       if (options?.path) filter.path = options.path;
-      const candidates = await store.listNodes(filter, { limit: 1e3 });
+      const { nodes: candidates } = await store.listNodes(filter, { limit: 1e3 });
       if (candidates.length === 0 || names.length === 0) {
         return names.map((query) => ({ query, match: null, score: 0 }));
       }
@@ -1360,6 +1436,15 @@ var GraphCoreImpl = class _GraphCoreImpl {
       const queryVectors = await this.embedding.embedBatch(names);
       const candidateTitles = candidates.map((c) => c.title);
       const candidateVectors = await this.embedding.embedBatch(candidateTitles);
+      if (queryVectors.length > 0 && candidateVectors.length > 0) {
+        const queryDim = queryVectors[0].length;
+        const candidateDim = candidateVectors[0].length;
+        if (queryDim !== candidateDim) {
+          throw new Error(
+            `Embedding dimension mismatch: query=${queryDim}, candidate=${candidateDim}`
+          );
+        }
+      }
       return names.map((query, qIdx) => {
         const queryVector = queryVectors[qIdx];
         let bestScore = 0;
@@ -1401,6 +1486,10 @@ var GraphCoreImpl = class _GraphCoreImpl {
       const cachePath = config.cache?.path ?? ".roux";
       const store = new DocStore(sourcePath, cachePath);
       core.registerStore(store);
+    } else {
+      throw new Error(
+        `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
+      );
     }
     const embeddingConfig = config.providers.embedding;
     if (!embeddingConfig || embeddingConfig.type === "local") {
@@ -1475,10 +1564,11 @@ async function nodeToResponse(node, store, truncation) {
     title: node.title,
     content: truncateContent(node.content, truncation),
     tags: node.tags,
-    links
+    links,
+    properties: node.properties
   };
 }
-async function nodesToResponses(nodes, store, truncation) {
+async function nodesToResponses(nodes, store, truncation, includeContent) {
   const allLinkIds = /* @__PURE__ */ new Set();
   const nodeLinkLimits = /* @__PURE__ */ new Map();
   for (const node of nodes) {
@@ -1491,16 +1581,23 @@ async function nodesToResponses(nodes, store, truncation) {
   const titles = await store.resolveTitles(Array.from(allLinkIds));
   return nodes.map((node) => {
     const limitedLinks = nodeLinkLimits.get(node.id) ?? [];
-    return {
+    const base = {
       id: node.id,
       title: node.title,
-      content: truncateContent(node.content, truncation),
       tags: node.tags,
       links: limitedLinks.map((id) => ({
         id,
         title: titles.get(id) ?? id
-      }))
+      })),
+      properties: node.properties
     };
+    if (includeContent) {
+      return {
+        ...base,
+        content: truncateContent(node.content, truncation)
+      };
+    }
+    return base;
   });
 }
 async function nodeToContextResponse(node, incomingNeighbors, outgoingNeighbors, store) {
@@ -1508,8 +1605,8 @@ async function nodeToContextResponse(node, incomingNeighbors, outgoingNeighbors,
   const limitedIncoming = incomingNeighbors.slice(0, MAX_NEIGHBORS);
   const limitedOutgoing = outgoingNeighbors.slice(0, MAX_NEIGHBORS);
   const [incomingResponses, outgoingResponses] = await Promise.all([
-    nodesToResponses(limitedIncoming, store, "neighbor"),
-    nodesToResponses(limitedOutgoing, store, "neighbor")
+    nodesToResponses(limitedIncoming, store, "neighbor", true),
+    nodesToResponses(limitedOutgoing, store, "neighbor", true)
   ]);
   return {
     ...primary,
@@ -1519,8 +1616,8 @@ async function nodeToContextResponse(node, incomingNeighbors, outgoingNeighbors,
     outgoingCount: outgoingNeighbors.length
   };
 }
-async function nodesToSearchResults(nodes, scores, store) {
-  const responses = await nodesToResponses(nodes, store, "list");
+async function nodesToSearchResults(nodes, scores, store, includeContent) {
+  const responses = await nodesToResponses(nodes, store, "list", includeContent);
   return responses.map((response) => ({
     ...response,
     score: scores.get(response.id) ?? 0
@@ -1551,7 +1648,25 @@ function coerceLimit(value, defaultValue) {
   if (Number.isNaN(num)) {
     return defaultValue;
   }
-  return Math.floor(num);
+  const floored = Math.floor(num);
+  if (floored < 1) {
+    throw new McpError("INVALID_PARAMS", "limit must be at least 1");
+  }
+  return floored;
+}
+function coerceOffset(value, defaultValue) {
+  if (value === void 0 || value === null) {
+    return defaultValue;
+  }
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return defaultValue;
+  }
+  const floored = Math.floor(num);
+  if (floored < 0) {
+    throw new McpError("INVALID_PARAMS", "offset must be at least 0");
+  }
+  return floored;
 }
 async function handleSearch(ctx, args) {
   if (!ctx.hasEmbedding) {
@@ -1559,6 +1674,7 @@ async function handleSearch(ctx, args) {
   }
   const query = args.query;
   const limit = coerceLimit(args.limit, 10);
+  const includeContent = args.include_content === true;
   if (typeof query !== "string" || query.trim() === "") {
     throw new McpError("INVALID_PARAMS", "query is required and must be a non-empty string");
   }
@@ -1567,11 +1683,21 @@ async function handleSearch(ctx, args) {
   nodes.forEach((node, index) => {
     scores.set(node.id, Math.max(0, 1 - index * 0.05));
   });
-  return nodesToSearchResults(nodes, scores, ctx.store);
+  return nodesToSearchResults(nodes, scores, ctx.store, includeContent);
+}
+function coerceDepth(value) {
+  if (value === void 0 || value === null) {
+    return 0;
+  }
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return 0;
+  }
+  return num >= 1 ? 1 : 0;
 }
 async function handleGetNode(ctx, args) {
   const id = args.id;
-  const depth = args.depth ?? 0;
+  const depth = coerceDepth(args.depth);
   if (!id || typeof id !== "string") {
     throw new McpError("INVALID_PARAMS", "id is required and must be a string");
   }
@@ -1593,6 +1719,7 @@ async function handleGetNeighbors(ctx, args) {
   const id = args.id;
   const directionRaw = args.direction ?? "both";
   const limit = coerceLimit(args.limit, 20);
+  const includeContent = args.include_content === true;
   if (!id || typeof id !== "string") {
     throw new McpError("INVALID_PARAMS", "id is required and must be a string");
   }
@@ -1604,7 +1731,7 @@ async function handleGetNeighbors(ctx, args) {
   }
   const direction = directionRaw;
   const neighbors = await ctx.core.getNeighbors(id, { direction, limit });
-  return nodesToResponses(neighbors, ctx.store, "list");
+  return nodesToResponses(neighbors, ctx.store, "list", includeContent);
 }
 async function handleFindPath(ctx, args) {
   const source = args.source;
@@ -1654,7 +1781,7 @@ async function handleSearchByTags(ctx, args) {
   }
   const mode = modeRaw;
   const nodes = await ctx.core.searchByTags(tags, mode, limit);
-  return nodesToResponses(nodes, ctx.store, "list");
+  return nodesToResponses(nodes, ctx.store, "list", true);
 }
 async function handleRandomNode(ctx, args) {
   const tags = args.tags;
@@ -1755,12 +1882,11 @@ async function handleListNodes(ctx, args) {
   const tag = args.tag;
   const path = args.path;
   const limit = coerceLimit(args.limit, 100);
-  const offset = coerceLimit(args.offset, 0);
+  const offset = coerceOffset(args.offset, 0);
   const filter = {};
   if (tag) filter.tag = tag;
   if (path) filter.path = path;
-  const nodes = await ctx.core.listNodes(filter, { limit, offset });
-  return { nodes, total: nodes.length };
+  return ctx.core.listNodes(filter, { limit, offset });
 }
 async function handleResolveNodes(ctx, args) {
   const names = args.names;
@@ -1851,6 +1977,11 @@ var TOOL_SCHEMAS = {
         maximum: 50,
         default: 10,
         description: "Maximum results to return"
+      },
+      include_content: {
+        type: "boolean",
+        default: false,
+        description: "Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content."
       }
     },
     required: ["query"]
@@ -1860,7 +1991,7 @@ var TOOL_SCHEMAS = {
     properties: {
       id: {
         type: "string",
-        description: "Node ID (file path for DocStore)"
+        description: 'Node ID (file path for DocStore). ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
       },
       depth: {
         type: "integer",
@@ -1877,7 +2008,7 @@ var TOOL_SCHEMAS = {
     properties: {
       id: {
         type: "string",
-        description: "Source node ID"
+        description: 'Source node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
       },
       direction: {
         type: "string",
@@ -1891,6 +2022,11 @@ var TOOL_SCHEMAS = {
         maximum: 50,
         default: 20,
         description: "Maximum neighbors to return"
+      },
+      include_content: {
+        type: "boolean",
+        default: false,
+        description: "Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content."
       }
     },
     required: ["id"]
@@ -1900,11 +2036,11 @@ var TOOL_SCHEMAS = {
     properties: {
       source: {
         type: "string",
-        description: "Start node ID"
+        description: 'Start node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
       },
       target: {
         type: "string",
-        description: "End node ID"
+        description: 'End node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
       }
     },
     required: ["source", "target"]
@@ -1967,7 +2103,7 @@ var TOOL_SCHEMAS = {
     properties: {
       title: {
         type: "string",
-        description: "Node title (becomes filename for DocStore)"
+        description: "Node title (becomes filename for DocStore). Returned ID will be normalized to lowercase."
       },
       content: {
         type: "string",
@@ -1991,7 +2127,7 @@ var TOOL_SCHEMAS = {
     properties: {
       id: {
         type: "string",
-        description: "Node ID to update"
+        description: 'Node ID to update. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
       },
       title: {
         type: "string",
@@ -2014,7 +2150,7 @@ var TOOL_SCHEMAS = {
     properties: {
       id: {
         type: "string",
-        description: "Node ID to delete"
+        description: 'Node ID to delete. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
       }
     },
     required: ["id"]
@@ -2057,7 +2193,7 @@ var TOOL_SCHEMAS = {
         type: "string",
         enum: ["exact", "fuzzy", "semantic"],
         default: "fuzzy",
-        description: 'How to match names to nodes. "exact": case-insensitive title equality. "fuzzy": string similarity (Dice coefficient) \u2014 use for typos, misspellings, partial matches. "semantic": embedding cosine similarity \u2014 use for synonyms or related concepts, NOT typos (misspellings embed poorly).'
+        description: 'How to match names to nodes. "exact": case-insensitive title equality. "fuzzy": string similarity (Dice coefficient) \u2014 use for typos, misspellings, partial matches. "semantic": embedding cosine similarity \u2014 use for synonyms or related concepts (NOT typos). Misspellings embed poorly because they produce unrelated vectors.'
       },
       threshold: {
         type: "number",
@@ -2143,7 +2279,7 @@ function getToolDefinitions(hasEmbedding) {
     },
     {
       name: "resolve_nodes",
-      description: 'Batch resolve names to existing node IDs. Use "fuzzy" for typos/misspellings (string similarity). Use "semantic" for synonyms/related concepts (embedding similarity). Semantic does NOT handle typos well.',
+      description: 'Batch resolve names to existing node IDs. Strategy selection: "exact" for known titles, "fuzzy" for typos/misspellings (e.g., "chikken" -> "chicken"), "semantic" for synonyms/concepts (e.g., "poultry leg meat" -> "chicken thigh"). Semantic does NOT handle typos \u2014 misspellings produce garbage embeddings.',
       inputSchema: TOOL_SCHEMAS.resolve_nodes
     },
     {
@@ -2507,8 +2643,16 @@ program.command("init").description("Initialize Roux in a directory").argument("
   if (result.created) {
     console.log(`Initialized Roux in ${resolvedDir}`);
     console.log(`  Config: ${result.configPath}`);
+    if (result.hooksInstalled) {
+      console.log(`  Claude hooks: installed`);
+    }
   } else {
-    console.log(`Already initialized: ${result.configPath}`);
+    if (result.hooksInstalled) {
+      console.log(`Upgraded Roux in ${resolvedDir}`);
+      console.log(`  Claude hooks: installed`);
+    } else {
+      console.log(`Already initialized: ${result.configPath}`);
+    }
   }
 });
 program.command("status").description("Show graph statistics").argument("[directory]", "Directory to check", ".").action(async (directory) => {
