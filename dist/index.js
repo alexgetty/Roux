@@ -1,0 +1,1392 @@
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+
+// node_modules/string-similarity/src/index.js
+var require_src = __commonJS({
+  "node_modules/string-similarity/src/index.js"(exports, module) {
+    "use strict";
+    module.exports = {
+      compareTwoStrings,
+      findBestMatch
+    };
+    function compareTwoStrings(first, second) {
+      first = first.replace(/\s+/g, "");
+      second = second.replace(/\s+/g, "");
+      if (first === second) return 1;
+      if (first.length < 2 || second.length < 2) return 0;
+      let firstBigrams = /* @__PURE__ */ new Map();
+      for (let i = 0; i < first.length - 1; i++) {
+        const bigram = first.substring(i, i + 2);
+        const count = firstBigrams.has(bigram) ? firstBigrams.get(bigram) + 1 : 1;
+        firstBigrams.set(bigram, count);
+      }
+      ;
+      let intersectionSize = 0;
+      for (let i = 0; i < second.length - 1; i++) {
+        const bigram = second.substring(i, i + 2);
+        const count = firstBigrams.has(bigram) ? firstBigrams.get(bigram) : 0;
+        if (count > 0) {
+          firstBigrams.set(bigram, count - 1);
+          intersectionSize++;
+        }
+      }
+      return 2 * intersectionSize / (first.length + second.length - 2);
+    }
+    function findBestMatch(mainString, targetStrings) {
+      if (!areArgsValid(mainString, targetStrings)) throw new Error("Bad arguments: First argument should be a string, second should be an array of strings");
+      const ratings = [];
+      let bestMatchIndex = 0;
+      for (let i = 0; i < targetStrings.length; i++) {
+        const currentTargetString = targetStrings[i];
+        const currentRating = compareTwoStrings(mainString, currentTargetString);
+        ratings.push({ target: currentTargetString, rating: currentRating });
+        if (currentRating > ratings[bestMatchIndex].rating) {
+          bestMatchIndex = i;
+        }
+      }
+      const bestMatch = ratings[bestMatchIndex];
+      return { ratings, bestMatch, bestMatchIndex };
+    }
+    function areArgsValid(mainString, targetStrings) {
+      if (typeof mainString !== "string") return false;
+      if (!Array.isArray(targetStrings)) return false;
+      if (!targetStrings.length) return false;
+      if (targetStrings.find(function(s) {
+        return typeof s !== "string";
+      })) return false;
+      return true;
+    }
+  }
+});
+
+// src/types/node.ts
+function isNode(value) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const obj = value;
+  return typeof obj["id"] === "string" && typeof obj["title"] === "string" && typeof obj["content"] === "string" && Array.isArray(obj["tags"]) && obj["tags"].every((t) => typeof t === "string") && Array.isArray(obj["outgoingLinks"]) && obj["outgoingLinks"].every((l) => typeof l === "string") && typeof obj["properties"] === "object" && obj["properties"] !== null;
+}
+function isSourceRef(value) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const obj = value;
+  const validTypes = ["file", "api", "manual"];
+  return typeof obj["type"] === "string" && validTypes.includes(obj["type"]) && (obj["path"] === void 0 || typeof obj["path"] === "string") && (obj["lastModified"] === void 0 || obj["lastModified"] instanceof Date);
+}
+
+// src/types/provider.ts
+function isVectorProvider(value) {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const obj = value;
+  return typeof obj.store === "function" && typeof obj.search === "function" && typeof obj.delete === "function" && typeof obj.getModel === "function";
+}
+
+// src/types/config.ts
+var DEFAULT_CONFIG = {
+  source: {
+    path: ".",
+    include: ["*.md"],
+    exclude: []
+  },
+  cache: {
+    path: ".roux/"
+  },
+  system: {
+    onModelChange: "lazy"
+  },
+  providers: {
+    store: {
+      type: "docstore"
+    }
+  }
+};
+
+// src/providers/docstore/index.ts
+import { readFile, writeFile, stat, readdir, mkdir, rm } from "fs/promises";
+import { join as join3, relative, dirname, resolve } from "path";
+import { watch } from "chokidar";
+
+// src/providers/docstore/cache.ts
+var import_string_similarity = __toESM(require_src(), 1);
+import Database from "better-sqlite3";
+import { join } from "path";
+import { mkdirSync } from "fs";
+var Cache = class {
+  db;
+  constructor(cacheDir) {
+    mkdirSync(cacheDir, { recursive: true });
+    const dbPath = join(cacheDir, "cache.db");
+    this.db = new Database(dbPath);
+    this.db.pragma("journal_mode = WAL");
+    this.initSchema();
+  }
+  initSchema() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS nodes (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        content TEXT,
+        tags TEXT,
+        outgoing_links TEXT,
+        properties TEXT,
+        source_type TEXT,
+        source_path TEXT,
+        source_modified INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS embeddings (
+        node_id TEXT PRIMARY KEY,
+        model TEXT,
+        vector BLOB,
+        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS centrality (
+        node_id TEXT PRIMARY KEY,
+        pagerank REAL,
+        in_degree INTEGER,
+        out_degree INTEGER,
+        computed_at INTEGER,
+        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_nodes_source_path ON nodes(source_path);
+    `);
+    this.db.pragma("foreign_keys = ON");
+  }
+  getTableNames() {
+    const rows = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    return rows.map((r) => r.name);
+  }
+  upsertNode(node, sourceType, sourcePath, sourceModified) {
+    const stmt = this.db.prepare(`
+      INSERT INTO nodes (id, title, content, tags, outgoing_links, properties, source_type, source_path, source_modified)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        content = excluded.content,
+        tags = excluded.tags,
+        outgoing_links = excluded.outgoing_links,
+        properties = excluded.properties,
+        source_type = excluded.source_type,
+        source_path = excluded.source_path,
+        source_modified = excluded.source_modified
+    `);
+    stmt.run(
+      node.id,
+      node.title,
+      node.content,
+      JSON.stringify(node.tags),
+      JSON.stringify(node.outgoingLinks),
+      JSON.stringify(node.properties),
+      sourceType,
+      sourcePath,
+      sourceModified
+    );
+  }
+  getNode(id) {
+    const row = this.db.prepare("SELECT * FROM nodes WHERE id = ?").get(id);
+    if (!row) return null;
+    return this.rowToNode(row);
+  }
+  getNodes(ids) {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db.prepare(`SELECT * FROM nodes WHERE id IN (${placeholders})`).all(...ids);
+    const nodeMap = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      nodeMap.set(row.id, this.rowToNode(row));
+    }
+    const result = [];
+    for (const id of ids) {
+      const node = nodeMap.get(id);
+      if (node) result.push(node);
+    }
+    return result;
+  }
+  deleteNode(id) {
+    this.db.prepare("DELETE FROM nodes WHERE id = ?").run(id);
+  }
+  getAllNodes() {
+    const rows = this.db.prepare("SELECT * FROM nodes").all();
+    return rows.map((row) => this.rowToNode(row));
+  }
+  searchByTags(tags, mode) {
+    if (tags.length === 0) return [];
+    const allNodes = this.getAllNodes();
+    const lowerTags = tags.map((t) => t.toLowerCase());
+    return allNodes.filter((node) => {
+      const nodeTags = node.tags.map((t) => t.toLowerCase());
+      if (mode === "any") {
+        return lowerTags.some((t) => nodeTags.includes(t));
+      } else {
+        return lowerTags.every((t) => nodeTags.includes(t));
+      }
+    });
+  }
+  getModifiedTime(sourcePath) {
+    const row = this.db.prepare("SELECT source_modified FROM nodes WHERE source_path = ?").get(sourcePath);
+    return row?.source_modified ?? null;
+  }
+  getNodeByPath(sourcePath) {
+    const row = this.db.prepare("SELECT * FROM nodes WHERE source_path = ?").get(sourcePath);
+    if (!row) return null;
+    return this.rowToNode(row);
+  }
+  getAllTrackedPaths() {
+    const rows = this.db.prepare("SELECT source_path FROM nodes").all();
+    return new Set(rows.map((r) => r.source_path));
+  }
+  resolveTitles(ids) {
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db.prepare(`SELECT id, title FROM nodes WHERE id IN (${placeholders})`).all(...ids);
+    const result = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      result.set(row.id, row.title);
+    }
+    return result;
+  }
+  nodesExist(ids) {
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db.prepare(`SELECT id FROM nodes WHERE id IN (${placeholders})`).all(...ids);
+    const existingIds = new Set(rows.map((r) => r.id));
+    const result = /* @__PURE__ */ new Map();
+    for (const id of ids) {
+      result.set(id, existingIds.has(id));
+    }
+    return result;
+  }
+  listNodes(filter, options) {
+    const limit = Math.min(options?.limit ?? 100, 1e3);
+    const offset = options?.offset ?? 0;
+    const conditions = [];
+    const params = [];
+    if (filter.tag) {
+      conditions.push("EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(json_each.value) = LOWER(?))");
+      params.push(filter.tag);
+    }
+    if (filter.path) {
+      conditions.push("id LIKE ? || '%'");
+      params.push(filter.path);
+    }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const query = `SELECT id, title FROM nodes ${whereClause} LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+    const rows = this.db.prepare(query).all(...params);
+    return rows.map((row) => ({ id: row.id, title: row.title }));
+  }
+  resolveNodes(names, options) {
+    if (names.length === 0) return [];
+    const strategy = options?.strategy ?? "fuzzy";
+    const threshold = options?.threshold ?? 0.7;
+    const filter = {};
+    if (options?.tag) filter.tag = options.tag;
+    if (options?.path) filter.path = options.path;
+    const candidates = this.listNodes(filter, { limit: 1e3 });
+    if (candidates.length === 0) {
+      return names.map((query) => ({ query, match: null, score: 0 }));
+    }
+    const candidateTitles = candidates.map((c) => c.title.toLowerCase());
+    const titleToId = /* @__PURE__ */ new Map();
+    for (const c of candidates) {
+      titleToId.set(c.title.toLowerCase(), c.id);
+    }
+    return names.map((query) => {
+      const queryLower = query.toLowerCase();
+      if (strategy === "exact") {
+        const matchedId = titleToId.get(queryLower);
+        if (matchedId) {
+          return { query, match: matchedId, score: 1 };
+        }
+        return { query, match: null, score: 0 };
+      }
+      if (strategy === "fuzzy") {
+        const result = import_string_similarity.default.findBestMatch(queryLower, candidateTitles);
+        const bestMatch = result.bestMatch;
+        if (bestMatch.rating >= threshold) {
+          const matchedId = titleToId.get(bestMatch.target);
+          return { query, match: matchedId, score: bestMatch.rating };
+        }
+        return { query, match: null, score: 0 };
+      }
+      return { query, match: null, score: 0 };
+    });
+  }
+  updateOutgoingLinks(nodeId, links) {
+    this.db.prepare("UPDATE nodes SET outgoing_links = ? WHERE id = ?").run(JSON.stringify(links), nodeId);
+  }
+  storeEmbedding(nodeId, vector, model) {
+    const buffer = Buffer.from(new Float32Array(vector).buffer);
+    this.db.prepare(
+      `
+      INSERT INTO embeddings (node_id, model, vector)
+      VALUES (?, ?, ?)
+      ON CONFLICT(node_id) DO UPDATE SET
+        model = excluded.model,
+        vector = excluded.vector
+    `
+    ).run(nodeId, model, buffer);
+  }
+  getEmbedding(nodeId) {
+    const row = this.db.prepare("SELECT model, vector FROM embeddings WHERE node_id = ?").get(nodeId);
+    if (!row) return null;
+    const float32 = new Float32Array(
+      row.vector.buffer,
+      row.vector.byteOffset,
+      row.vector.length / 4
+    );
+    return {
+      model: row.model,
+      vector: Array.from(float32)
+    };
+  }
+  storeCentrality(nodeId, pagerank, inDegree, outDegree, computedAt) {
+    this.db.prepare(
+      `
+      INSERT INTO centrality (node_id, pagerank, in_degree, out_degree, computed_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(node_id) DO UPDATE SET
+        pagerank = excluded.pagerank,
+        in_degree = excluded.in_degree,
+        out_degree = excluded.out_degree,
+        computed_at = excluded.computed_at
+    `
+    ).run(nodeId, pagerank, inDegree, outDegree, computedAt);
+  }
+  getCentrality(nodeId) {
+    const row = this.db.prepare("SELECT * FROM centrality WHERE node_id = ?").get(nodeId);
+    if (!row) return null;
+    return {
+      pagerank: row.pagerank,
+      inDegree: row.in_degree,
+      outDegree: row.out_degree,
+      computedAt: row.computed_at
+    };
+  }
+  getStats() {
+    const nodeCount = this.db.prepare("SELECT COUNT(*) as count FROM nodes").get();
+    const embeddingCount = this.db.prepare("SELECT COUNT(*) as count FROM embeddings").get();
+    const edgeSum = this.db.prepare("SELECT SUM(in_degree) as total FROM centrality").get();
+    return {
+      nodeCount: nodeCount.count,
+      embeddingCount: embeddingCount.count,
+      edgeCount: edgeSum.total ?? 0
+    };
+  }
+  clear() {
+    this.db.exec("DELETE FROM centrality");
+    this.db.exec("DELETE FROM embeddings");
+    this.db.exec("DELETE FROM nodes");
+  }
+  close() {
+    this.db.close();
+  }
+  rowToNode(row) {
+    const sourceRef = {
+      type: row.source_type,
+      path: row.source_path,
+      lastModified: new Date(row.source_modified)
+    };
+    return {
+      id: row.id,
+      title: row.title,
+      content: row.content,
+      tags: JSON.parse(row.tags),
+      outgoingLinks: JSON.parse(row.outgoing_links),
+      properties: JSON.parse(row.properties),
+      sourceRef
+    };
+  }
+};
+
+// src/providers/vector/sqlite.ts
+import Database2 from "better-sqlite3";
+import { join as join2 } from "path";
+var SqliteVectorProvider = class {
+  db;
+  ownsDb;
+  constructor(pathOrDb) {
+    if (typeof pathOrDb === "string") {
+      this.db = new Database2(join2(pathOrDb, "vectors.db"));
+      this.ownsDb = true;
+    } else {
+      this.db = pathOrDb;
+      this.ownsDb = false;
+    }
+    this.init();
+  }
+  init() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS vectors (
+        id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        vector BLOB NOT NULL
+      )
+    `);
+  }
+  async store(id, vector, model) {
+    if (vector.length === 0) {
+      throw new Error("Cannot store empty vector");
+    }
+    for (const v of vector) {
+      if (!Number.isFinite(v)) {
+        throw new Error(`Invalid vector value: ${v}`);
+      }
+    }
+    const existing = this.db.prepare("SELECT LENGTH(vector) / 4 as dim FROM vectors WHERE id != ? LIMIT 1").get(id);
+    if (existing && existing.dim !== vector.length) {
+      throw new Error(
+        `Dimension mismatch: cannot store ${vector.length}-dim vector, existing vectors have ${existing.dim} dimensions`
+      );
+    }
+    const blob = Buffer.from(new Float32Array(vector).buffer);
+    this.db.prepare(
+      `INSERT OR REPLACE INTO vectors (id, model, vector) VALUES (?, ?, ?)`
+    ).run(id, model, blob);
+  }
+  async search(vector, limit) {
+    if (vector.length === 0) {
+      throw new Error("Cannot search with empty vector");
+    }
+    for (const v of vector) {
+      if (!Number.isFinite(v)) {
+        throw new Error(`Invalid vector value: ${v}`);
+      }
+    }
+    if (limit <= 0) {
+      return [];
+    }
+    const rows = this.db.prepare("SELECT id, vector FROM vectors").all();
+    if (rows.length === 0) {
+      return [];
+    }
+    const firstStoredDim = rows[0].vector.byteLength / 4;
+    if (vector.length !== firstStoredDim) {
+      throw new Error(
+        `Dimension mismatch: query has ${vector.length} dimensions, stored vectors have ${firstStoredDim}`
+      );
+    }
+    const queryVec = new Float32Array(vector);
+    const results = [];
+    for (const row of rows) {
+      const storedVec = new Float32Array(
+        row.vector.buffer,
+        row.vector.byteOffset,
+        row.vector.byteLength / 4
+      );
+      const distance = cosineDistance(queryVec, storedVec);
+      results.push({ id: row.id, distance });
+    }
+    results.sort((a, b) => a.distance - b.distance);
+    return results.slice(0, limit);
+  }
+  async delete(id) {
+    this.db.prepare("DELETE FROM vectors WHERE id = ?").run(id);
+  }
+  async getModel(id) {
+    const row = this.db.prepare("SELECT model FROM vectors WHERE id = ?").get(id);
+    return row?.model ?? null;
+  }
+  hasEmbedding(id) {
+    const row = this.db.prepare("SELECT 1 FROM vectors WHERE id = ?").get(id);
+    return row !== void 0;
+  }
+  /** For testing: get table names */
+  getTableNames() {
+    const rows = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    return rows.map((r) => r.name);
+  }
+  /** For testing: get vector blob size */
+  getVectorBlobSize(id) {
+    const row = this.db.prepare("SELECT LENGTH(vector) as size FROM vectors WHERE id = ?").get(id);
+    return row?.size ?? null;
+  }
+  /** Get total number of stored embeddings */
+  getEmbeddingCount() {
+    const row = this.db.prepare("SELECT COUNT(*) as count FROM vectors").get();
+    return row.count;
+  }
+  close() {
+    if (this.ownsDb) {
+      this.db.close();
+    }
+  }
+};
+function cosineDistance(a, b) {
+  let dotProduct = 0;
+  let magnitudeA = 0;
+  let magnitudeB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    magnitudeA += a[i] * a[i];
+    magnitudeB += b[i] * b[i];
+  }
+  magnitudeA = Math.sqrt(magnitudeA);
+  magnitudeB = Math.sqrt(magnitudeB);
+  if (magnitudeA === 0 || magnitudeB === 0) {
+    return 1;
+  }
+  const similarity = dotProduct / (magnitudeA * magnitudeB);
+  return 1 - similarity;
+}
+
+// src/providers/docstore/parser.ts
+import matter from "gray-matter";
+function parseMarkdown(raw) {
+  let parsed;
+  try {
+    parsed = matter(raw);
+  } catch {
+    return {
+      title: void 0,
+      tags: [],
+      properties: {},
+      content: raw
+    };
+  }
+  const data = parsed.data;
+  const title = typeof data["title"] === "string" ? data["title"] : void 0;
+  let tags = [];
+  if (Array.isArray(data["tags"])) {
+    tags = data["tags"].filter((t) => typeof t === "string");
+  }
+  const properties = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (key !== "title" && key !== "tags") {
+      properties[key] = value;
+    }
+  }
+  return {
+    title,
+    tags,
+    properties,
+    content: parsed.content.trim()
+  };
+}
+function extractWikiLinks(content) {
+  const withoutCodeBlocks = content.replace(/```[\s\S]*?```/g, "");
+  const withoutInlineCode = withoutCodeBlocks.replace(/`[^`]+`/g, "");
+  const linkRegex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+  const seen = /* @__PURE__ */ new Set();
+  const links = [];
+  let match;
+  while ((match = linkRegex.exec(withoutInlineCode)) !== null) {
+    const target = match[1]?.trim();
+    if (target && !seen.has(target)) {
+      seen.add(target);
+      links.push(target);
+    }
+  }
+  return links;
+}
+function normalizeId(path) {
+  return path.toLowerCase().replace(/\\/g, "/");
+}
+function titleFromPath(path) {
+  const parts = path.split(/[/\\]/);
+  const filename = parts.at(-1);
+  const withoutExt = filename.replace(/\.[^.]+$/, "");
+  const spaced = withoutExt.replace(/[-_]+/g, " ").toLowerCase();
+  return spaced.split(" ").filter((w) => w.length > 0).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+function serializeToMarkdown(parsed) {
+  const hasFrontmatter = parsed.title !== void 0 || parsed.tags.length > 0 || Object.keys(parsed.properties).length > 0;
+  if (!hasFrontmatter) {
+    return parsed.content;
+  }
+  const frontmatter = {};
+  if (parsed.title !== void 0) {
+    frontmatter["title"] = parsed.title;
+  }
+  if (parsed.tags.length > 0) {
+    frontmatter["tags"] = parsed.tags;
+  }
+  for (const [key, value] of Object.entries(parsed.properties)) {
+    frontmatter[key] = value;
+  }
+  return matter.stringify(parsed.content, frontmatter);
+}
+
+// src/graph/builder.ts
+import { DirectedGraph } from "graphology";
+function buildGraph(nodes) {
+  const graph = new DirectedGraph();
+  const nodeIds = /* @__PURE__ */ new Set();
+  for (const node of nodes) {
+    graph.addNode(node.id);
+    nodeIds.add(node.id);
+  }
+  for (const node of nodes) {
+    const seen = /* @__PURE__ */ new Set();
+    for (const target of node.outgoingLinks) {
+      if (!nodeIds.has(target) || seen.has(target)) {
+        continue;
+      }
+      seen.add(target);
+      graph.addDirectedEdge(node.id, target);
+    }
+  }
+  return graph;
+}
+
+// src/graph/operations.ts
+import { bidirectional } from "graphology-shortest-path";
+function getNeighborIds(graph, id, options) {
+  if (!graph.hasNode(id)) {
+    return [];
+  }
+  let neighbors;
+  switch (options.direction) {
+    case "in":
+      neighbors = graph.inNeighbors(id);
+      break;
+    case "out":
+      neighbors = graph.outNeighbors(id);
+      break;
+    case "both":
+      neighbors = graph.neighbors(id);
+      break;
+  }
+  if (options.limit !== void 0 && options.limit < neighbors.length) {
+    return neighbors.slice(0, options.limit);
+  }
+  return neighbors;
+}
+function findPath(graph, source, target) {
+  if (!graph.hasNode(source) || !graph.hasNode(target)) {
+    return null;
+  }
+  if (source === target) {
+    return [source];
+  }
+  const path = bidirectional(graph, source, target);
+  return path;
+}
+function getHubs(graph, metric, limit) {
+  const scores = [];
+  graph.forEachNode((id) => {
+    let score;
+    switch (metric) {
+      case "in_degree":
+        score = graph.inDegree(id);
+        break;
+      case "out_degree":
+        score = graph.outDegree(id);
+        break;
+      case "pagerank":
+        score = graph.inDegree(id);
+        break;
+    }
+    scores.push([id, score]);
+  });
+  scores.sort((a, b) => b[1] - a[1]);
+  return scores.slice(0, limit);
+}
+function computeCentrality(graph) {
+  const result = /* @__PURE__ */ new Map();
+  graph.forEachNode((id) => {
+    result.set(id, {
+      inDegree: graph.inDegree(id),
+      outDegree: graph.outDegree(id)
+    });
+  });
+  return result;
+}
+
+// src/providers/docstore/index.ts
+var DocStore = class _DocStore {
+  cache;
+  sourceRoot;
+  graph = null;
+  vectorProvider;
+  ownsVectorProvider;
+  watcher = null;
+  debounceTimer = null;
+  pendingChanges = /* @__PURE__ */ new Map();
+  onChangeCallback;
+  constructor(sourceRoot, cacheDir, vectorProvider) {
+    this.sourceRoot = sourceRoot;
+    this.cache = new Cache(cacheDir);
+    this.ownsVectorProvider = !vectorProvider;
+    this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
+  }
+  async sync() {
+    const currentPaths = await this.collectMarkdownFiles(this.sourceRoot);
+    const trackedPaths = this.cache.getAllTrackedPaths();
+    for (const filePath of currentPaths) {
+      try {
+        const mtime = await this.getFileMtime(filePath);
+        const cachedMtime = this.cache.getModifiedTime(filePath);
+        if (cachedMtime === null || mtime > cachedMtime) {
+          const node = await this.fileToNode(filePath);
+          this.cache.upsertNode(node, "file", filePath, mtime);
+        }
+      } catch (err) {
+        if (err.code === "ENOENT") {
+          continue;
+        }
+        throw err;
+      }
+    }
+    const currentSet = new Set(currentPaths);
+    for (const tracked of trackedPaths) {
+      if (!currentSet.has(tracked)) {
+        const node = this.cache.getNodeByPath(tracked);
+        if (node) {
+          this.cache.deleteNode(node.id);
+        }
+      }
+    }
+    const filenameIndex = this.buildFilenameIndex();
+    this.resolveOutgoingLinks(filenameIndex);
+    this.rebuildGraph();
+  }
+  async createNode(node) {
+    const normalizedId = normalizeId(node.id);
+    this.validatePathWithinSource(normalizedId);
+    const existing = this.cache.getNode(normalizedId);
+    if (existing) {
+      throw new Error(`Node already exists: ${normalizedId}`);
+    }
+    const filePath = join3(this.sourceRoot, normalizedId);
+    const dir = dirname(filePath);
+    await mkdir(dir, { recursive: true });
+    const parsed = {
+      title: node.title,
+      tags: node.tags,
+      properties: node.properties,
+      content: node.content
+    };
+    const markdown = serializeToMarkdown(parsed);
+    await writeFile(filePath, markdown, "utf-8");
+    const mtime = await this.getFileMtime(filePath);
+    const normalizedNode = { ...node, id: normalizedId };
+    this.cache.upsertNode(normalizedNode, "file", filePath, mtime);
+    this.rebuildGraph();
+  }
+  async updateNode(id, updates) {
+    const normalizedId = normalizeId(id);
+    const existing = this.cache.getNode(normalizedId);
+    if (!existing) {
+      throw new Error(`Node not found: ${id}`);
+    }
+    let outgoingLinks = updates.outgoingLinks;
+    if (updates.content !== void 0 && outgoingLinks === void 0) {
+      const rawLinks = extractWikiLinks(updates.content);
+      outgoingLinks = rawLinks.map((link) => this.normalizeWikiLink(link));
+    }
+    const updated = {
+      ...existing,
+      ...updates,
+      outgoingLinks: outgoingLinks ?? existing.outgoingLinks,
+      id: existing.id
+      // ID cannot be changed
+    };
+    const filePath = join3(this.sourceRoot, existing.id);
+    const parsed = {
+      title: updated.title,
+      tags: updated.tags,
+      properties: updated.properties,
+      content: updated.content
+    };
+    const markdown = serializeToMarkdown(parsed);
+    await writeFile(filePath, markdown, "utf-8");
+    const mtime = await this.getFileMtime(filePath);
+    this.cache.upsertNode(updated, "file", filePath, mtime);
+    if (outgoingLinks !== void 0 || updates.outgoingLinks !== void 0) {
+      this.rebuildGraph();
+    }
+  }
+  async deleteNode(id) {
+    const normalizedId = normalizeId(id);
+    const existing = this.cache.getNode(normalizedId);
+    if (!existing) {
+      throw new Error(`Node not found: ${id}`);
+    }
+    const filePath = join3(this.sourceRoot, existing.id);
+    await rm(filePath);
+    this.cache.deleteNode(existing.id);
+    await this.vectorProvider.delete(existing.id);
+    this.rebuildGraph();
+  }
+  async getNode(id) {
+    const normalizedId = normalizeId(id);
+    return this.cache.getNode(normalizedId);
+  }
+  async getNodes(ids) {
+    const normalizedIds = ids.map(normalizeId);
+    return this.cache.getNodes(normalizedIds);
+  }
+  async getAllNodeIds() {
+    const nodes = this.cache.getAllNodes();
+    return nodes.map((n) => n.id);
+  }
+  async searchByTags(tags, mode) {
+    return this.cache.searchByTags(tags, mode);
+  }
+  async getRandomNode(tags) {
+    let candidates;
+    if (tags && tags.length > 0) {
+      candidates = await this.searchByTags(tags, "any");
+    } else {
+      candidates = this.cache.getAllNodes();
+    }
+    if (candidates.length === 0) {
+      return null;
+    }
+    const randomIndex = Math.floor(Math.random() * candidates.length);
+    return candidates[randomIndex];
+  }
+  async resolveTitles(ids) {
+    return this.cache.resolveTitles(ids);
+  }
+  async listNodes(filter, options) {
+    return this.cache.listNodes(filter, options);
+  }
+  async resolveNodes(names, options) {
+    const strategy = options?.strategy ?? "fuzzy";
+    if (strategy === "exact" || strategy === "fuzzy") {
+      return this.cache.resolveNodes(names, options);
+    }
+    return names.map((query) => ({ query, match: null, score: 0 }));
+  }
+  async nodesExist(ids) {
+    const normalizedIds = ids.map(normalizeId);
+    return this.cache.nodesExist(normalizedIds);
+  }
+  async getNeighbors(id, options) {
+    this.ensureGraph();
+    const neighborIds = getNeighborIds(this.graph, id, options);
+    return this.cache.getNodes(neighborIds);
+  }
+  async findPath(source, target) {
+    this.ensureGraph();
+    return findPath(this.graph, source, target);
+  }
+  async getHubs(metric, limit) {
+    this.ensureGraph();
+    return getHubs(this.graph, metric, limit);
+  }
+  async storeEmbedding(id, vector, model) {
+    return this.vectorProvider.store(id, vector, model);
+  }
+  async searchByVector(vector, limit) {
+    return this.vectorProvider.search(vector, limit);
+  }
+  hasEmbedding(id) {
+    return this.vectorProvider.hasEmbedding(id);
+  }
+  close() {
+    this.stopWatching();
+    this.cache.close();
+    if (this.ownsVectorProvider && "close" in this.vectorProvider) {
+      this.vectorProvider.close();
+    }
+  }
+  startWatching(onChange) {
+    if (this.watcher) {
+      throw new Error("Already watching. Call stopWatching() first.");
+    }
+    this.onChangeCallback = onChange;
+    return new Promise((resolve2, reject) => {
+      this.watcher = watch(this.sourceRoot, {
+        ignoreInitial: true,
+        ignored: [..._DocStore.EXCLUDED_DIRS].map((dir) => `**/${dir}/**`),
+        awaitWriteFinish: {
+          stabilityThreshold: 100
+        },
+        followSymlinks: false
+      });
+      this.watcher.on("ready", () => resolve2()).on("add", (path) => this.queueChange(path, "add")).on("change", (path) => this.queueChange(path, "change")).on("unlink", (path) => this.queueChange(path, "unlink")).on("error", (err) => {
+        if (err.code === "EMFILE") {
+          console.error(
+            "File watcher hit file descriptor limit. Try: ulimit -n 65536 or reduce watched files."
+          );
+        }
+        reject(err);
+      });
+    });
+  }
+  stopWatching() {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.pendingChanges.clear();
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+  }
+  isWatching() {
+    return this.watcher !== null;
+  }
+  queueChange(filePath, event) {
+    const relativePath = relative(this.sourceRoot, filePath);
+    const id = normalizeId(relativePath);
+    if (!filePath.endsWith(".md")) {
+      return;
+    }
+    const pathParts = relativePath.split("/");
+    for (const part of pathParts) {
+      if (_DocStore.EXCLUDED_DIRS.has(part)) {
+        return;
+      }
+    }
+    const existing = this.pendingChanges.get(id);
+    if (existing) {
+      if (existing === "add" && event === "change") {
+        return;
+      } else if (existing === "add" && event === "unlink") {
+        this.pendingChanges.delete(id);
+      } else if (existing === "change" && event === "unlink") {
+        this.pendingChanges.set(id, "unlink");
+      }
+    } else {
+      this.pendingChanges.set(id, event);
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+    this.debounceTimer = setTimeout(() => {
+      this.processQueue();
+    }, 1e3);
+  }
+  async processQueue() {
+    const changes = new Map(this.pendingChanges);
+    this.pendingChanges.clear();
+    this.debounceTimer = null;
+    const processedIds = [];
+    for (const [id, event] of changes) {
+      try {
+        if (event === "unlink") {
+          const existing = this.cache.getNode(id);
+          if (existing) {
+            this.cache.deleteNode(id);
+            await this.vectorProvider.delete(id);
+            processedIds.push(id);
+          }
+        } else {
+          const filePath = join3(this.sourceRoot, id);
+          const node = await this.fileToNode(filePath);
+          const mtime = await this.getFileMtime(filePath);
+          this.cache.upsertNode(node, "file", filePath, mtime);
+          processedIds.push(id);
+        }
+      } catch (err) {
+        console.warn(`Failed to process file change for ${id}:`, err);
+      }
+    }
+    if (processedIds.length > 0) {
+      const filenameIndex = this.buildFilenameIndex();
+      this.resolveOutgoingLinks(filenameIndex);
+      this.rebuildGraph();
+    }
+    if (this.onChangeCallback && processedIds.length > 0) {
+      this.onChangeCallback(processedIds);
+    }
+  }
+  buildFilenameIndex() {
+    const index = /* @__PURE__ */ new Map();
+    for (const node of this.cache.getAllNodes()) {
+      const basename = node.id.split("/").pop();
+      const existing = index.get(basename) ?? [];
+      existing.push(node.id);
+      index.set(basename, existing);
+    }
+    for (const paths of index.values()) {
+      paths.sort();
+    }
+    return index;
+  }
+  resolveOutgoingLinks(filenameIndex) {
+    const validNodeIds = /* @__PURE__ */ new Set();
+    for (const paths of filenameIndex.values()) {
+      for (const path of paths) {
+        validNodeIds.add(path);
+      }
+    }
+    for (const node of this.cache.getAllNodes()) {
+      const resolved = node.outgoingLinks.map((link) => {
+        if (validNodeIds.has(link)) {
+          return link;
+        }
+        if (link.includes("/")) {
+          return link;
+        }
+        const matches = filenameIndex.get(link);
+        if (matches && matches.length > 0) {
+          return matches[0];
+        }
+        return link;
+      });
+      if (resolved.some((r, i) => r !== node.outgoingLinks[i])) {
+        this.cache.updateOutgoingLinks(node.id, resolved);
+      }
+    }
+  }
+  ensureGraph() {
+    if (!this.graph) {
+      this.rebuildGraph();
+    }
+  }
+  rebuildGraph() {
+    const nodes = this.cache.getAllNodes();
+    this.graph = buildGraph(nodes);
+    const centrality = computeCentrality(this.graph);
+    const now = Date.now();
+    for (const [id, metrics] of centrality) {
+      this.cache.storeCentrality(id, 0, metrics.inDegree, metrics.outDegree, now);
+    }
+  }
+  static EXCLUDED_DIRS = /* @__PURE__ */ new Set([".roux", "node_modules", ".git", ".obsidian"]);
+  async collectMarkdownFiles(dir) {
+    const results = [];
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return results;
+    }
+    for (const entry of entries) {
+      const fullPath = join3(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (_DocStore.EXCLUDED_DIRS.has(entry.name)) {
+          continue;
+        }
+        const nested = await this.collectMarkdownFiles(fullPath);
+        results.push(...nested);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        results.push(fullPath);
+      }
+    }
+    return results;
+  }
+  async getFileMtime(filePath) {
+    const stats = await stat(filePath);
+    return stats.mtimeMs;
+  }
+  async fileToNode(filePath) {
+    const raw = await readFile(filePath, "utf-8");
+    const parsed = parseMarkdown(raw);
+    const relativePath = relative(this.sourceRoot, filePath);
+    const id = normalizeId(relativePath);
+    const title = parsed.title ?? titleFromPath(id);
+    const rawLinks = extractWikiLinks(parsed.content);
+    const outgoingLinks = rawLinks.map((link) => this.normalizeWikiLink(link));
+    return {
+      id,
+      title,
+      content: parsed.content,
+      tags: parsed.tags,
+      outgoingLinks,
+      properties: parsed.properties,
+      sourceRef: {
+        type: "file",
+        path: filePath,
+        lastModified: new Date(await this.getFileMtime(filePath))
+      }
+    };
+  }
+  /**
+   * Normalize a wiki-link target to an ID.
+   * - If it has a file extension, normalize as-is
+   * - If no extension, add .md
+   * - Lowercase, forward slashes
+   */
+  normalizeWikiLink(target) {
+    let normalized = target.toLowerCase().replace(/\\/g, "/");
+    if (!this.hasFileExtension(normalized)) {
+      normalized += ".md";
+    }
+    return normalized;
+  }
+  hasFileExtension(path) {
+    const match = path.match(/\.([a-z0-9]{1,4})$/i);
+    if (!match?.[1]) return false;
+    return /[a-z]/i.test(match[1]);
+  }
+  validatePathWithinSource(id) {
+    const resolvedPath = resolve(this.sourceRoot, id);
+    const resolvedRoot = resolve(this.sourceRoot);
+    if (!resolvedPath.startsWith(resolvedRoot + "/")) {
+      throw new Error(`Path traversal detected: ${id} resolves outside source root`);
+    }
+  }
+};
+
+// src/providers/embedding/transformers.ts
+import { pipeline } from "@xenova/transformers";
+var DEFAULT_MODEL = "Xenova/all-MiniLM-L6-v2";
+var DEFAULT_DIMENSIONS = 384;
+var TransformersEmbeddingProvider = class {
+  model;
+  dims;
+  pipe = null;
+  constructor(model = DEFAULT_MODEL, dimensions = DEFAULT_DIMENSIONS) {
+    this.model = model;
+    this.dims = dimensions;
+  }
+  async getPipeline() {
+    if (!this.pipe) {
+      this.pipe = await pipeline("feature-extraction", this.model);
+    }
+    return this.pipe;
+  }
+  async embed(text) {
+    const pipe = await this.getPipeline();
+    const output = await pipe(text, { pooling: "mean", normalize: true });
+    return Array.from(output.data);
+  }
+  async embedBatch(texts) {
+    if (texts.length === 0) {
+      return [];
+    }
+    return Promise.all(texts.map((t) => this.embed(t)));
+  }
+  dimensions() {
+    return this.dims;
+  }
+  modelId() {
+    return this.model;
+  }
+};
+
+// src/core/graphcore.ts
+var GraphCoreImpl = class _GraphCoreImpl {
+  store = null;
+  embedding = null;
+  registerStore(provider) {
+    this.store = provider;
+  }
+  registerEmbedding(provider) {
+    this.embedding = provider;
+  }
+  requireStore() {
+    if (!this.store) {
+      throw new Error("StoreProvider not registered");
+    }
+    return this.store;
+  }
+  requireEmbedding() {
+    if (!this.embedding) {
+      throw new Error("EmbeddingProvider not registered");
+    }
+    return this.embedding;
+  }
+  async search(query, options) {
+    const store = this.requireStore();
+    const embedding = this.requireEmbedding();
+    const limit = options?.limit ?? 10;
+    const vector = await embedding.embed(query);
+    const results = await store.searchByVector(vector, limit);
+    const ids = results.map((r) => r.id);
+    return store.getNodes(ids);
+  }
+  async getNode(id, depth) {
+    const store = this.requireStore();
+    const node = await store.getNode(id);
+    if (!node) {
+      return null;
+    }
+    if (!depth || depth === 0) {
+      return node;
+    }
+    const [incomingNeighbors, outgoingNeighbors] = await Promise.all([
+      store.getNeighbors(id, { direction: "in" }),
+      store.getNeighbors(id, { direction: "out" })
+    ]);
+    const neighborMap = /* @__PURE__ */ new Map();
+    for (const n of [...incomingNeighbors, ...outgoingNeighbors]) {
+      neighborMap.set(n.id, n);
+    }
+    const result = {
+      ...node,
+      neighbors: Array.from(neighborMap.values()),
+      incomingCount: incomingNeighbors.length,
+      outgoingCount: outgoingNeighbors.length
+    };
+    return result;
+  }
+  async createNode(partial) {
+    const store = this.requireStore();
+    if (!partial.id) {
+      throw new Error("Node id is required");
+    }
+    if (!partial.title) {
+      throw new Error("Node title is required");
+    }
+    const node = {
+      id: partial.id,
+      title: partial.title,
+      content: partial.content ?? "",
+      tags: partial.tags ?? [],
+      outgoingLinks: partial.outgoingLinks ?? [],
+      properties: partial.properties ?? {},
+      ...partial.sourceRef && { sourceRef: partial.sourceRef }
+    };
+    await store.createNode(node);
+    return await store.getNode(node.id) ?? node;
+  }
+  async updateNode(id, updates) {
+    const store = this.requireStore();
+    await store.updateNode(id, updates);
+    const updated = await store.getNode(id);
+    if (!updated) {
+      throw new Error(`Node not found after update: ${id}`);
+    }
+    return updated;
+  }
+  async deleteNode(id) {
+    const store = this.requireStore();
+    try {
+      await store.deleteNode(id);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async getNeighbors(id, options) {
+    const store = this.requireStore();
+    return store.getNeighbors(id, options);
+  }
+  async findPath(source, target) {
+    const store = this.requireStore();
+    return store.findPath(source, target);
+  }
+  async getHubs(metric, limit) {
+    const store = this.requireStore();
+    return store.getHubs(metric, limit);
+  }
+  async searchByTags(tags, mode, limit) {
+    const store = this.requireStore();
+    const results = await store.searchByTags(tags, mode);
+    if (limit !== void 0) {
+      return results.slice(0, limit);
+    }
+    return results;
+  }
+  async getRandomNode(tags) {
+    const store = this.requireStore();
+    return store.getRandomNode(tags);
+  }
+  async listNodes(filter, options) {
+    return this.requireStore().listNodes(filter, options);
+  }
+  async resolveNodes(names, options) {
+    const store = this.requireStore();
+    const strategy = options?.strategy ?? "fuzzy";
+    if (strategy === "semantic") {
+      if (!this.embedding) {
+        throw new Error("Semantic resolution requires EmbeddingProvider");
+      }
+      const filter = {};
+      if (options?.tag) filter.tag = options.tag;
+      if (options?.path) filter.path = options.path;
+      const candidates = await store.listNodes(filter, { limit: 1e3 });
+      if (candidates.length === 0 || names.length === 0) {
+        return names.map((query) => ({ query, match: null, score: 0 }));
+      }
+      const threshold = options?.threshold ?? 0.7;
+      const queryVectors = await this.embedding.embedBatch(names);
+      const candidateTitles = candidates.map((c) => c.title);
+      const candidateVectors = await this.embedding.embedBatch(candidateTitles);
+      return names.map((query, qIdx) => {
+        const queryVector = queryVectors[qIdx];
+        let bestScore = 0;
+        let bestMatch = null;
+        for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
+          const similarity = this.cosineSimilarity(queryVector, candidateVectors[cIdx]);
+          if (similarity > bestScore) {
+            bestScore = similarity;
+            bestMatch = candidates[cIdx].id;
+          }
+        }
+        if (bestScore >= threshold) {
+          return { query, match: bestMatch, score: bestScore };
+        }
+        return { query, match: null, score: 0 };
+      });
+    }
+    return store.resolveNodes(names, options);
+  }
+  cosineSimilarity(a, b) {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+  static fromConfig(config) {
+    if (!config.providers?.store) {
+      throw new Error("StoreProvider configuration is required");
+    }
+    const core = new _GraphCoreImpl();
+    if (config.providers.store.type === "docstore") {
+      const sourcePath = config.source?.path ?? ".";
+      const cachePath = config.cache?.path ?? ".roux";
+      const store = new DocStore(sourcePath, cachePath);
+      core.registerStore(store);
+    }
+    const embeddingConfig = config.providers.embedding;
+    if (!embeddingConfig || embeddingConfig.type === "local") {
+      const model = embeddingConfig?.model;
+      const embedding = new TransformersEmbeddingProvider(model);
+      core.registerEmbedding(embedding);
+    } else {
+      throw new Error(
+        `Unsupported embedding provider type: ${embeddingConfig.type}. Supported: local`
+      );
+    }
+    return core;
+  }
+};
+
+// src/index.ts
+var VERSION = "0.1.0";
+export {
+  DEFAULT_CONFIG,
+  DocStore,
+  GraphCoreImpl,
+  SqliteVectorProvider,
+  TransformersEmbeddingProvider,
+  VERSION,
+  isNode,
+  isSourceRef,
+  isVectorProvider
+};
+//# sourceMappingURL=index.js.map
