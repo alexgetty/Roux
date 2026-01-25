@@ -75,8 +75,8 @@ describe('init command', () => {
 
       expect(config.mcpServers).toBeDefined();
       expect(config.mcpServers.roux).toBeDefined();
-      expect(config.mcpServers.roux.command).toBe('roux');
-      expect(config.mcpServers.roux.args).toEqual(['serve', '.']);
+      expect(config.mcpServers.roux.command).toBe('npx');
+      expect(config.mcpServers.roux.args).toEqual(['roux', 'serve', '.']);
     });
 
     it('merges roux into existing .mcp.json preserving other servers', async () => {
@@ -98,7 +98,7 @@ describe('init command', () => {
 
       expect(config.mcpServers.github).toEqual(existingConfig.mcpServers.github);
       expect(config.mcpServers.roux).toBeDefined();
-      expect(config.mcpServers.roux.command).toBe('roux');
+      expect(config.mcpServers.roux.command).toBe('npx');
     });
 
     it('updates existing roux entry in .mcp.json', async () => {
@@ -118,8 +118,8 @@ describe('init command', () => {
       const content = await readFile(mcpPath, 'utf-8');
       const config = JSON.parse(content);
 
-      expect(config.mcpServers.roux.command).toBe('roux');
-      expect(config.mcpServers.roux.args).toEqual(['serve', '.']);
+      expect(config.mcpServers.roux.command).toBe('npx');
+      expect(config.mcpServers.roux.args).toEqual(['roux', 'serve', '.']);
     });
 
     it('handles empty .mcp.json', async () => {

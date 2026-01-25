@@ -96,8 +96,8 @@ var DEFAULT_CONFIG = `providers:
     type: docstore
 `;
 var ROUX_MCP_CONFIG = {
-  command: "roux",
-  args: ["serve", "."],
+  command: "npx",
+  args: ["roux", "serve", "."],
   env: {}
 };
 async function initCommand(directory) {

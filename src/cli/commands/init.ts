@@ -24,8 +24,8 @@ const DEFAULT_CONFIG = `providers:
 `;
 
 const ROUX_MCP_CONFIG: McpServerConfig = {
-  command: 'roux',
-  args: ['serve', '.'],
+  command: 'npx',
+  args: ['roux', 'serve', '.'],
   env: {},
 };
 
