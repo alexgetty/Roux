@@ -3,14 +3,18 @@ import type { LinkInfo } from '../types/provider.js';
 /** Link with resolved human-readable title. Re-export for MCP layer. */
 export type { LinkInfo };
 
-/** Subset of Node fields optimized for LLM consumption. */
-export interface NodeResponse {
+/** Metadata-only response for browsing operations (search, get_neighbors). */
+export interface NodeMetadataResponse {
   id: string;
   title: string;
-  content: string;
   tags: string[];
   links: LinkInfo[];
   properties: Record<string, unknown>;
+}
+
+/** Full response including content (for get_node, create, update, etc.). */
+export interface NodeResponse extends NodeMetadataResponse {
+  content: string;
 }
 
 /** Extended response for get_node with depth > 0. */
@@ -21,9 +25,10 @@ export interface NodeWithContextResponse extends NodeResponse {
   outgoingCount: number;
 }
 
-/** Search results include similarity score. */
-export interface SearchResultResponse extends NodeResponse {
+/** Search results include similarity score. Content optional based on include_content param. */
+export interface SearchResultResponse extends NodeMetadataResponse {
   score: number;
+  content?: string;
 }
 
 /** Hub results pair ID with metric value. */

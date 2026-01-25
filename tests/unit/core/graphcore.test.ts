@@ -741,6 +741,24 @@ describe('GraphCore', () => {
       expect(result[0]!.match).toBeNull();
       expect(result[0]!.score).toBe(0);
     });
+
+    it('throws on dimension mismatch in semantic resolution', async () => {
+      vi.mocked(mockStore.listNodes).mockResolvedValue({
+        nodes: [{ id: 'a.md', title: 'A' }],
+        total: 1,
+      });
+      vi.mocked(mockEmbedding.embedBatch)
+        .mockResolvedValueOnce([[0.1, 0.2, 0.3]]) // 3-dim query
+        .mockResolvedValueOnce([[0.1, 0.2, 0.3, 0.4]]); // 4-dim candidate
+
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+      core.registerEmbedding(mockEmbedding);
+
+      await expect(
+        core.resolveNodes(['test'], { strategy: 'semantic' })
+      ).rejects.toThrow(/dimension mismatch/i);
+    });
   });
 
   describe('fromConfig', () => {
@@ -819,6 +837,18 @@ describe('GraphCore', () => {
       };
 
       expect(() => GraphCoreImpl.fromConfig(config)).toThrow(/unsupported/i);
+    });
+
+    it('throws on unsupported store type', () => {
+      const config: RouxConfig = {
+        providers: {
+          store: { type: 'memory' as 'docstore' },
+        },
+        source: { path: join(tempDir, 'source'), include: ['*.md'], exclude: [] },
+        cache: { path: join(tempDir, 'cache4') },
+      };
+
+      expect(() => GraphCoreImpl.fromConfig(config)).toThrow(/unsupported.*store/i);
     });
   });
 });

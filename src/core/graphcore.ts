@@ -213,6 +213,17 @@ export class GraphCoreImpl implements GraphCore {
       const candidateTitles = candidates.map((c) => c.title);
       const candidateVectors = await this.embedding.embedBatch(candidateTitles);
 
+      // Validate dimensions match
+      if (queryVectors.length > 0 && candidateVectors.length > 0) {
+        const queryDim = queryVectors[0]!.length;
+        const candidateDim = candidateVectors[0]!.length;
+        if (queryDim !== candidateDim) {
+          throw new Error(
+            `Embedding dimension mismatch: query=${queryDim}, candidate=${candidateDim}`
+          );
+        }
+      }
+
       // For each query, find best matching candidate by cosine similarity
       return names.map((query, qIdx): ResolveResult => {
         const queryVector = queryVectors[qIdx]!;
@@ -264,6 +275,10 @@ export class GraphCoreImpl implements GraphCore {
       const cachePath = config.cache?.path ?? '.roux';
       const store = new DocStore(sourcePath, cachePath);
       core.registerStore(store);
+    } else {
+      throw new Error(
+        `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
+      );
     }
 
     // Create embedding provider (defaults to local transformers)

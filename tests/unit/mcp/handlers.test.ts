@@ -99,6 +99,28 @@ describe('handleSearch', () => {
     expect(result[1]?.score).toBe(0.95);
   });
 
+  it('excludes content by default (metadata-only)', async () => {
+    const nodes = [createNode({ id: 'a.md', content: 'Should not appear' })];
+    const ctx = createContext();
+    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue(nodes);
+
+    const result = await handleSearch(ctx, { query: 'test' });
+
+    expect(result[0]).not.toHaveProperty('content');
+    expect(result[0]?.id).toBe('a.md');
+    expect(result[0]?.score).toBeDefined();
+  });
+
+  it('includes content when include_content is true', async () => {
+    const nodes = [createNode({ id: 'a.md', content: 'This should appear' })];
+    const ctx = createContext();
+    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue(nodes);
+
+    const result = await handleSearch(ctx, { query: 'test', include_content: true });
+
+    expect(result[0]?.content).toBe('This should appear');
+  });
+
   it('throws PROVIDER_ERROR when embedding not available', async () => {
     const ctx = createContext({ hasEmbedding: false });
 
@@ -309,6 +331,29 @@ describe('handleGetNeighbors', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('n.md');
+  });
+
+  it('excludes content by default (metadata-only)', async () => {
+    const neighbors = [createNode({ id: 'n.md', content: 'Should not appear' })];
+    const ctx = createContext();
+    (ctx.core.getNeighbors as ReturnType<typeof vi.fn>).mockResolvedValue(neighbors);
+
+    const result = await handleGetNeighbors(ctx, { id: 'test.md' });
+
+    expect(result[0]).not.toHaveProperty('content');
+    expect(result[0]?.id).toBe('n.md');
+    expect(result[0]?.title).toBe('Test Node');
+    expect(result[0]?.tags).toEqual(['tag1']);
+  });
+
+  it('includes content when include_content is true', async () => {
+    const neighbors = [createNode({ id: 'n.md', content: 'This should appear' })];
+    const ctx = createContext();
+    (ctx.core.getNeighbors as ReturnType<typeof vi.fn>).mockResolvedValue(neighbors);
+
+    const result = await handleGetNeighbors(ctx, { id: 'test.md', include_content: true });
+
+    expect(result[0]?.content).toBe('This should appear');
   });
 
   it('uses default direction both and limit 20', async () => {

@@ -1,9 +1,58 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DocStore } from '../../../src/providers/docstore/index.js';
 import { SqliteVectorProvider } from '../../../src/providers/vector/index.js';
+
+/**
+ * Delay after startWatching() resolves to let OS-level filesystem watcher stabilize.
+ * chokidar's 'ready' event fires after initial directory scan, but FSEvents/inotify
+ * may need additional time before reliably delivering events.
+ * This is not a "generous timeout" - it's a real precondition for the test.
+ */
+const WATCHER_STABILIZATION_MS = 100;
+
+/**
+ * Creates a promise that resolves when the watcher's onChange callback fires.
+ * This provides deterministic synchronization instead of polling.
+ *
+ * The 5 second timeout is a hard failure boundary, not a "generous" allowance.
+ * Expected processing time is ~1.2s (1s debounce + processing).
+ * If we hit 5s, something is broken.
+ */
+function createChangePromise(): {
+  promise: Promise<string[]>;
+  callback: (ids: string[]) => void;
+} {
+  let resolveChange: (ids: string[]) => void;
+
+  const promise = new Promise<string[]>((resolve, reject) => {
+    resolveChange = resolve;
+
+    // Hard timeout - if we reach this, the watcher is broken
+    setTimeout(() => {
+      reject(new Error('Watcher did not fire within 5 seconds - this indicates a bug'));
+    }, 5000);
+  });
+
+  const callback = (changedIds: string[]) => {
+    resolveChange(changedIds);
+  };
+
+  return { promise, callback };
+}
+
+/**
+ * Start watching and wait for the watcher to stabilize.
+ */
+async function startWatchingStable(
+  store: DocStore,
+  callback?: (ids: string[]) => void
+): Promise<void> {
+  await store.startWatching(callback);
+  await new Promise((r) => setTimeout(r, WATCHER_STABILIZATION_MS));
+}
 
 describe('File Watcher Integration', () => {
   let tempDir: string;
@@ -40,43 +89,33 @@ describe('File Watcher Integration', () => {
 
   describe('real filesystem watching', () => {
     it('detects new file and adds to cache', async () => {
-      const onChange = vi.fn();
-      await store.startWatching(onChange);
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(store, callback);
 
-      // Create new file
       await writeMarkdownFile('new-note.md', '---\ntitle: New Note\n---\nContent');
 
-      await vi.waitFor(
-        async () => {
-          const node = await store.getNode('new-note.md');
-          expect(node).not.toBeNull();
-          expect(node?.title).toBe('New Note');
-        },
-        { timeout: 8000 }
-      );
+      const changedIds = await promise;
 
-      expect(onChange).toHaveBeenCalled();
+      expect(changedIds).toContain('new-note.md');
+      const node = await store.getNode('new-note.md');
+      expect(node).not.toBeNull();
+      expect(node?.title).toBe('New Note');
     });
 
     it('detects file modification and updates cache', async () => {
       await writeMarkdownFile('existing.md', '---\ntitle: Original\n---\nContent');
       await store.sync();
 
-      const onChange = vi.fn();
-      await store.startWatching(onChange);
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(store, callback);
 
-      // Modify file
       await writeMarkdownFile('existing.md', '---\ntitle: Updated\n---\nNew content');
 
-      await vi.waitFor(
-        async () => {
-          const node = await store.getNode('existing.md');
-          expect(node?.title).toBe('Updated');
-        },
-        { timeout: 8000 }
-      );
+      const changedIds = await promise;
 
-      expect(onChange).toHaveBeenCalled();
+      expect(changedIds).toContain('existing.md');
+      const node = await store.getNode('existing.md');
+      expect(node?.title).toBe('Updated');
     });
 
     it('detects file deletion and removes from cache', async () => {
@@ -85,70 +124,74 @@ describe('File Watcher Integration', () => {
 
       expect(await store.getNode('to-delete.md')).not.toBeNull();
 
-      const onChange = vi.fn();
-      await store.startWatching(onChange);
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(store, callback);
 
-      // Delete file
       await unlink(filePath);
 
-      await vi.waitFor(
-        async () => {
-          expect(await store.getNode('to-delete.md')).toBeNull();
-        },
-        { timeout: 8000 }
-      );
+      const changedIds = await promise;
 
-      expect(onChange).toHaveBeenCalled();
+      expect(changedIds).toContain('to-delete.md');
+      expect(await store.getNode('to-delete.md')).toBeNull();
     });
 
     it('batches rapid edits within debounce window', async () => {
       await writeMarkdownFile('rapid.md', '---\ntitle: V1\n---\nContent');
       await store.sync();
 
-      const onChange = vi.fn();
-      await store.startWatching(onChange);
+      // Track all onChange calls
+      const allChanges: string[][] = [];
+      let resolveFirstChange: () => void;
+      const firstChangePromise = new Promise<void>((resolve) => {
+        resolveFirstChange = resolve;
+      });
 
-      // Rapid edits
+      const inlineCallback = (changedIds: string[]) => {
+        allChanges.push(changedIds);
+        resolveFirstChange();
+      };
+      await startWatchingStable(store, inlineCallback);
+
+      // Rapid edits within debounce window
       await writeMarkdownFile('rapid.md', '---\ntitle: V2\n---\nContent');
       await new Promise((r) => setTimeout(r, 100));
       await writeMarkdownFile('rapid.md', '---\ntitle: V3\n---\nContent');
       await new Promise((r) => setTimeout(r, 100));
       await writeMarkdownFile('rapid.md', '---\ntitle: V4\n---\nContent');
 
-      await vi.waitFor(
-        async () => {
-          const node = await store.getNode('rapid.md');
-          expect(node?.title).toBe('V4');
-        },
-        { timeout: 5000 }
-      );
+      // Wait for at least one batch to process
+      await firstChangePromise;
+
+      // Wait a bit more to let any additional batches complete
+      await new Promise((r) => setTimeout(r, 1500));
+
+      // Final state should be V4
+      const node = await store.getNode('rapid.md');
+      expect(node?.title).toBe('V4');
 
       // Batching should limit calls - at most 3 (one per debounce window reset)
-      // Ideally batched into 1 call, but filesystem timing may cause 2-3
-      const callCount = onChange.mock.calls.length;
-      expect(callCount).toBeGreaterThanOrEqual(1);
-      expect(callCount).toBeLessThanOrEqual(3);
+      expect(allChanges.length).toBeGreaterThanOrEqual(1);
+      expect(allChanges.length).toBeLessThanOrEqual(3);
     });
 
     it('handles transient files (create then delete quickly)', async () => {
-      const onChange = vi.fn();
-      await store.startWatching(onChange);
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(store, callback);
 
-      // Also create a persistent file to verify watcher is working
+      // Create persistent file first
       await writeMarkdownFile('persistent.md', '# Persistent');
 
-      // Create and delete transient file
+      // Create and delete transient file within debounce window
       const transientPath = await writeMarkdownFile('transient.md', '# Transient');
       await new Promise((r) => setTimeout(r, 50));
       await unlink(transientPath);
 
-      await vi.waitFor(
-        async () => {
-          // Persistent file should be cached
-          expect(await store.getNode('persistent.md')).not.toBeNull();
-        },
-        { timeout: 5000 }
-      );
+      // Wait for watcher to process
+      const changedIds = await promise;
+
+      // Persistent file should be in the changes and cached
+      expect(changedIds).toContain('persistent.md');
+      expect(await store.getNode('persistent.md')).not.toBeNull();
 
       // Transient file should not be in cache (add + unlink = no-op)
       expect(await store.getNode('transient.md')).toBeNull();
@@ -163,37 +206,34 @@ describe('File Watcher Integration', () => {
       let neighbors = await store.getNeighbors('source.md', { direction: 'out' });
       expect(neighbors.map((n) => n.id)).not.toContain('target.md');
 
-      await store.startWatching();
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(store, callback);
 
-      // Add link to target
       await writeMarkdownFile('source.md', '---\ntitle: Source\n---\nLink to [[target]]');
 
-      await vi.waitFor(
-        async () => {
-          neighbors = await store.getNeighbors('source.md', { direction: 'out' });
-          expect(neighbors.map((n) => n.id)).toContain('target.md');
-        },
-        { timeout: 5000 }
-      );
+      await promise;
+
+      neighbors = await store.getNeighbors('source.md', { direction: 'out' });
+      expect(neighbors.map((n) => n.id)).toContain('target.md');
     });
 
     it('ignores non-markdown files', async () => {
-      const onChange = vi.fn();
-      await store.startWatching(onChange);
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(store, callback);
 
-      // Create non-md files
+      // Create non-md files (these should be ignored)
       await writeFile(join(sourceDir, 'image.png'), Buffer.from('fake png'));
       await writeFile(join(sourceDir, 'data.json'), '{}');
 
-      // Also create md file to verify watcher is working
+      // Create md file - this will trigger onChange
       await writeMarkdownFile('real.md', '# Real');
 
-      await vi.waitFor(
-        async () => {
-          expect(await store.getNode('real.md')).not.toBeNull();
-        },
-        { timeout: 5000 }
-      );
+      const changedIds = await promise;
+
+      // Only the md file should be in changes
+      expect(changedIds).toContain('real.md');
+      expect(changedIds).not.toContain('image.png');
+      expect(changedIds).not.toContain('data.json');
 
       // Non-md files should not be tracked
       expect(await store.getAllNodeIds()).not.toContain('image.png');
@@ -201,74 +241,64 @@ describe('File Watcher Integration', () => {
     });
 
     it('ignores .obsidian directory', async () => {
-      const onChange = vi.fn();
-      await store.startWatching(onChange);
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(store, callback);
 
-      // Create files in .obsidian
+      // Create files in .obsidian (should be ignored)
       await mkdir(join(sourceDir, '.obsidian'), { recursive: true });
       await writeFile(join(sourceDir, '.obsidian/workspace.md'), '# Workspace');
 
-      // Also create a valid file
+      // Create valid file - this will trigger onChange
       await writeMarkdownFile('valid.md', '# Valid');
 
-      await vi.waitFor(
-        async () => {
-          expect(await store.getNode('valid.md')).not.toBeNull();
-        },
-        { timeout: 5000 }
-      );
+      const changedIds = await promise;
+
+      expect(changedIds).toContain('valid.md');
+      expect(changedIds).not.toContain('.obsidian/workspace.md');
 
       // .obsidian file should not be tracked
       expect(await store.getNode('.obsidian/workspace.md')).toBeNull();
     });
 
     it('handles deeply nested directories', async () => {
-      await store.startWatching();
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(store, callback);
 
       await writeMarkdownFile('a/b/c/d/deep.md', '---\ntitle: Deep\n---\nContent');
 
-      await vi.waitFor(
-        async () => {
-          const node = await store.getNode('a/b/c/d/deep.md');
-          expect(node).not.toBeNull();
-          expect(node?.title).toBe('Deep');
-        },
-        { timeout: 8000 }
-      );
+      const changedIds = await promise;
+
+      expect(changedIds).toContain('a/b/c/d/deep.md');
+      const node = await store.getNode('a/b/c/d/deep.md');
+      expect(node).not.toBeNull();
+      expect(node?.title).toBe('Deep');
     });
 
     it('cleans up vector embedding when file is deleted', async () => {
-      // Create a separate store with explicit vector provider to verify embedding cleanup
       const vectorCacheDir = join(tempDir, 'vector-cache');
       await mkdir(vectorCacheDir, { recursive: true });
       const vectorProvider = new SqliteVectorProvider(vectorCacheDir);
       const storeWithVector = new DocStore(sourceDir, cacheDir, vectorProvider);
 
-      // Create file and sync to populate cache
       const filePath = await writeMarkdownFile(
         'with-embedding.md',
         '---\ntitle: With Embedding\n---\nContent for embedding'
       );
       await storeWithVector.sync();
 
-      // Store an embedding for this file
       await vectorProvider.store('with-embedding.md', [0.1, 0.2, 0.3], 'test-model');
       expect(vectorProvider.hasEmbedding('with-embedding.md')).toBe(true);
 
-      await storeWithVector.startWatching();
+      const { promise, callback } = createChangePromise();
+      await startWatchingStable(storeWithVector, callback);
 
-      // Delete the file
       await unlink(filePath);
 
-      await vi.waitFor(
-        async () => {
-          // Node should be removed from cache
-          expect(await storeWithVector.getNode('with-embedding.md')).toBeNull();
-          // Embedding should also be cleaned up
-          expect(vectorProvider.hasEmbedding('with-embedding.md')).toBe(false);
-        },
-        { timeout: 8000 }
-      );
+      const changedIds = await promise;
+
+      expect(changedIds).toContain('with-embedding.md');
+      expect(await storeWithVector.getNode('with-embedding.md')).toBeNull();
+      expect(vectorProvider.hasEmbedding('with-embedding.md')).toBe(false);
 
       storeWithVector.close();
       vectorProvider.close();

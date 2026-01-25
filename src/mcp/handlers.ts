@@ -13,6 +13,7 @@ import type { Node } from '../types/node.js';
 import {
   McpError,
   type NodeResponse,
+  type NodeMetadataResponse,
   type NodeWithContextResponse,
   type SearchResultResponse,
   type HubResponse,
@@ -60,9 +61,11 @@ export interface NodesExistResponse {
 
 export type ToolResult =
   | NodeResponse
+  | NodeMetadataResponse
   | NodeWithContextResponse
   | SearchResultResponse[]
   | NodeResponse[]
+  | NodeMetadataResponse[]
   | HubResponse[]
   | PathResponse
   | DeleteResponse
@@ -81,6 +84,7 @@ export async function handleSearch(
 
   const query = args.query;
   const limit = coerceLimit(args.limit, 10);
+  const includeContent = args.include_content === true;
 
   if (typeof query !== 'string' || query.trim() === '') {
     throw new McpError('INVALID_PARAMS', 'query is required and must be a non-empty string');
@@ -95,7 +99,7 @@ export async function handleSearch(
     scores.set(node.id, Math.max(0, 1 - index * 0.05));
   });
 
-  return nodesToSearchResults(nodes, scores, ctx.store);
+  return nodesToSearchResults(nodes, scores, ctx.store, includeContent);
 }
 
 export async function handleGetNode(
@@ -131,10 +135,11 @@ const VALID_DIRECTIONS = ['in', 'out', 'both'] as const;
 export async function handleGetNeighbors(
   ctx: HandlerContext,
   args: Record<string, unknown>
-): Promise<NodeResponse[]> {
+): Promise<NodeResponse[] | NodeMetadataResponse[]> {
   const id = args.id as string;
   const directionRaw = args.direction ?? 'both';
   const limit = coerceLimit(args.limit, 20);
+  const includeContent = args.include_content === true;
 
   if (!id || typeof id !== 'string') {
     throw new McpError('INVALID_PARAMS', 'id is required and must be a string');
@@ -149,7 +154,7 @@ export async function handleGetNeighbors(
   const direction = directionRaw as 'in' | 'out' | 'both';
 
   const neighbors = await ctx.core.getNeighbors(id, { direction, limit });
-  return nodesToResponses(neighbors, ctx.store, 'list');
+  return nodesToResponses(neighbors, ctx.store, 'list', includeContent);
 }
 
 export async function handleFindPath(
@@ -223,7 +228,8 @@ export async function handleSearchByTags(
   const mode = modeRaw as TagMode;
 
   const nodes = await ctx.core.searchByTags(tags, mode, limit);
-  return nodesToResponses(nodes, ctx.store, 'list');
+  // searchByTags always includes content (not a browsing operation like search/get_neighbors)
+  return nodesToResponses(nodes, ctx.store, 'list', true) as Promise<NodeResponse[]>;
 }
 
 export async function handleRandomNode(

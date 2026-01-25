@@ -45,6 +45,12 @@ const TOOL_SCHEMAS = {
         default: 10,
         description: 'Maximum results to return',
       },
+      include_content: {
+        type: 'boolean',
+        default: false,
+        description:
+          'Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content.',
+      },
     },
     required: ['query'],
   },
@@ -86,6 +92,12 @@ const TOOL_SCHEMAS = {
         maximum: 50,
         default: 20,
         description: 'Maximum neighbors to return',
+      },
+      include_content: {
+        type: 'boolean',
+        default: false,
+        description:
+          'Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content.',
       },
     },
     required: ['id'],

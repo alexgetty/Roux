@@ -2,6 +2,7 @@ import type { Node } from '../types/node.js';
 import type { LinkInfo, StoreProvider } from '../types/provider.js';
 import type {
   NodeResponse,
+  NodeMetadataResponse,
   NodeWithContextResponse,
   SearchResultResponse,
   HubResponse,
@@ -43,13 +44,16 @@ export async function nodeToResponse(
 }
 
 /**
- * Transform multiple nodes to NodeResponse[], resolving all link titles in batch.
+ * Transform multiple nodes to responses, resolving all link titles in batch.
+ * When includeContent is false, returns NodeMetadataResponse[] (no content field).
+ * When includeContent is true, returns NodeResponse[] (with truncated content).
  */
 export async function nodesToResponses(
   nodes: Node[],
   store: StoreProvider,
-  truncation: TruncationContext
-): Promise<NodeResponse[]> {
+  truncation: TruncationContext,
+  includeContent: boolean
+): Promise<NodeResponse[] | NodeMetadataResponse[]> {
   // Collect unique link IDs, limiting per-node to prevent OOM
   const allLinkIds = new Set<string>();
   const nodeLinkLimits = new Map<string, string[]>();
@@ -69,10 +73,9 @@ export async function nodesToResponses(
   return nodes.map((node) => {
     // Defensive fallback - all node IDs are populated in the loop above
     const limitedLinks = nodeLinkLimits.get(node.id) /* v8 ignore next */ ?? [];
-    return {
+    const base: NodeMetadataResponse = {
       id: node.id,
       title: node.title,
-      content: truncateContent(node.content, truncation),
       tags: node.tags,
       links: limitedLinks.map((id) => ({
         id,
@@ -80,6 +83,15 @@ export async function nodesToResponses(
       })),
       properties: node.properties,
     };
+
+    if (includeContent) {
+      return {
+        ...base,
+        content: truncateContent(node.content, truncation),
+      } as NodeResponse;
+    }
+
+    return base;
   });
 }
 
@@ -100,9 +112,10 @@ export async function nodeToContextResponse(
   const limitedOutgoing = outgoingNeighbors.slice(0, MAX_NEIGHBORS);
 
   // Transform neighbors with neighbor truncation
+  // Context responses always include content (truncated for neighbors)
   const [incomingResponses, outgoingResponses] = await Promise.all([
-    nodesToResponses(limitedIncoming, store, 'neighbor'),
-    nodesToResponses(limitedOutgoing, store, 'neighbor'),
+    nodesToResponses(limitedIncoming, store, 'neighbor', true) as Promise<NodeResponse[]>,
+    nodesToResponses(limitedOutgoing, store, 'neighbor', true) as Promise<NodeResponse[]>,
   ]);
 
   return {
@@ -116,13 +129,16 @@ export async function nodeToContextResponse(
 
 /**
  * Transform search results with scores.
+ * When includeContent is false, content field is omitted.
+ * When includeContent is true, content is truncated and included.
  */
 export async function nodesToSearchResults(
   nodes: Node[],
   scores: Map<string, number>,
-  store: StoreProvider
+  store: StoreProvider,
+  includeContent: boolean
 ): Promise<SearchResultResponse[]> {
-  const responses = await nodesToResponses(nodes, store, 'list');
+  const responses = await nodesToResponses(nodes, store, 'list', includeContent);
 
   return responses.map((response) => ({
     ...response,

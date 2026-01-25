@@ -142,7 +142,7 @@ describe('nodesToResponses', () => {
     ]);
     const store = createMockStore(titleMap);
 
-    const responses = await nodesToResponses(nodes, store, 'list');
+    const responses = await nodesToResponses(nodes, store, 'list', true);
 
     // Should batch resolve unique IDs
     expect(store.resolveTitles).toHaveBeenCalledTimes(1);
@@ -161,9 +161,32 @@ describe('nodesToResponses', () => {
     ]);
   });
 
+  it('excludes content when includeContent is false', async () => {
+    const nodes = [createNode({ id: 'a.md', content: 'Some content' })];
+    const store = createMockStore();
+
+    const responses = await nodesToResponses(nodes, store, 'list', false);
+
+    expect(responses[0]).not.toHaveProperty('content');
+    expect(responses[0]?.id).toBe('a.md');
+    expect(responses[0]?.title).toBe('Test Node');
+    expect(responses[0]?.tags).toEqual(['tag1']);
+    expect(responses[0]?.links).toEqual([]);
+    expect(responses[0]?.properties).toEqual({});
+  });
+
+  it('includes content when includeContent is true', async () => {
+    const nodes = [createNode({ id: 'a.md', content: 'Some content' })];
+    const store = createMockStore();
+
+    const responses = await nodesToResponses(nodes, store, 'list', true);
+
+    expect(responses[0]?.content).toBe('Some content');
+  });
+
   it('handles empty nodes array', async () => {
     const store = createMockStore();
-    const responses = await nodesToResponses([], store, 'list');
+    const responses = await nodesToResponses([], store, 'list', true);
 
     expect(responses).toEqual([]);
     expect(store.resolveTitles).toHaveBeenCalledWith([]);
@@ -176,7 +199,7 @@ describe('nodesToResponses', () => {
     const titleMap = new Map([['resolved.md', 'Resolved']]);
     const store = createMockStore(titleMap);
 
-    const responses = await nodesToResponses(nodes, store, 'list');
+    const responses = await nodesToResponses(nodes, store, 'list', true);
 
     expect(responses[0]?.links).toEqual([
       { id: 'resolved.md', title: 'Resolved' },
@@ -191,7 +214,7 @@ describe('nodesToResponses', () => {
       new Error('Store unavailable')
     );
 
-    await expect(nodesToResponses(nodes, store, 'list')).rejects.toThrow(
+    await expect(nodesToResponses(nodes, store, 'list', true)).rejects.toThrow(
       'Store unavailable'
     );
   });
@@ -201,7 +224,7 @@ describe('nodesToResponses', () => {
     const nodes = [createNode({ outgoingLinks: manyLinks })];
     const store = createMockStore();
 
-    const responses = await nodesToResponses(nodes, store, 'list');
+    const responses = await nodesToResponses(nodes, store, 'list', true);
 
     // Should only include first 100 links
     expect(responses[0]?.links).toHaveLength(100);
@@ -216,7 +239,7 @@ describe('nodesToResponses', () => {
     ];
     const store = createMockStore();
 
-    const responses = await nodesToResponses(nodes, store, 'list');
+    const responses = await nodesToResponses(nodes, store, 'list', true);
 
     expect(responses[0]?.properties).toEqual({ category: 'recipe' });
     expect(responses[1]?.properties).toEqual({ category: 'note', reviewed: true });
@@ -303,29 +326,51 @@ describe('nodesToSearchResults', () => {
     ]);
     const store = createMockStore();
 
-    const results = await nodesToSearchResults(nodes, scores, store);
+    const results = await nodesToSearchResults(nodes, scores, store, true);
 
     expect(results[0]?.score).toBe(0.95);
     expect(results[1]?.score).toBe(0.80);
+  });
+
+  it('excludes content when includeContent is false', async () => {
+    const nodes = [createNode({ id: 'a.md', content: 'Some content' })];
+    const scores = new Map([['a.md', 0.9]]);
+    const store = createMockStore();
+
+    const results = await nodesToSearchResults(nodes, scores, store, false);
+
+    expect(results[0]).not.toHaveProperty('content');
+    expect(results[0]?.id).toBe('a.md');
+    expect(results[0]?.score).toBe(0.9);
+  });
+
+  it('includes content when includeContent is true', async () => {
+    const nodes = [createNode({ id: 'a.md', content: 'Some content' })];
+    const scores = new Map([['a.md', 0.9]]);
+    const store = createMockStore();
+
+    const results = await nodesToSearchResults(nodes, scores, store, true);
+
+    expect(results[0]?.content).toBe('Some content');
   });
 
   it('defaults to 0 for missing scores', async () => {
     const nodes = [createNode({ id: 'no-score.md' })];
     const store = createMockStore();
 
-    const results = await nodesToSearchResults(nodes, new Map(), store);
+    const results = await nodesToSearchResults(nodes, new Map(), store, true);
 
     expect(results[0]?.score).toBe(0);
   });
 
-  it('uses list truncation', async () => {
+  it('uses list truncation when includeContent is true', async () => {
     const content = 'x'.repeat(TRUNCATION_LIMITS.list + 100);
     const nodes = [createNode({ content })];
     const store = createMockStore();
 
-    const results = await nodesToSearchResults(nodes, new Map(), store);
+    const results = await nodesToSearchResults(nodes, new Map(), store, true);
 
-    expect(results[0]?.content.length).toBe(TRUNCATION_LIMITS.list);
+    expect(results[0]?.content?.length).toBe(TRUNCATION_LIMITS.list);
   });
 });
 
