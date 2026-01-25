@@ -227,11 +227,12 @@ const TOOL_SCHEMAS = {
     properties: {
       tag: {
         type: 'string',
-        description: 'Filter by tag (case-insensitive)',
+        description:
+          'Filter by tag from the "tags" frontmatter array (case-insensitive). Does NOT search other frontmatter fields like "type" or "category".',
       },
       path: {
         type: 'string',
-        description: 'Filter by path prefix (startsWith)',
+        description: 'Filter by path prefix (startsWith, case-insensitive)',
       },
       limit: {
         type: 'integer',
@@ -261,22 +262,25 @@ const TOOL_SCHEMAS = {
         type: 'string',
         enum: ['exact', 'fuzzy', 'semantic'],
         default: 'fuzzy',
-        description: 'exact = case-insensitive title, fuzzy = string similarity, semantic = vector search',
+        description:
+          'How to match names to nodes. "exact": case-insensitive title equality. "fuzzy": string similarity (Dice coefficient) — use for typos, misspellings, partial matches. "semantic": embedding cosine similarity — use for synonyms or related concepts, NOT typos (misspellings embed poorly).',
       },
       threshold: {
         type: 'number',
         minimum: 0,
         maximum: 1,
         default: 0.7,
-        description: 'Minimum similarity score (0-1). Ignored for exact strategy.',
+        description:
+          'Minimum similarity score (0-1). Lower values match more loosely. For typo tolerance, use fuzzy with threshold 0.5-0.6. Ignored for exact strategy.',
       },
       tag: {
         type: 'string',
-        description: 'Filter candidates by tag',
+        description:
+          'Filter candidates by tag from "tags" frontmatter array (case-insensitive)',
       },
       path: {
         type: 'string',
-        description: 'Filter candidates by path prefix',
+        description: 'Filter candidates by path prefix (case-insensitive)',
       },
     },
     required: ['names'],
@@ -288,7 +292,8 @@ const TOOL_SCHEMAS = {
       ids: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Node IDs to check existence',
+        description:
+          'Node IDs to check existence. IDs are normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
       },
     },
     required: ['ids'],
@@ -347,17 +352,20 @@ export function getToolDefinitions(hasEmbedding: boolean): Tool[] {
     },
     {
       name: 'list_nodes',
-      description: 'List nodes with optional tag/path filters and pagination',
+      description:
+        'List nodes with optional filters and pagination. Tag filter searches the "tags" frontmatter array only. All IDs returned are lowercase.',
       inputSchema: TOOL_SCHEMAS.list_nodes,
     },
     {
       name: 'resolve_nodes',
-      description: 'Batch resolve names to existing node IDs using exact, fuzzy, or semantic matching',
+      description:
+        'Batch resolve names to existing node IDs. Use "fuzzy" for typos/misspellings (string similarity). Use "semantic" for synonyms/related concepts (embedding similarity). Semantic does NOT handle typos well.',
       inputSchema: TOOL_SCHEMAS.resolve_nodes,
     },
     {
       name: 'nodes_exist',
-      description: 'Batch check if node IDs exist',
+      description:
+        'Batch check if node IDs exist. IDs are normalized to lowercase before checking.',
       inputSchema: TOOL_SCHEMAS.nodes_exist,
     },
   ];
