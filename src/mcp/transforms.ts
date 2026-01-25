@@ -38,6 +38,7 @@ export async function nodeToResponse(
     content: truncateContent(node.content, truncation),
     tags: node.tags,
     links,
+    properties: node.properties,
   };
 }
 
@@ -77,6 +78,7 @@ export async function nodesToResponses(
         id,
         title: titles.get(id) ?? id,
       })),
+      properties: node.properties,
     };
   });
 }

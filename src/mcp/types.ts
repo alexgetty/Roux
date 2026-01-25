@@ -10,6 +10,7 @@ export interface NodeResponse {
   content: string;
   tags: string[];
   links: LinkInfo[];
+  properties: Record<string, unknown>;
 }
 
 /** Extended response for get_node with depth > 0. */

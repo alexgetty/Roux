@@ -40,6 +40,7 @@ Architecture docs live in `docs/` as an Obsidian vault. `docs/GPI.md` and `docs/
 **Tracking directories:**
 - `docs/roadmap/` — Future features, post-MVP enhancements, deferred scope
 - `docs/issues/` — Current bugs, test gaps, tech debt that should be fixed
+- `docs/issues/archive/` — Resolved issues (never delete, always archive)
 
 ## Code Style
 

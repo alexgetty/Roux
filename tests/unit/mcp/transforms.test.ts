@@ -67,6 +67,7 @@ describe('nodeToResponse', () => {
         { id: 'linked.md', title: 'Linked Node' },
         { id: 'other.md', title: 'Other Node' },
       ],
+      properties: {},
     });
     expect(store.resolveTitles).toHaveBeenCalledWith(['linked.md', 'other.md']);
   });
@@ -101,6 +102,30 @@ describe('nodeToResponse', () => {
     const response = await nodeToResponse(node, store, 'list');
 
     expect(response.content.length).toBe(TRUNCATION_LIMITS.list);
+  });
+
+  it('includes properties in response', async () => {
+    const node = createNode({
+      properties: { author: 'Jane Doe', status: 'draft', priority: 1 },
+    });
+    const store = createMockStore();
+
+    const response = await nodeToResponse(node, store, 'primary');
+
+    expect(response.properties).toEqual({
+      author: 'Jane Doe',
+      status: 'draft',
+      priority: 1,
+    });
+  });
+
+  it('includes empty properties object when node has no properties', async () => {
+    const node = createNode({ properties: {} });
+    const store = createMockStore();
+
+    const response = await nodeToResponse(node, store, 'primary');
+
+    expect(response.properties).toEqual({});
   });
 });
 
@@ -182,6 +207,19 @@ describe('nodesToResponses', () => {
     expect(responses[0]?.links).toHaveLength(100);
     expect(responses[0]?.links[0]?.id).toBe('link-0.md');
     expect(responses[0]?.links[99]?.id).toBe('link-99.md');
+  });
+
+  it('includes properties for each node', async () => {
+    const nodes = [
+      createNode({ id: 'a.md', properties: { category: 'recipe' } }),
+      createNode({ id: 'b.md', properties: { category: 'note', reviewed: true } }),
+    ];
+    const store = createMockStore();
+
+    const responses = await nodesToResponses(nodes, store, 'list');
+
+    expect(responses[0]?.properties).toEqual({ category: 'recipe' });
+    expect(responses[1]?.properties).toEqual({ category: 'note', reviewed: true });
   });
 });
 
