@@ -9,6 +9,11 @@ import type {
   Metric,
   TagMode,
   NeighborOptions,
+  ListFilter,
+  ListOptions,
+  NodeSummary,
+  ResolveOptions,
+  ResolveResult,
 } from '../types/provider.js';
 import type { RouxConfig } from '../types/config.js';
 import { DocStore } from '../providers/docstore/index.js';
@@ -165,6 +170,85 @@ export class GraphCoreImpl implements GraphCore {
   async getRandomNode(tags?: string[]): Promise<Node | null> {
     const store = this.requireStore();
     return store.getRandomNode(tags);
+  }
+
+  async listNodes(
+    filter: ListFilter,
+    options?: ListOptions
+  ): Promise<NodeSummary[]> {
+    return this.requireStore().listNodes(filter, options);
+  }
+
+  async resolveNodes(
+    names: string[],
+    options?: ResolveOptions
+  ): Promise<ResolveResult[]> {
+    const store = this.requireStore();
+    const strategy = options?.strategy ?? 'fuzzy';
+
+    // Semantic strategy requires embedding provider
+    if (strategy === 'semantic') {
+      if (!this.embedding) {
+        throw new Error('Semantic resolution requires EmbeddingProvider');
+      }
+
+      // Build filter without undefined values
+      const filter: ListFilter = {};
+      if (options?.tag) filter.tag = options.tag;
+      if (options?.path) filter.path = options.path;
+
+      // Get candidates from store with filters
+      const candidates = await store.listNodes(filter, { limit: 1000 });
+
+      if (candidates.length === 0 || names.length === 0) {
+        return names.map((query) => ({ query, match: null, score: 0 }));
+      }
+
+      const threshold = options?.threshold ?? 0.7;
+
+      // Embed all queries in batch
+      const queryVectors = await this.embedding.embedBatch(names);
+
+      // Embed all candidate titles in batch
+      const candidateTitles = candidates.map((c) => c.title);
+      const candidateVectors = await this.embedding.embedBatch(candidateTitles);
+
+      // For each query, find best matching candidate by cosine similarity
+      return names.map((query, qIdx): ResolveResult => {
+        const queryVector = queryVectors[qIdx]!;
+        let bestScore = 0;
+        let bestMatch: string | null = null;
+
+        for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
+          const similarity = this.cosineSimilarity(queryVector, candidateVectors[cIdx]!);
+          if (similarity > bestScore) {
+            bestScore = similarity;
+            bestMatch = candidates[cIdx]!.id;
+          }
+        }
+
+        if (bestScore >= threshold) {
+          return { query, match: bestMatch, score: bestScore };
+        }
+        return { query, match: null, score: 0 };
+      });
+    }
+
+    // Exact and fuzzy delegate to store
+    return store.resolveNodes(names, options);
+  }
+
+  private cosineSimilarity(a: number[], b: number[]): number {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i]! * b[i]!;
+      normA += a[i]! * a[i]!;
+      normB += b[i]! * b[i]!;
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 
   static fromConfig(config: RouxConfig): GraphCoreImpl {

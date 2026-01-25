@@ -461,6 +461,249 @@ describe('Cache', () => {
     });
   });
 
+  describe('listNodes', () => {
+    beforeEach(() => {
+      // Set up test data with various tags and paths
+      cache.upsertNode(
+        createNode({ id: 'recipes/pasta.md', title: 'Pasta', tags: ['recipe', 'italian'] }),
+        'file', '/recipes/pasta.md', Date.now()
+      );
+      cache.upsertNode(
+        createNode({ id: 'recipes/pizza.md', title: 'Pizza', tags: ['recipe', 'italian'] }),
+        'file', '/recipes/pizza.md', Date.now()
+      );
+      cache.upsertNode(
+        createNode({ id: 'ingredients/tomato.md', title: 'Tomato', tags: ['ingredient', 'vegetable'] }),
+        'file', '/ingredients/tomato.md', Date.now()
+      );
+      cache.upsertNode(
+        createNode({ id: 'notes/shopping.md', title: 'Shopping List', tags: ['note'] }),
+        'file', '/notes/shopping.md', Date.now()
+      );
+    });
+
+    it('returns all nodes with empty filter', () => {
+      const result = cache.listNodes({});
+      expect(result).toHaveLength(4);
+    });
+
+    it('returns NodeSummary objects with id and title only', () => {
+      const result = cache.listNodes({});
+      expect(result[0]).toHaveProperty('id');
+      expect(result[0]).toHaveProperty('title');
+      expect(result[0]).not.toHaveProperty('content');
+      expect(result[0]).not.toHaveProperty('tags');
+    });
+
+    it('applies default limit of 100', () => {
+      // Add 150 nodes
+      for (let i = 0; i < 150; i++) {
+        cache.upsertNode(
+          createNode({ id: `bulk/node${i}.md`, title: `Node ${i}` }),
+          'file', `/bulk/node${i}.md`, Date.now()
+        );
+      }
+      const result = cache.listNodes({});
+      expect(result).toHaveLength(100);
+    });
+
+    it('respects custom limit', () => {
+      const result = cache.listNodes({}, { limit: 2 });
+      expect(result).toHaveLength(2);
+    });
+
+    it('enforces max limit of 1000', () => {
+      const result = cache.listNodes({}, { limit: 5000 });
+      // With only 4 nodes, we get 4, but limit is clamped
+      expect(result.length).toBeLessThanOrEqual(1000);
+    });
+
+    it('filters by tag (case-insensitive)', () => {
+      const result = cache.listNodes({ tag: 'RECIPE' });
+      expect(result).toHaveLength(2);
+      expect(result.map(n => n.id).sort()).toEqual(['recipes/pasta.md', 'recipes/pizza.md']);
+    });
+
+    it('filters by path prefix', () => {
+      const result = cache.listNodes({ path: 'recipes/' });
+      expect(result).toHaveLength(2);
+      expect(result.every(n => n.id.startsWith('recipes/'))).toBe(true);
+    });
+
+    it('combines tag and path filters with AND', () => {
+      // Add an ingredient in recipes folder for testing
+      cache.upsertNode(
+        createNode({ id: 'recipes/sauce.md', title: 'Sauce', tags: ['ingredient'] }),
+        'file', '/recipes/sauce.md', Date.now()
+      );
+
+      const result = cache.listNodes({ tag: 'ingredient', path: 'recipes/' });
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe('recipes/sauce.md');
+    });
+
+    it('applies offset for pagination', () => {
+      const all = cache.listNodes({});
+      const offset2 = cache.listNodes({}, { offset: 2 });
+      expect(offset2).toHaveLength(2);
+      expect(offset2[0]!.id).toBe(all[2]!.id);
+    });
+
+    it('returns empty array when offset exceeds results', () => {
+      const result = cache.listNodes({}, { offset: 100 });
+      expect(result).toEqual([]);
+    });
+
+    it('combines limit and offset for pagination', () => {
+      const result = cache.listNodes({}, { limit: 1, offset: 1 });
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('resolveNodes', () => {
+    beforeEach(() => {
+      cache.upsertNode(
+        createNode({ id: 'ingredients/ground beef.md', title: 'Ground Beef', tags: ['ingredient'] }),
+        'file', '/ingredients/ground beef.md', Date.now()
+      );
+      cache.upsertNode(
+        createNode({ id: 'ingredients/cheddar cheese.md', title: 'Cheddar Cheese', tags: ['ingredient'] }),
+        'file', '/ingredients/cheddar cheese.md', Date.now()
+      );
+      cache.upsertNode(
+        createNode({ id: 'recipes/beef tacos.md', title: 'Beef Tacos', tags: ['recipe'] }),
+        'file', '/recipes/beef tacos.md', Date.now()
+      );
+    });
+
+    describe('empty input', () => {
+      it('returns empty array for empty names', () => {
+        const result = cache.resolveNodes([]);
+        expect(result).toEqual([]);
+      });
+    });
+
+    describe('exact strategy', () => {
+      it('matches case-insensitively on title', () => {
+        const result = cache.resolveNodes(['ground beef'], { strategy: 'exact' });
+        expect(result).toHaveLength(1);
+        expect(result[0]!.query).toBe('ground beef');
+        expect(result[0]!.match).toBe('ingredients/ground beef.md');
+        expect(result[0]!.score).toBe(1);
+      });
+
+      it('returns null match with score 0 when not found', () => {
+        const result = cache.resolveNodes(['unknown item'], { strategy: 'exact' });
+        expect(result).toHaveLength(1);
+        expect(result[0]!.query).toBe('unknown item');
+        expect(result[0]!.match).toBeNull();
+        expect(result[0]!.score).toBe(0);
+      });
+
+      it('ignores threshold for exact strategy', () => {
+        const result = cache.resolveNodes(['ground beef'], { strategy: 'exact', threshold: 0.99 });
+        expect(result[0]!.match).toBe('ingredients/ground beef.md');
+        expect(result[0]!.score).toBe(1);
+      });
+    });
+
+    describe('fuzzy strategy', () => {
+      it('finds best fuzzy match', () => {
+        const result = cache.resolveNodes(['ground bef'], { strategy: 'fuzzy' });
+        expect(result[0]!.match).toBe('ingredients/ground beef.md');
+        expect(result[0]!.score).toBeGreaterThan(0.7);
+      });
+
+      it('applies threshold to fuzzy matches', () => {
+        const result = cache.resolveNodes(['xyz'], { strategy: 'fuzzy', threshold: 0.9 });
+        expect(result[0]!.match).toBeNull();
+        expect(result[0]!.score).toBe(0);
+      });
+
+      it('uses default threshold of 0.7', () => {
+        // "ground beeef" (slight typo) should match "Ground Beef" above 0.7 threshold
+        const result = cache.resolveNodes(['ground beeef']);
+        expect(result[0]!.match).not.toBeNull();
+      });
+    });
+
+    describe('filtering', () => {
+      it('filters candidates by tag', () => {
+        const result = cache.resolveNodes(['ground beef'], { tag: 'ingredient', strategy: 'fuzzy' });
+        // Should match Ground Beef (ingredient), not Beef Tacos (recipe)
+        expect(result[0]!.match).toBe('ingredients/ground beef.md');
+      });
+
+      it('filters candidates by path', () => {
+        const result = cache.resolveNodes(['beef tacos'], { path: 'recipes/', strategy: 'fuzzy' });
+        // Should only match Beef Tacos in recipes/
+        expect(result[0]!.match).toBe('recipes/beef tacos.md');
+      });
+    });
+
+    describe('batch behavior', () => {
+      it('preserves order of input queries', () => {
+        const result = cache.resolveNodes(['cheddar cheese', 'ground beef'], { strategy: 'exact' });
+        expect(result[0]!.query).toBe('cheddar cheese');
+        expect(result[1]!.query).toBe('ground beef');
+      });
+
+      it('handles mixed matches and non-matches', () => {
+        const result = cache.resolveNodes(['ground beef', 'unknown', 'cheddar cheese'], { strategy: 'exact' });
+        expect(result).toHaveLength(3);
+        expect(result[0]!.match).not.toBeNull();
+        expect(result[1]!.match).toBeNull();
+        expect(result[2]!.match).not.toBeNull();
+      });
+    });
+
+    describe('edge cases', () => {
+      it('returns no match for all queries when no candidates exist', () => {
+        const emptyCache = new Cache(':memory:');
+        const result = emptyCache.resolveNodes(['anything', 'something'], { strategy: 'fuzzy' });
+        expect(result).toHaveLength(2);
+        expect(result[0]!.match).toBeNull();
+        expect(result[1]!.match).toBeNull();
+        emptyCache.close();
+      });
+
+      it('returns no match for semantic strategy (not supported at cache level)', () => {
+        const result = cache.resolveNodes(['ground beef'], { strategy: 'semantic' });
+        expect(result[0]!.match).toBeNull();
+        expect(result[0]!.score).toBe(0);
+      });
+    });
+  });
+
+  describe('nodesExist', () => {
+    it('returns empty Map for empty input', () => {
+      const result = cache.nodesExist([]);
+      expect(result.size).toBe(0);
+    });
+
+    it('returns true for existing nodes', () => {
+      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', Date.now());
+      cache.upsertNode(createNode({ id: 'b.md' }), 'file', '/b.md', Date.now());
+
+      const result = cache.nodesExist(['a.md', 'b.md']);
+      expect(result.get('a.md')).toBe(true);
+      expect(result.get('b.md')).toBe(true);
+    });
+
+    it('returns false for non-existing nodes', () => {
+      const result = cache.nodesExist(['missing.md']);
+      expect(result.get('missing.md')).toBe(false);
+    });
+
+    it('handles mixed existing and non-existing nodes', () => {
+      cache.upsertNode(createNode({ id: 'exists.md' }), 'file', '/e.md', Date.now());
+
+      const result = cache.nodesExist(['exists.md', 'missing.md']);
+      expect(result.get('exists.md')).toBe(true);
+      expect(result.get('missing.md')).toBe(false);
+    });
+  });
+
   describe('clear', () => {
     it('removes all nodes', () => {
       cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);

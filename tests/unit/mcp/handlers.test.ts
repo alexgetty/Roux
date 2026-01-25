@@ -36,6 +36,9 @@ function createMockStore(
     searchByVector: vi.fn(),
     searchByTags: vi.fn(),
     getRandomNode: vi.fn(),
+    listNodes: vi.fn().mockResolvedValue([]),
+    resolveNodes: vi.fn().mockResolvedValue([]),
+    nodesExist: vi.fn().mockResolvedValue(new Map()),
   };
 }
 
@@ -53,6 +56,8 @@ function createMockCore(): GraphCore {
     getHubs: vi.fn().mockResolvedValue([]),
     searchByTags: vi.fn().mockResolvedValue([]),
     getRandomNode: vi.fn().mockResolvedValue(null),
+    listNodes: vi.fn().mockResolvedValue([]),
+    resolveNodes: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -890,6 +895,184 @@ describe('sanitizeFilename', () => {
   });
 });
 
+describe('handleListNodes', () => {
+  it('returns array of NodeSummary objects', async () => {
+    const summaries = [
+      { id: 'a.md', title: 'A' },
+      { id: 'b.md', title: 'B' },
+    ];
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue(summaries);
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    const result = await handleListNodes(ctx, {});
+
+    expect(result).toEqual({
+      nodes: summaries,
+      total: 2,
+    });
+  });
+
+  it('passes filter and options to core', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, {
+      tag: 'recipe',
+      path: 'notes/',
+      limit: 50,
+      offset: 10,
+    });
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith(
+      { tag: 'recipe', path: 'notes/' },
+      { limit: 50, offset: 10 }
+    );
+  });
+
+  it('uses default limit 100', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, {});
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({}, { limit: 100, offset: 0 });
+  });
+});
+
+describe('handleResolveNodes', () => {
+  it('returns array of ResolveResult', async () => {
+    const results = [
+      { query: 'beef', match: 'ingredients/beef.md', score: 1 },
+    ];
+    const ctx = createContext();
+    (ctx.core.resolveNodes as ReturnType<typeof vi.fn>).mockResolvedValue(results);
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    const result = await handleResolveNodes(ctx, { names: ['beef'] });
+
+    expect(result).toEqual(results);
+  });
+
+  it('throws INVALID_PARAMS when names missing', async () => {
+    const ctx = createContext();
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(handleResolveNodes(ctx, {})).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+    });
+  });
+
+  it('throws INVALID_PARAMS when names is not array', async () => {
+    const ctx = createContext();
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(handleResolveNodes(ctx, { names: 'beef' })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+    });
+  });
+
+  it('throws INVALID_PARAMS for invalid strategy', async () => {
+    const ctx = createContext();
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(
+      handleResolveNodes(ctx, { names: ['beef'], strategy: 'magic' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('strategy'),
+    });
+  });
+
+  it('throws PROVIDER_ERROR for semantic without embedding', async () => {
+    const ctx = createContext({ hasEmbedding: false });
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(
+      handleResolveNodes(ctx, { names: ['beef'], strategy: 'semantic' })
+    ).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+    });
+  });
+
+  it('passes options to core', async () => {
+    const ctx = createContext();
+    (ctx.core.resolveNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    await handleResolveNodes(ctx, {
+      names: ['beef'],
+      strategy: 'fuzzy',
+      threshold: 0.8,
+      tag: 'ingredient',
+      path: 'food/',
+    });
+
+    expect(ctx.core.resolveNodes).toHaveBeenCalledWith(['beef'], {
+      strategy: 'fuzzy',
+      threshold: 0.8,
+      tag: 'ingredient',
+      path: 'food/',
+    });
+  });
+
+  it('allows empty names array', async () => {
+    const ctx = createContext();
+    (ctx.core.resolveNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    const result = await handleResolveNodes(ctx, { names: [] });
+
+    expect(result).toEqual([]);
+  });
+});
+
+describe('handleNodesExist', () => {
+  it('returns object with boolean values', async () => {
+    const map = new Map([
+      ['a.md', true],
+      ['b.md', false],
+    ]);
+    const ctx = createContext();
+    (ctx.store.nodesExist as ReturnType<typeof vi.fn>).mockResolvedValue(map);
+
+    const { handleNodesExist } = await import('../../../src/mcp/handlers.js');
+    const result = await handleNodesExist(ctx, { ids: ['a.md', 'b.md'] });
+
+    expect(result).toEqual({ 'a.md': true, 'b.md': false });
+  });
+
+  it('throws INVALID_PARAMS when ids missing', async () => {
+    const ctx = createContext();
+
+    const { handleNodesExist } = await import('../../../src/mcp/handlers.js');
+    await expect(handleNodesExist(ctx, {})).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+    });
+  });
+
+  it('throws INVALID_PARAMS when ids is not array', async () => {
+    const ctx = createContext();
+
+    const { handleNodesExist } = await import('../../../src/mcp/handlers.js');
+    await expect(handleNodesExist(ctx, { ids: 'a.md' })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+    });
+  });
+
+  it('allows empty ids array', async () => {
+    const ctx = createContext();
+    (ctx.store.nodesExist as ReturnType<typeof vi.fn>).mockResolvedValue(new Map());
+
+    const { handleNodesExist } = await import('../../../src/mcp/handlers.js');
+    const result = await handleNodesExist(ctx, { ids: [] });
+
+    expect(result).toEqual({});
+  });
+});
+
 describe('dispatchTool', () => {
   it('dispatches search tool', async () => {
     const ctx = createContext();
@@ -996,5 +1179,32 @@ describe('dispatchTool', () => {
     await expect(dispatchTool(ctx, 'unknown', {})).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
     });
+  });
+
+  it('dispatches list_nodes tool', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const result = await dispatchTool(ctx, 'list_nodes', {});
+
+    expect(result).toEqual({ nodes: [], total: 0 });
+  });
+
+  it('dispatches resolve_nodes tool', async () => {
+    const ctx = createContext();
+    (ctx.core.resolveNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const result = await dispatchTool(ctx, 'resolve_nodes', { names: [] });
+
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  it('dispatches nodes_exist tool', async () => {
+    const ctx = createContext();
+    (ctx.store.nodesExist as ReturnType<typeof vi.fn>).mockResolvedValue(new Map());
+
+    const result = await dispatchTool(ctx, 'nodes_exist', { ids: [] });
+
+    expect(result).toEqual({});
   });
 });

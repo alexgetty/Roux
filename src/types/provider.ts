@@ -3,6 +3,48 @@ import type { Direction, NeighborOptions } from './edge.js';
 
 export type Metric = 'pagerank' | 'in_degree' | 'out_degree';
 
+// Batch operation types
+export interface ListFilter {
+  /** Filter by tag (case-insensitive) */
+  tag?: string;
+  /** Filter by path prefix (startsWith) */
+  path?: string;
+}
+
+export interface ListOptions {
+  /** Default 100, max 1000 */
+  limit?: number;
+  /** Default 0 */
+  offset?: number;
+}
+
+export interface NodeSummary {
+  id: string;
+  title: string;
+}
+
+export type ResolveStrategy = 'exact' | 'fuzzy' | 'semantic';
+
+export interface ResolveOptions {
+  /** Filter candidates by tag */
+  tag?: string;
+  /** Filter candidates by path prefix */
+  path?: string;
+  /** 0-1, default 0.7, ignored for 'exact' */
+  threshold?: number;
+  /** Default 'fuzzy' */
+  strategy?: ResolveStrategy;
+}
+
+export interface ResolveResult {
+  /** Original input */
+  query: string;
+  /** Matched node ID or null */
+  match: string | null;
+  /** 0-1, 0 if no match */
+  score: number;
+}
+
 export interface CentralityMetrics {
   inDegree: number;
   outDegree: number;
@@ -50,6 +92,11 @@ export interface StoreProvider {
 
   // Link resolution (for MCP response formatting)
   resolveTitles(ids: string[]): Promise<Map<string, string>>;
+
+  // Batch operations
+  listNodes(filter: ListFilter, options?: ListOptions): Promise<NodeSummary[]>;
+  resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
+  nodesExist(ids: string[]): Promise<Map<string, boolean>>;
 }
 
 /** Stateless vector generation. Storage handled by StoreProvider. */

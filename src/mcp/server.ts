@@ -221,6 +221,78 @@ const TOOL_SCHEMAS = {
     },
     required: ['id'],
   },
+
+  list_nodes: {
+    type: 'object',
+    properties: {
+      tag: {
+        type: 'string',
+        description: 'Filter by tag (case-insensitive)',
+      },
+      path: {
+        type: 'string',
+        description: 'Filter by path prefix (startsWith)',
+      },
+      limit: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 1000,
+        default: 100,
+        description: 'Maximum results to return',
+      },
+      offset: {
+        type: 'integer',
+        minimum: 0,
+        default: 0,
+        description: 'Skip this many results (for pagination)',
+      },
+    },
+  },
+
+  resolve_nodes: {
+    type: 'object',
+    properties: {
+      names: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Names to resolve to existing nodes',
+      },
+      strategy: {
+        type: 'string',
+        enum: ['exact', 'fuzzy', 'semantic'],
+        default: 'fuzzy',
+        description: 'exact = case-insensitive title, fuzzy = string similarity, semantic = vector search',
+      },
+      threshold: {
+        type: 'number',
+        minimum: 0,
+        maximum: 1,
+        default: 0.7,
+        description: 'Minimum similarity score (0-1). Ignored for exact strategy.',
+      },
+      tag: {
+        type: 'string',
+        description: 'Filter candidates by tag',
+      },
+      path: {
+        type: 'string',
+        description: 'Filter candidates by path prefix',
+      },
+    },
+    required: ['names'],
+  },
+
+  nodes_exist: {
+    type: 'object',
+    properties: {
+      ids: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Node IDs to check existence',
+      },
+    },
+    required: ['ids'],
+  },
 } as const;
 
 /** Tool definitions for MCP protocol */
@@ -272,6 +344,21 @@ export function getToolDefinitions(hasEmbedding: boolean): Tool[] {
       name: 'delete_node',
       description: 'Delete a node by ID',
       inputSchema: TOOL_SCHEMAS.delete_node,
+    },
+    {
+      name: 'list_nodes',
+      description: 'List nodes with optional tag/path filters and pagination',
+      inputSchema: TOOL_SCHEMAS.list_nodes,
+    },
+    {
+      name: 'resolve_nodes',
+      description: 'Batch resolve names to existing node IDs using exact, fuzzy, or semantic matching',
+      inputSchema: TOOL_SCHEMAS.resolve_nodes,
+    },
+    {
+      name: 'nodes_exist',
+      description: 'Batch check if node IDs exist',
+      inputSchema: TOOL_SCHEMAS.nodes_exist,
     },
   ];
 

@@ -1,8 +1,16 @@
 import Database from 'better-sqlite3';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import stringSimilarity from 'string-similarity';
 import type { Node, SourceRef } from '../../types/node.js';
-import type { TagMode } from '../../types/provider.js';
+import type {
+  TagMode,
+  ListFilter,
+  ListOptions,
+  NodeSummary,
+  ResolveOptions,
+  ResolveResult,
+} from '../../types/provider.js';
 
 export interface EmbeddingRecord {
   model: string;
@@ -224,6 +232,105 @@ export class Cache {
       result.set(row.id, row.title);
     }
     return result;
+  }
+
+  nodesExist(ids: string[]): Map<string, boolean> {
+    if (ids.length === 0) return new Map();
+
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(`SELECT id FROM nodes WHERE id IN (${placeholders})`)
+      .all(...ids) as Array<{ id: string }>;
+
+    const existingIds = new Set(rows.map((r) => r.id));
+    const result = new Map<string, boolean>();
+    for (const id of ids) {
+      result.set(id, existingIds.has(id));
+    }
+    return result;
+  }
+
+  listNodes(filter: ListFilter, options?: ListOptions): NodeSummary[] {
+    const limit = Math.min(options?.limit ?? 100, 1000);
+    const offset = options?.offset ?? 0;
+
+    // Build query dynamically based on filters
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (filter.tag) {
+      // Case-insensitive tag match - tags stored as JSON array
+      conditions.push("EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(json_each.value) = LOWER(?))");
+      params.push(filter.tag);
+    }
+
+    if (filter.path) {
+      conditions.push("id LIKE ? || '%'");
+      params.push(filter.path);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const query = `SELECT id, title FROM nodes ${whereClause} LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+
+    const rows = this.db.prepare(query).all(...params) as Array<{ id: string; title: string }>;
+
+    return rows.map((row) => ({ id: row.id, title: row.title }));
+  }
+
+  resolveNodes(names: string[], options?: ResolveOptions): ResolveResult[] {
+    if (names.length === 0) return [];
+
+    const strategy = options?.strategy ?? 'fuzzy';
+    const threshold = options?.threshold ?? 0.7;
+
+    // Build filter without undefined values
+    const filter: ListFilter = {};
+    if (options?.tag) filter.tag = options.tag;
+    if (options?.path) filter.path = options.path;
+
+    // Get candidate nodes (applying tag/path filters)
+    const candidates = this.listNodes(filter, { limit: 1000 });
+
+    if (candidates.length === 0) {
+      return names.map((query) => ({ query, match: null, score: 0 }));
+    }
+
+    const candidateTitles = candidates.map((c) => c.title.toLowerCase());
+    const titleToId = new Map<string, string>();
+    for (const c of candidates) {
+      titleToId.set(c.title.toLowerCase(), c.id);
+    }
+
+    return names.map((query): ResolveResult => {
+      const queryLower = query.toLowerCase();
+
+      if (strategy === 'exact') {
+        // Exact case-insensitive title match
+        const matchedId = titleToId.get(queryLower);
+        if (matchedId) {
+          return { query, match: matchedId, score: 1 };
+        }
+        return { query, match: null, score: 0 };
+      }
+
+      // Fuzzy strategy using string-similarity
+      if (strategy === 'fuzzy') {
+        const result = stringSimilarity.findBestMatch(queryLower, candidateTitles);
+        const bestMatch = result.bestMatch;
+
+        if (bestMatch.rating >= threshold) {
+          // bestMatch.target is guaranteed to exist in titleToId since both come from candidates
+          const matchedId = titleToId.get(bestMatch.target)!;
+          return { query, match: matchedId, score: bestMatch.rating };
+        }
+        return { query, match: null, score: 0 };
+      }
+
+      // Semantic strategy - not supported at cache level, return no match
+      // DocStore will handle semantic by using embedding provider
+      return { query, match: null, score: 0 };
+    });
   }
 
   updateOutgoingLinks(nodeId: string, links: string[]): void {

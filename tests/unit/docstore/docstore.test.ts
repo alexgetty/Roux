@@ -1118,6 +1118,140 @@ No links yet`
     });
   });
 
+  describe('batch operations', () => {
+    describe('listNodes', () => {
+      beforeEach(async () => {
+        await writeMarkdownFile('recipes/pasta.md', '---\ntitle: Pasta\ntags: [recipe, italian]\n---\nContent');
+        await writeMarkdownFile('recipes/pizza.md', '---\ntitle: Pizza\ntags: [recipe, italian]\n---\nContent');
+        await writeMarkdownFile('ingredients/tomato.md', '---\ntitle: Tomato\ntags: [ingredient]\n---\nContent');
+        await store.sync();
+      });
+
+      it('returns NodeSummary objects', async () => {
+        const result = await store.listNodes({});
+        expect(result.length).toBeGreaterThan(0);
+        expect(result[0]).toHaveProperty('id');
+        expect(result[0]).toHaveProperty('title');
+        expect(result[0]).not.toHaveProperty('content');
+      });
+
+      it('filters by tag', async () => {
+        const result = await store.listNodes({ tag: 'recipe' });
+        expect(result).toHaveLength(2);
+        expect(result.every(n => n.id.startsWith('recipes/'))).toBe(true);
+      });
+
+      it('filters by path prefix', async () => {
+        const result = await store.listNodes({ path: 'ingredients/' });
+        expect(result).toHaveLength(1);
+        expect(result[0]!.id).toBe('ingredients/tomato.md');
+      });
+
+      it('combines filters with AND', async () => {
+        const result = await store.listNodes({ tag: 'italian', path: 'recipes/' });
+        expect(result).toHaveLength(2);
+      });
+
+      it('respects limit option', async () => {
+        const result = await store.listNodes({}, { limit: 1 });
+        expect(result).toHaveLength(1);
+      });
+
+      it('respects offset option', async () => {
+        const all = await store.listNodes({});
+        const offset = await store.listNodes({}, { offset: 1 });
+        expect(offset).toHaveLength(all.length - 1);
+      });
+    });
+
+    describe('resolveNodes', () => {
+      beforeEach(async () => {
+        await writeMarkdownFile('ingredients/ground beef.md', '---\ntitle: Ground Beef\ntags: [ingredient]\n---\nContent');
+        await writeMarkdownFile('ingredients/cheddar cheese.md', '---\ntitle: Cheddar Cheese\ntags: [ingredient]\n---\nContent');
+        await writeMarkdownFile('recipes/beef tacos.md', '---\ntitle: Beef Tacos\ntags: [recipe]\n---\nContent');
+        await store.sync();
+      });
+
+      it('returns empty array for empty names', async () => {
+        const result = await store.resolveNodes([]);
+        expect(result).toEqual([]);
+      });
+
+      it('resolves with exact strategy (case-insensitive)', async () => {
+        const result = await store.resolveNodes(['ground beef'], { strategy: 'exact' });
+        expect(result).toHaveLength(1);
+        expect(result[0]!.query).toBe('ground beef');
+        expect(result[0]!.match).toBe('ingredients/ground beef.md');
+        expect(result[0]!.score).toBe(1);
+      });
+
+      it('resolves with fuzzy strategy', async () => {
+        const result = await store.resolveNodes(['ground bef'], { strategy: 'fuzzy' });
+        expect(result[0]!.match).toBe('ingredients/ground beef.md');
+        expect(result[0]!.score).toBeGreaterThan(0.7);
+      });
+
+      it('filters candidates by tag', async () => {
+        const result = await store.resolveNodes(['beef'], { tag: 'recipe', strategy: 'fuzzy', threshold: 0.3 });
+        // Should match Beef Tacos (recipe), not Ground Beef (ingredient)
+        expect(result[0]!.match).toBe('recipes/beef tacos.md');
+      });
+
+      it('preserves batch order', async () => {
+        const result = await store.resolveNodes(['cheddar cheese', 'ground beef'], { strategy: 'exact' });
+        expect(result[0]!.query).toBe('cheddar cheese');
+        expect(result[1]!.query).toBe('ground beef');
+      });
+
+      it('returns null match for no matches', async () => {
+        const result = await store.resolveNodes(['xyz unknown'], { strategy: 'exact' });
+        expect(result[0]!.match).toBeNull();
+        expect(result[0]!.score).toBe(0);
+      });
+
+      it('returns unmatched for semantic strategy (not supported at DocStore level)', async () => {
+        const result = await store.resolveNodes(['ground beef'], { strategy: 'semantic' });
+        expect(result[0]!.match).toBeNull();
+      });
+    });
+
+    describe('nodesExist', () => {
+      beforeEach(async () => {
+        await writeMarkdownFile('exists.md', '---\ntitle: Exists\n---\nContent');
+        await writeMarkdownFile('also-exists.md', '---\ntitle: Also Exists\n---\nContent');
+        await store.sync();
+      });
+
+      it('returns empty Map for empty input', async () => {
+        const result = await store.nodesExist([]);
+        expect(result.size).toBe(0);
+      });
+
+      it('returns true for existing nodes', async () => {
+        const result = await store.nodesExist(['exists.md', 'also-exists.md']);
+        expect(result.get('exists.md')).toBe(true);
+        expect(result.get('also-exists.md')).toBe(true);
+      });
+
+      it('returns false for non-existing nodes', async () => {
+        const result = await store.nodesExist(['missing.md']);
+        expect(result.get('missing.md')).toBe(false);
+      });
+
+      it('normalizes IDs for case-insensitive lookup', async () => {
+        const result = await store.nodesExist(['EXISTS.MD', 'ALSO-EXISTS.md']);
+        expect(result.get('exists.md')).toBe(true);
+        expect(result.get('also-exists.md')).toBe(true);
+      });
+
+      it('handles mixed existing and non-existing', async () => {
+        const result = await store.nodesExist(['exists.md', 'missing.md']);
+        expect(result.get('exists.md')).toBe(true);
+        expect(result.get('missing.md')).toBe(false);
+      });
+    });
+  });
+
   describe('getRandomNode', () => {
     it('returns null for empty store', async () => {
       const result = await store.getRandomNode();

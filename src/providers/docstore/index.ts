@@ -10,6 +10,11 @@ import type {
   TagMode,
   VectorSearchResult,
   VectorProvider,
+  ListFilter,
+  ListOptions,
+  NodeSummary,
+  ResolveOptions,
+  ResolveResult,
 } from '../../types/provider.js';
 import { Cache } from './cache.js';
 import { SqliteVectorProvider } from '../vector/sqlite.js';
@@ -219,6 +224,34 @@ export class DocStore implements StoreProvider {
 
   async resolveTitles(ids: string[]): Promise<Map<string, string>> {
     return this.cache.resolveTitles(ids);
+  }
+
+  async listNodes(
+    filter: ListFilter,
+    options?: ListOptions
+  ): Promise<NodeSummary[]> {
+    return this.cache.listNodes(filter, options);
+  }
+
+  async resolveNodes(
+    names: string[],
+    options?: ResolveOptions
+  ): Promise<ResolveResult[]> {
+    // For exact and fuzzy, delegate to cache
+    const strategy = options?.strategy ?? 'fuzzy';
+    if (strategy === 'exact' || strategy === 'fuzzy') {
+      return this.cache.resolveNodes(names, options);
+    }
+
+    // Semantic strategy: use vector search
+    // This requires embedding provider which DocStore doesn't have direct access to
+    // Return unmatched for now - GraphCore will handle semantic with embedding provider
+    return names.map((query) => ({ query, match: null, score: 0 }));
+  }
+
+  async nodesExist(ids: string[]): Promise<Map<string, boolean>> {
+    const normalizedIds = ids.map(normalizeId);
+    return this.cache.nodesExist(normalizedIds);
   }
 
   async getNeighbors(id: string, options: NeighborOptions): Promise<Node[]> {

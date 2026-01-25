@@ -4,6 +4,11 @@ import type {
   StoreProvider,
   EmbeddingProvider,
   TagMode,
+  ListFilter,
+  ListOptions,
+  NodeSummary,
+  ResolveOptions,
+  ResolveResult,
 } from './provider.js';
 import type { NeighborOptions } from './edge.js';
 
@@ -36,4 +41,8 @@ export interface GraphCore {
   // Tag and discovery operations
   searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
   getRandomNode(tags?: string[]): Promise<Node | null>;
+
+  // Batch operations
+  listNodes(filter: ListFilter, options?: ListOptions): Promise<NodeSummary[]>;
+  resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
 }

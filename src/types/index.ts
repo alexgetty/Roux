@@ -15,6 +15,12 @@ export type {
   Metric,
   TagMode,
   CentralityMetrics,
+  ListFilter,
+  ListOptions,
+  NodeSummary,
+  ResolveStrategy,
+  ResolveOptions,
+  ResolveResult,
 } from './provider.js';
 export { isVectorProvider } from './provider.js';
 

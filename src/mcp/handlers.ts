@@ -1,5 +1,14 @@
 import type { GraphCore } from '../types/graphcore.js';
-import type { StoreProvider, Metric, TagMode } from '../types/provider.js';
+import type {
+  StoreProvider,
+  Metric,
+  TagMode,
+  ListFilter,
+  ResolveOptions,
+  ResolveStrategy,
+  NodeSummary,
+  ResolveResult,
+} from '../types/provider.js';
 import type { Node } from '../types/node.js';
 import {
   McpError,
@@ -36,6 +45,15 @@ function coerceLimit(value: unknown, defaultValue: number): number {
   return Math.floor(num);
 }
 
+export interface ListNodesResponse {
+  nodes: NodeSummary[];
+  total: number;
+}
+
+export interface NodesExistResponse {
+  [id: string]: boolean;
+}
+
 export type ToolResult =
   | NodeResponse
   | NodeWithContextResponse
@@ -44,6 +62,9 @@ export type ToolResult =
   | HubResponse[]
   | PathResponse
   | DeleteResponse
+  | ListNodesResponse
+  | ResolveResult[]
+  | NodesExistResponse
   | null;
 
 export async function handleSearch(
@@ -329,6 +350,79 @@ export async function handleDeleteNode(
   return { deleted };
 }
 
+const VALID_STRATEGIES = ['exact', 'fuzzy', 'semantic'] as const;
+
+export async function handleListNodes(
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<ListNodesResponse> {
+  const tag = args.tag as string | undefined;
+  const path = args.path as string | undefined;
+  const limit = coerceLimit(args.limit, 100);
+  const offset = coerceLimit(args.offset, 0);
+
+  const filter: ListFilter = {};
+  if (tag) filter.tag = tag;
+  if (path) filter.path = path;
+
+  const nodes = await ctx.core.listNodes(filter, { limit, offset });
+  return { nodes, total: nodes.length };
+}
+
+export async function handleResolveNodes(
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<ResolveResult[]> {
+  const names = args.names;
+  const strategy = args.strategy as ResolveStrategy | undefined;
+  const threshold = args.threshold as number | undefined;
+  const tag = args.tag as string | undefined;
+  const path = args.path as string | undefined;
+
+  if (!Array.isArray(names)) {
+    throw new McpError('INVALID_PARAMS', 'names is required and must be an array');
+  }
+
+  if (strategy !== undefined && !VALID_STRATEGIES.includes(strategy as ResolveStrategy)) {
+    throw new McpError(
+      'INVALID_PARAMS',
+      `strategy must be one of: ${VALID_STRATEGIES.join(', ')}`
+    );
+  }
+
+  if (strategy === 'semantic' && !ctx.hasEmbedding) {
+    throw new McpError('PROVIDER_ERROR', 'Semantic resolution requires embedding provider');
+  }
+
+  const options: ResolveOptions = {};
+  if (strategy) options.strategy = strategy;
+  if (threshold !== undefined) options.threshold = threshold;
+  if (tag) options.tag = tag;
+  if (path) options.path = path;
+
+  return ctx.core.resolveNodes(names as string[], options);
+}
+
+export async function handleNodesExist(
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<NodesExistResponse> {
+  const ids = args.ids;
+
+  if (!Array.isArray(ids)) {
+    throw new McpError('INVALID_PARAMS', 'ids is required and must be an array');
+  }
+
+  const result = await ctx.store.nodesExist(ids as string[]);
+
+  // Convert Map to plain object
+  const response: NodesExistResponse = {};
+  for (const [id, exists] of result) {
+    response[id] = exists;
+  }
+  return response;
+}
+
 export function sanitizeFilename(title: string): string {
   const sanitized = title
     .toLowerCase()
@@ -366,6 +460,12 @@ export async function dispatchTool(
       return handleUpdateNode(ctx, args);
     case 'delete_node':
       return handleDeleteNode(ctx, args);
+    case 'list_nodes':
+      return handleListNodes(ctx, args);
+    case 'resolve_nodes':
+      return handleResolveNodes(ctx, args);
+    case 'nodes_exist':
+      return handleNodesExist(ctx, args);
     default:
       throw new McpError('INVALID_PARAMS', `Unknown tool: ${name}`);
   }

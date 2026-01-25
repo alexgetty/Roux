@@ -24,6 +24,9 @@ function createMockStore(): StoreProvider {
     searchByVector: vi.fn(),
     searchByTags: vi.fn(),
     getRandomNode: vi.fn(),
+    listNodes: vi.fn().mockResolvedValue([]),
+    resolveNodes: vi.fn().mockResolvedValue([]),
+    nodesExist: vi.fn().mockResolvedValue(new Map()),
   };
 }
 
@@ -41,6 +44,8 @@ function createMockCore(): GraphCore {
     getHubs: vi.fn().mockResolvedValue([]),
     searchByTags: vi.fn().mockResolvedValue([]),
     getRandomNode: vi.fn().mockResolvedValue(null),
+    listNodes: vi.fn().mockResolvedValue([]),
+    resolveNodes: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -132,17 +137,17 @@ describe('createMcpServer', () => {
 });
 
 describe('getToolDefinitions', () => {
-  it('returns 9 tools without embedding', () => {
+  it('returns 12 tools without embedding', () => {
     const tools = getToolDefinitions(false);
 
-    expect(tools).toHaveLength(9);
+    expect(tools).toHaveLength(12);
     expect(tools.map((t) => t.name)).not.toContain('search');
   });
 
-  it('returns 10 tools with embedding', () => {
+  it('returns 13 tools with embedding', () => {
     const tools = getToolDefinitions(true);
 
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(13);
     expect(tools.map((t) => t.name)).toContain('search');
   });
 
@@ -165,6 +170,9 @@ describe('getToolDefinitions', () => {
     expect(names).toContain('create_node');
     expect(names).toContain('update_node');
     expect(names).toContain('delete_node');
+    expect(names).toContain('list_nodes');
+    expect(names).toContain('resolve_nodes');
+    expect(names).toContain('nodes_exist');
   });
 
   it('tools have descriptions', () => {
