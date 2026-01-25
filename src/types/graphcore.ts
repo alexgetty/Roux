@@ -6,7 +6,7 @@ import type {
   TagMode,
   ListFilter,
   ListOptions,
-  NodeSummary,
+  ListNodesResult,
   ResolveOptions,
   ResolveResult,
 } from './provider.js';
@@ -43,6 +43,6 @@ export interface GraphCore {
   getRandomNode(tags?: string[]): Promise<Node | null>;
 
   // Batch operations
-  listNodes(filter: ListFilter, options?: ListOptions): Promise<NodeSummary[]>;
+  listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
   resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
 }

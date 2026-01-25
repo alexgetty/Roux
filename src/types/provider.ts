@@ -23,6 +23,12 @@ export interface NodeSummary {
   title: string;
 }
 
+export interface ListNodesResult {
+  nodes: NodeSummary[];
+  /** Total matching nodes (before limit/offset applied) */
+  total: number;
+}
+
 export type ResolveStrategy = 'exact' | 'fuzzy' | 'semantic';
 
 export interface ResolveOptions {
@@ -94,7 +100,7 @@ export interface StoreProvider {
   resolveTitles(ids: string[]): Promise<Map<string, string>>;
 
   // Batch operations
-  listNodes(filter: ListFilter, options?: ListOptions): Promise<NodeSummary[]>;
+  listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
   resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
   nodesExist(ids: string[]): Promise<Map<string, boolean>>;
 }
@@ -126,7 +132,8 @@ export function isVectorProvider(value: unknown): value is VectorProvider {
     typeof obj.store === 'function' &&
     typeof obj.search === 'function' &&
     typeof obj.delete === 'function' &&
-    typeof obj.getModel === 'function'
+    typeof obj.getModel === 'function' &&
+    typeof obj.hasEmbedding === 'function'
   );
 }
 

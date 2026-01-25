@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "roux": {
+      "command": "npx",
+      "args": [
+        "roux",
+        "serve",
+        "."
+      ],
+      "env": {}
+    }
+  }
+}

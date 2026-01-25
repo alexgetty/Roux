@@ -11,7 +11,7 @@ import type {
   NeighborOptions,
   ListFilter,
   ListOptions,
-  NodeSummary,
+  ListNodesResult,
   ResolveOptions,
   ResolveResult,
 } from '../types/provider.js';
@@ -175,7 +175,7 @@ export class GraphCoreImpl implements GraphCore {
   async listNodes(
     filter: ListFilter,
     options?: ListOptions
-  ): Promise<NodeSummary[]> {
+  ): Promise<ListNodesResult> {
     return this.requireStore().listNodes(filter, options);
   }
 
@@ -198,7 +198,7 @@ export class GraphCoreImpl implements GraphCore {
       if (options?.path) filter.path = options.path;
 
       // Get candidates from store with filters
-      const candidates = await store.listNodes(filter, { limit: 1000 });
+      const { nodes: candidates } = await store.listNodes(filter, { limit: 1000 });
 
       if (candidates.length === 0 || names.length === 0) {
         return names.map((query) => ({ query, match: null, score: 0 }));

@@ -1127,40 +1127,46 @@ No links yet`
         await store.sync();
       });
 
-      it('returns NodeSummary objects', async () => {
+      it('returns ListNodesResult with nodes and total', async () => {
         const result = await store.listNodes({});
-        expect(result.length).toBeGreaterThan(0);
-        expect(result[0]).toHaveProperty('id');
-        expect(result[0]).toHaveProperty('title');
-        expect(result[0]).not.toHaveProperty('content');
+        expect(result.nodes.length).toBeGreaterThan(0);
+        expect(result.nodes[0]).toHaveProperty('id');
+        expect(result.nodes[0]).toHaveProperty('title');
+        expect(result.nodes[0]).not.toHaveProperty('content');
+        expect(result.total).toBe(result.nodes.length);
       });
 
       it('filters by tag', async () => {
         const result = await store.listNodes({ tag: 'recipe' });
-        expect(result).toHaveLength(2);
-        expect(result.every(n => n.id.startsWith('recipes/'))).toBe(true);
+        expect(result.nodes).toHaveLength(2);
+        expect(result.total).toBe(2);
+        expect(result.nodes.every(n => n.id.startsWith('recipes/'))).toBe(true);
       });
 
       it('filters by path prefix', async () => {
         const result = await store.listNodes({ path: 'ingredients/' });
-        expect(result).toHaveLength(1);
-        expect(result[0]!.id).toBe('ingredients/tomato.md');
+        expect(result.nodes).toHaveLength(1);
+        expect(result.total).toBe(1);
+        expect(result.nodes[0]!.id).toBe('ingredients/tomato.md');
       });
 
       it('combines filters with AND', async () => {
         const result = await store.listNodes({ tag: 'italian', path: 'recipes/' });
-        expect(result).toHaveLength(2);
+        expect(result.nodes).toHaveLength(2);
+        expect(result.total).toBe(2);
       });
 
-      it('respects limit option', async () => {
+      it('respects limit option but returns full total', async () => {
         const result = await store.listNodes({}, { limit: 1 });
-        expect(result).toHaveLength(1);
+        expect(result.nodes).toHaveLength(1);
+        expect(result.total).toBe(3); // total matching, not slice length
       });
 
       it('respects offset option', async () => {
         const all = await store.listNodes({});
         const offset = await store.listNodes({}, { offset: 1 });
-        expect(offset).toHaveLength(all.length - 1);
+        expect(offset.nodes).toHaveLength(all.nodes.length - 1);
+        expect(offset.total).toBe(all.total); // total unchanged with offset
       });
     });
 

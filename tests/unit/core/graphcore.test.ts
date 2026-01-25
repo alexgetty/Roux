@@ -41,7 +41,7 @@ const createMockStore = (
   searchByTags: vi.fn().mockResolvedValue([]),
   getRandomNode: vi.fn().mockResolvedValue(null),
   resolveTitles: vi.fn().mockResolvedValue(new Map()),
-  listNodes: vi.fn().mockResolvedValue([]),
+  listNodes: vi.fn().mockResolvedValue({ nodes: [], total: 0 }),
   resolveNodes: vi.fn().mockResolvedValue([]),
   nodesExist: vi.fn().mockResolvedValue(new Map()),
   ...overrides,
@@ -549,12 +549,15 @@ describe('GraphCore', () => {
   });
 
   describe('listNodes', () => {
-    it('delegates to store', async () => {
+    it('delegates to store and returns nodes with total', async () => {
       const summaries = [
         { id: 'a.md', title: 'A' },
         { id: 'b.md', title: 'B' },
       ];
-      vi.mocked(mockStore.listNodes).mockResolvedValue(summaries);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({
+        nodes: summaries,
+        total: 50,
+      });
 
       const core = new GraphCoreImpl();
       core.registerStore(mockStore);
@@ -562,18 +565,22 @@ describe('GraphCore', () => {
       const result = await core.listNodes({ tag: 'test' }, { limit: 50 });
 
       expect(mockStore.listNodes).toHaveBeenCalledWith({ tag: 'test' }, { limit: 50 });
-      expect(result).toEqual(summaries);
+      expect(result).toEqual({ nodes: summaries, total: 50 });
     });
 
     it('works with empty filter', async () => {
-      vi.mocked(mockStore.listNodes).mockResolvedValue([]);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({
+        nodes: [],
+        total: 0,
+      });
 
       const core = new GraphCoreImpl();
       core.registerStore(mockStore);
 
-      await core.listNodes({});
+      const result = await core.listNodes({});
 
       expect(mockStore.listNodes).toHaveBeenCalledWith({}, undefined);
+      expect(result).toEqual({ nodes: [], total: 0 });
     });
   });
 
@@ -629,7 +636,7 @@ describe('GraphCore', () => {
         { id: 'beef.md', title: 'Ground Beef' },
         { id: 'chicken.md', title: 'Chicken Breast' },
       ];
-      vi.mocked(mockStore.listNodes).mockResolvedValue(candidates);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: candidates, total: 2 });
       vi.mocked(mockEmbedding.embedBatch)
         .mockResolvedValueOnce([[0.9, 0.1, 0.1]]) // query embeddings
         .mockResolvedValueOnce([[0.9, 0.1, 0.1], [0.1, 0.9, 0.1]]); // candidate embeddings
@@ -648,7 +655,7 @@ describe('GraphCore', () => {
 
     it('returns no match when semantic score below threshold', async () => {
       const candidates = [{ id: 'unrelated.md', title: 'Completely Unrelated' }];
-      vi.mocked(mockStore.listNodes).mockResolvedValue(candidates);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: candidates, total: 1 });
       vi.mocked(mockEmbedding.embedBatch)
         .mockResolvedValueOnce([[1, 0, 0]]) // query
         .mockResolvedValueOnce([[0, 1, 0]]); // candidate - orthogonal = 0 similarity
@@ -664,7 +671,7 @@ describe('GraphCore', () => {
     });
 
     it('applies tag filter for semantic strategy', async () => {
-      vi.mocked(mockStore.listNodes).mockResolvedValue([]);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: [], total: 0 });
 
       const core = new GraphCoreImpl();
       core.registerStore(mockStore);
@@ -679,7 +686,7 @@ describe('GraphCore', () => {
     });
 
     it('applies path filter for semantic strategy', async () => {
-      vi.mocked(mockStore.listNodes).mockResolvedValue([]);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: [], total: 0 });
 
       const core = new GraphCoreImpl();
       core.registerStore(mockStore);
@@ -694,7 +701,7 @@ describe('GraphCore', () => {
     });
 
     it('returns empty results for empty names', async () => {
-      vi.mocked(mockStore.listNodes).mockResolvedValue([{ id: 'a.md', title: 'A' }]);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: [{ id: 'a.md', title: 'A' }], total: 1 });
 
       const core = new GraphCoreImpl();
       core.registerStore(mockStore);
@@ -706,7 +713,7 @@ describe('GraphCore', () => {
     });
 
     it('returns empty results when no candidates match filters', async () => {
-      vi.mocked(mockStore.listNodes).mockResolvedValue([]);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: [], total: 0 });
 
       const core = new GraphCoreImpl();
       core.registerStore(mockStore);
@@ -719,7 +726,7 @@ describe('GraphCore', () => {
 
     it('handles zero vectors gracefully (cosine similarity edge case)', async () => {
       const candidates = [{ id: 'a.md', title: 'A' }];
-      vi.mocked(mockStore.listNodes).mockResolvedValue(candidates);
+      vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: candidates, total: 1 });
       vi.mocked(mockEmbedding.embedBatch)
         .mockResolvedValueOnce([[0, 0, 0]]) // query is zero vector
         .mockResolvedValueOnce([[1, 0, 0]]); // candidate is normal

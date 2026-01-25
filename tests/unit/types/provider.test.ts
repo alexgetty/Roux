@@ -11,6 +11,7 @@ describe('isVectorProvider', () => {
     search: async (_vector: number[], _limit: number): Promise<VectorSearchResult[]> => [],
     delete: async (_id: string) => {},
     getModel: async (_id: string): Promise<string | null> => null,
+    hasEmbedding: (_id: string): boolean => false,
   };
 
   it('returns true for valid provider with all methods', () => {
@@ -23,6 +24,7 @@ describe('isVectorProvider', () => {
       search: async () => [{ id: 'node-1', distance: 0.5 }],
       delete: async () => {},
       getModel: async () => 'text-embedding-3-small',
+      hasEmbedding: () => true,
     };
     expect(isVectorProvider(provider)).toBe(true);
 
@@ -87,5 +89,14 @@ describe('isVectorProvider', () => {
 
   it('returns false when getModel is not a function', () => {
     expect(isVectorProvider({ ...validProvider, getModel: {} })).toBe(false);
+  });
+
+  it('returns false when hasEmbedding is missing', () => {
+    const { hasEmbedding: _, ...noHasEmbedding } = validProvider;
+    expect(isVectorProvider(noHasEmbedding)).toBe(false);
+  });
+
+  it('returns false when hasEmbedding is not a function', () => {
+    expect(isVectorProvider({ ...validProvider, hasEmbedding: 'nope' })).toBe(false);
   });
 });

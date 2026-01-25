@@ -42,7 +42,11 @@ function coerceLimit(value: unknown, defaultValue: number): number {
   if (Number.isNaN(num)) {
     return defaultValue;
   }
-  return Math.floor(num);
+  const floored = Math.floor(num);
+  if (floored < 1) {
+    throw new McpError('INVALID_PARAMS', 'limit must be at least 1');
+  }
+  return floored;
 }
 
 export interface ListNodesResponse {
@@ -365,8 +369,7 @@ export async function handleListNodes(
   if (tag) filter.tag = tag;
   if (path) filter.path = path;
 
-  const nodes = await ctx.core.listNodes(filter, { limit, offset });
-  return { nodes, total: nodes.length };
+  return ctx.core.listNodes(filter, { limit, offset });
 }
 
 export async function handleResolveNodes(

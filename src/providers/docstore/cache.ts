@@ -7,7 +7,7 @@ import type {
   TagMode,
   ListFilter,
   ListOptions,
-  NodeSummary,
+  ListNodesResult,
   ResolveOptions,
   ResolveResult,
 } from '../../types/provider.js';
@@ -250,7 +250,7 @@ export class Cache {
     return result;
   }
 
-  listNodes(filter: ListFilter, options?: ListOptions): NodeSummary[] {
+  listNodes(filter: ListFilter, options?: ListOptions): ListNodesResult {
     const limit = Math.min(options?.limit ?? 100, 1000);
     const offset = options?.offset ?? 0;
 
@@ -270,12 +270,18 @@ export class Cache {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Get total count of matching nodes (without limit/offset)
+    const countQuery = `SELECT COUNT(*) as count FROM nodes ${whereClause}`;
+    const countRow = this.db.prepare(countQuery).get(...params) as { count: number };
+    const total = countRow.count;
+
+    // Get paginated results
     const query = `SELECT id, title FROM nodes ${whereClause} LIMIT ? OFFSET ?`;
-    params.push(limit, offset);
+    const rows = this.db.prepare(query).all(...params, limit, offset) as Array<{ id: string; title: string }>;
 
-    const rows = this.db.prepare(query).all(...params) as Array<{ id: string; title: string }>;
-
-    return rows.map((row) => ({ id: row.id, title: row.title }));
+    const nodes = rows.map((row) => ({ id: row.id, title: row.title }));
+    return { nodes, total };
   }
 
   resolveNodes(names: string[], options?: ResolveOptions): ResolveResult[] {
@@ -290,7 +296,7 @@ export class Cache {
     if (options?.path) filter.path = options.path;
 
     // Get candidate nodes (applying tag/path filters)
-    const candidates = this.listNodes(filter, { limit: 1000 });
+    const { nodes: candidates } = this.listNodes(filter, { limit: 1000 });
 
     if (candidates.length === 0) {
       return names.map((query) => ({ query, match: null, score: 0 }));

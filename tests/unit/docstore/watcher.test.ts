@@ -775,15 +775,64 @@ describe('DocStore File Watcher', () => {
       triggerEvent('unlink', join(sourceDir, 'with-embedding.md'));
 
       await vi.waitFor(
-        () => {
+        async () => {
           expect(mockVector.delete).toHaveBeenCalledWith('with-embedding.md');
           // Verify embedding is actually gone, not just that delete was called
           expect(mockVector.hasEmbedding('with-embedding.md')).toBe(false);
+          // Verify node is also removed from DocStore cache
+          expect(await customStore.getNode('with-embedding.md')).toBeNull();
         },
         { timeout: 2000 }
       );
 
       customStore.close();
+    });
+
+    it('integration: unlink removes embedding from real SqliteVectorProvider', async () => {
+      const integrationCacheDir = join(tempDir, 'integration-vector-cache');
+      await mkdir(integrationCacheDir, { recursive: true });
+
+      // Use real SqliteVectorProvider instead of mock
+      const { SqliteVectorProvider } = await import(
+        '../../../src/providers/vector/sqlite.js'
+      );
+      const realVectorProvider = new SqliteVectorProvider(integrationCacheDir);
+      const integrationStore = new DocStore(
+        sourceDir,
+        integrationCacheDir,
+        realVectorProvider
+      );
+
+      // Create file and sync
+      await writeMarkdownFile('embedded-doc.md', '# Document with embedding');
+      await integrationStore.sync();
+
+      // Store a real embedding (simulating what embedding provider would do)
+      const testVector = [0.1, 0.2, 0.3, 0.4, 0.5];
+      await realVectorProvider.store('embedded-doc.md', testVector, 'test-model');
+
+      // Verify embedding exists
+      expect(realVectorProvider.hasEmbedding('embedded-doc.md')).toBe(true);
+      expect(realVectorProvider.getEmbeddingCount()).toBe(1);
+
+      // Start watching and trigger unlink
+      integrationStore.startWatching();
+      triggerEvent('unlink', join(sourceDir, 'embedded-doc.md'));
+
+      // Wait for processing
+      await vi.waitFor(
+        async () => {
+          // Verify node is removed from cache
+          expect(await integrationStore.getNode('embedded-doc.md')).toBeNull();
+          // Verify embedding is actually removed from SQLite (not just mock assertion)
+          expect(realVectorProvider.hasEmbedding('embedded-doc.md')).toBe(false);
+          expect(realVectorProvider.getEmbeddingCount()).toBe(0);
+        },
+        { timeout: 2000 }
+      );
+
+      integrationStore.close();
+      realVectorProvider.close();
     });
   });
 

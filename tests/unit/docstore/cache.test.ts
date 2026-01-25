@@ -484,18 +484,19 @@ describe('Cache', () => {
 
     it('returns all nodes with empty filter', () => {
       const result = cache.listNodes({});
-      expect(result).toHaveLength(4);
+      expect(result.nodes).toHaveLength(4);
+      expect(result.total).toBe(4);
     });
 
     it('returns NodeSummary objects with id and title only', () => {
       const result = cache.listNodes({});
-      expect(result[0]).toHaveProperty('id');
-      expect(result[0]).toHaveProperty('title');
-      expect(result[0]).not.toHaveProperty('content');
-      expect(result[0]).not.toHaveProperty('tags');
+      expect(result.nodes[0]).toHaveProperty('id');
+      expect(result.nodes[0]).toHaveProperty('title');
+      expect(result.nodes[0]).not.toHaveProperty('content');
+      expect(result.nodes[0]).not.toHaveProperty('tags');
     });
 
-    it('applies default limit of 100', () => {
+    it('applies default limit of 100 but returns full total', () => {
       // Add 150 nodes
       for (let i = 0; i < 150; i++) {
         cache.upsertNode(
@@ -504,30 +505,35 @@ describe('Cache', () => {
         );
       }
       const result = cache.listNodes({});
-      expect(result).toHaveLength(100);
+      expect(result.nodes).toHaveLength(100);
+      expect(result.total).toBe(154); // 150 + 4 original nodes
     });
 
-    it('respects custom limit', () => {
+    it('respects custom limit but returns full total', () => {
       const result = cache.listNodes({}, { limit: 2 });
-      expect(result).toHaveLength(2);
+      expect(result.nodes).toHaveLength(2);
+      expect(result.total).toBe(4);
     });
 
     it('enforces max limit of 1000', () => {
       const result = cache.listNodes({}, { limit: 5000 });
       // With only 4 nodes, we get 4, but limit is clamped
-      expect(result.length).toBeLessThanOrEqual(1000);
+      expect(result.nodes.length).toBeLessThanOrEqual(1000);
+      expect(result.total).toBe(4);
     });
 
     it('filters by tag (case-insensitive)', () => {
       const result = cache.listNodes({ tag: 'RECIPE' });
-      expect(result).toHaveLength(2);
-      expect(result.map(n => n.id).sort()).toEqual(['recipes/pasta.md', 'recipes/pizza.md']);
+      expect(result.nodes).toHaveLength(2);
+      expect(result.total).toBe(2);
+      expect(result.nodes.map(n => n.id).sort()).toEqual(['recipes/pasta.md', 'recipes/pizza.md']);
     });
 
     it('filters by path prefix', () => {
       const result = cache.listNodes({ path: 'recipes/' });
-      expect(result).toHaveLength(2);
-      expect(result.every(n => n.id.startsWith('recipes/'))).toBe(true);
+      expect(result.nodes).toHaveLength(2);
+      expect(result.total).toBe(2);
+      expect(result.nodes.every(n => n.id.startsWith('recipes/'))).toBe(true);
     });
 
     it('combines tag and path filters with AND', () => {
@@ -538,25 +544,29 @@ describe('Cache', () => {
       );
 
       const result = cache.listNodes({ tag: 'ingredient', path: 'recipes/' });
-      expect(result).toHaveLength(1);
-      expect(result[0]!.id).toBe('recipes/sauce.md');
+      expect(result.nodes).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(result.nodes[0]!.id).toBe('recipes/sauce.md');
     });
 
-    it('applies offset for pagination', () => {
+    it('applies offset for pagination with unchanged total', () => {
       const all = cache.listNodes({});
       const offset2 = cache.listNodes({}, { offset: 2 });
-      expect(offset2).toHaveLength(2);
-      expect(offset2[0]!.id).toBe(all[2]!.id);
+      expect(offset2.nodes).toHaveLength(2);
+      expect(offset2.nodes[0]!.id).toBe(all.nodes[2]!.id);
+      expect(offset2.total).toBe(all.total); // Total unchanged
     });
 
-    it('returns empty array when offset exceeds results', () => {
+    it('returns empty nodes array when offset exceeds results', () => {
       const result = cache.listNodes({}, { offset: 100 });
-      expect(result).toEqual([]);
+      expect(result.nodes).toEqual([]);
+      expect(result.total).toBe(4); // Total still reflects all matching
     });
 
     it('combines limit and offset for pagination', () => {
       const result = cache.listNodes({}, { limit: 1, offset: 1 });
-      expect(result).toHaveLength(1);
+      expect(result.nodes).toHaveLength(1);
+      expect(result.total).toBe(4);
     });
   });
 

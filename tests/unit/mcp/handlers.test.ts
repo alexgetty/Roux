@@ -36,7 +36,7 @@ function createMockStore(
     searchByVector: vi.fn(),
     searchByTags: vi.fn(),
     getRandomNode: vi.fn(),
-    listNodes: vi.fn().mockResolvedValue([]),
+    listNodes: vi.fn().mockResolvedValue({ nodes: [], total: 0 }),
     resolveNodes: vi.fn().mockResolvedValue([]),
     nodesExist: vi.fn().mockResolvedValue(new Map()),
   };
@@ -56,7 +56,7 @@ function createMockCore(): GraphCore {
     getHubs: vi.fn().mockResolvedValue([]),
     searchByTags: vi.fn().mockResolvedValue([]),
     getRandomNode: vi.fn().mockResolvedValue(null),
-    listNodes: vi.fn().mockResolvedValue([]),
+    listNodes: vi.fn().mockResolvedValue({ nodes: [], total: 0 }),
     resolveNodes: vi.fn().mockResolvedValue([]),
   };
 }
@@ -181,15 +181,31 @@ describe('handleSearch', () => {
     expect(ctx.core.search).toHaveBeenCalledWith('test', { limit: 10 });
   });
 
-  it('coerces negative string limit to negative number', async () => {
+  it('throws INVALID_PARAMS for negative limit', async () => {
     const ctx = createContext();
-    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-    await handleSearch(ctx, { query: 'test', limit: '-5' });
+    await expect(handleSearch(ctx, { query: 'test', limit: -5 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
+  });
 
-    // Documents current behavior: negative strings coerce to negative numbers
-    // The underlying provider handles negative limits by returning empty array
-    expect(ctx.core.search).toHaveBeenCalledWith('test', { limit: -5 });
+  it('throws INVALID_PARAMS for zero limit', async () => {
+    const ctx = createContext();
+
+    await expect(handleSearch(ctx, { query: 'test', limit: 0 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
+  });
+
+  it('throws INVALID_PARAMS for negative string limit', async () => {
+    const ctx = createContext();
+
+    await expect(handleSearch(ctx, { query: 'test', limit: '-5' })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
   });
 });
 
@@ -348,6 +364,28 @@ describe('handleGetNeighbors', () => {
       'Database connection failed'
     );
   });
+
+  it('throws INVALID_PARAMS for negative limit', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleGetNeighbors(ctx, { id: 'test.md', limit: -1 })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
+  });
+
+  it('throws INVALID_PARAMS for zero limit', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleGetNeighbors(ctx, { id: 'test.md', limit: 0 })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
+  });
 });
 
 describe('handleFindPath', () => {
@@ -461,6 +499,24 @@ describe('handleGetHubs', () => {
 
     await expect(handleGetHubs(ctx, {})).rejects.toThrow('Hub calculation failed');
   });
+
+  it('throws INVALID_PARAMS for negative limit', async () => {
+    const ctx = createContext();
+
+    await expect(handleGetHubs(ctx, { limit: -10 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
+  });
+
+  it('throws INVALID_PARAMS for zero limit', async () => {
+    const ctx = createContext();
+
+    await expect(handleGetHubs(ctx, { limit: 0 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
+  });
 });
 
 describe('handleSearchByTags', () => {
@@ -527,6 +583,28 @@ describe('handleSearchByTags', () => {
     ).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
       message: expect.stringContaining('mode'),
+    });
+  });
+
+  it('throws INVALID_PARAMS for negative limit', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleSearchByTags(ctx, { tags: ['test'], limit: -5 })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
+  });
+
+  it('throws INVALID_PARAMS for zero limit', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleSearchByTags(ctx, { tags: ['test'], limit: 0 })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
     });
   });
 });
@@ -902,7 +980,10 @@ describe('handleListNodes', () => {
       { id: 'b.md', title: 'B' },
     ];
     const ctx = createContext();
-    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue(summaries);
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: summaries,
+      total: 2,
+    });
 
     const { handleListNodes } = await import('../../../src/mcp/handlers.js');
     const result = await handleListNodes(ctx, {});
@@ -913,9 +994,31 @@ describe('handleListNodes', () => {
     });
   });
 
+  it('returns total count of all matching nodes, not just returned slice', async () => {
+    const returnedPage = [
+      { id: 'a.md', title: 'A' },
+      { id: 'b.md', title: 'B' },
+    ];
+    const ctx = createContext();
+    // 50 total matching nodes, but only 2 returned due to limit
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: returnedPage,
+      total: 50,
+    });
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    const result = await handleListNodes(ctx, { limit: 2 });
+
+    expect(result.nodes).toHaveLength(2);
+    expect(result.total).toBe(50); // Total matching, not slice length
+  });
+
   it('passes filter and options to core', async () => {
     const ctx = createContext();
-    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
 
     const { handleListNodes } = await import('../../../src/mcp/handlers.js');
     await handleListNodes(ctx, {
@@ -933,12 +1036,35 @@ describe('handleListNodes', () => {
 
   it('uses default limit 100', async () => {
     const ctx = createContext();
-    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
 
     const { handleListNodes } = await import('../../../src/mcp/handlers.js');
     await handleListNodes(ctx, {});
 
     expect(ctx.core.listNodes).toHaveBeenCalledWith({}, { limit: 100, offset: 0 });
+  });
+
+  it('throws INVALID_PARAMS for negative limit', async () => {
+    const ctx = createContext();
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(handleListNodes(ctx, { limit: -10 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
+  });
+
+  it('throws INVALID_PARAMS for zero limit', async () => {
+    const ctx = createContext();
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(handleListNodes(ctx, { limit: 0 })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('limit'),
+    });
   });
 });
 
@@ -1183,7 +1309,10 @@ describe('dispatchTool', () => {
 
   it('dispatches list_nodes tool', async () => {
     const ctx = createContext();
-    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
 
     const result = await dispatchTool(ctx, 'list_nodes', {});
 

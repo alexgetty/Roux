@@ -1,0 +1,3 @@
+providers:
+  store:
+    type: docstore

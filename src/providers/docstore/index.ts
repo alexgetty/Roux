@@ -12,7 +12,7 @@ import type {
   VectorProvider,
   ListFilter,
   ListOptions,
-  NodeSummary,
+  ListNodesResult,
   ResolveOptions,
   ResolveResult,
 } from '../../types/provider.js';
@@ -229,7 +229,7 @@ export class DocStore implements StoreProvider {
   async listNodes(
     filter: ListFilter,
     options?: ListOptions
-  ): Promise<NodeSummary[]> {
+  ): Promise<ListNodesResult> {
     return this.cache.listNodes(filter, options);
   }
 
