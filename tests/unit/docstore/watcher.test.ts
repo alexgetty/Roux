@@ -31,14 +31,14 @@ function getMockWatcher() {
   return mock.__mockWatcher;
 }
 
-function triggerEvent(event: string, path?: string) {
+function triggerEvent(event: string, arg?: string | Error) {
   const mockWatcher = getMockWatcher();
   const onCalls = mockWatcher.on.mock.calls;
   const handler = onCalls.find((call: unknown[]) => call[0] === event)?.[1] as
-    | ((path?: string) => void)
+    | ((arg?: string | Error) => void)
     | undefined;
   if (handler) {
-    handler(path);
+    handler(arg);
   }
 }
 
@@ -548,6 +548,45 @@ describe('DocStore File Watcher', () => {
   });
 
   describe('error handling', () => {
+    it('registers error event handler', () => {
+      store.startWatching();
+      const mockWatcher = getMockWatcher();
+
+      const registeredEvents = mockWatcher.on.mock.calls.map(
+        (call: unknown[]) => call[0]
+      );
+      expect(registeredEvents).toContain('error');
+    });
+
+    it('rejects startWatching promise on chokidar error', async () => {
+      const promise = store.startWatching();
+
+      // Trigger error before ready
+      const emfileError = new Error('EMFILE: too many open files') as NodeJS.ErrnoException;
+      emfileError.code = 'EMFILE';
+      triggerEvent('error', emfileError as unknown as string);
+
+      await expect(promise).rejects.toThrow('EMFILE');
+    });
+
+    it('logs helpful message for EMFILE errors', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const promise = store.startWatching();
+
+      const emfileError = new Error('EMFILE: too many open files') as NodeJS.ErrnoException;
+      emfileError.code = 'EMFILE';
+      triggerEvent('error', emfileError as unknown as string);
+
+      await expect(promise).rejects.toThrow();
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('file descriptor limit')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
     it('logs warning and skips file on parse failure', async () => {
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

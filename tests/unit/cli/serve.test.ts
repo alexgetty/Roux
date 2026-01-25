@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -144,5 +144,39 @@ describe('serve command', () => {
     // B should have been embedded by serve (using transformers model)
     expect(modelForB).not.toBeNull();
     expect(modelForB).not.toBe('pre-existing-model');
+  });
+
+  it('degrades gracefully when file watcher fails', async () => {
+    await initCommand(testDir);
+    await writeFile(join(testDir, 'test.md'), '# Test', 'utf-8');
+
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Mock startWatching to fail
+    const originalStartWatching = DocStore.prototype.startWatching;
+    DocStore.prototype.startWatching = vi.fn().mockRejectedValue(
+      Object.assign(new Error('EMFILE: too many open files'), { code: 'EMFILE' })
+    );
+
+    try {
+      const handle = await serveCommand(testDir, {
+        transportFactory: () => ({ start: async () => {}, close: async () => {} }),
+      });
+
+      // Server should still work
+      expect(handle.nodeCount).toBe(1);
+      // But watching should be disabled
+      expect(handle.isWatching).toBe(false);
+      // Warning should be logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('File watching disabled'),
+        expect.any(String)
+      );
+
+      await handle.stop();
+    } finally {
+      DocStore.prototype.startWatching = originalStartWatching;
+      consoleSpy.mockRestore();
+    }
   });
 });

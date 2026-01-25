@@ -271,19 +271,30 @@ export class DocStore implements StoreProvider {
 
     this.onChangeCallback = onChange;
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.watcher = watch(this.sourceRoot, {
         ignoreInitial: true,
+        ignored: [...DocStore.EXCLUDED_DIRS].map((dir) => `**/${dir}/**`),
         awaitWriteFinish: {
           stabilityThreshold: 100,
         },
+        followSymlinks: false,
       });
 
       this.watcher
         .on('ready', () => resolve())
         .on('add', (path) => this.queueChange(path, 'add'))
         .on('change', (path) => this.queueChange(path, 'change'))
-        .on('unlink', (path) => this.queueChange(path, 'unlink'));
+        .on('unlink', (path) => this.queueChange(path, 'unlink'))
+        .on('error', (err) => {
+          if ((err as NodeJS.ErrnoException).code === 'EMFILE') {
+            console.error(
+              'File watcher hit file descriptor limit. ' +
+                'Try: ulimit -n 65536 or reduce watched files.'
+            );
+          }
+          reject(err);
+        });
     });
   }
 

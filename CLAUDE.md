@@ -19,6 +19,15 @@ GraphCore is the orchestration hub with zero functionality itself - delegates to
 
 See [[TDD]] for full methodology and tooling.
 
+## Design Principles
+
+**Graceful degradation. Always.**
+
+- Features that fail should degrade, not crash
+- Partial functionality beats total failure
+- Log warnings, continue operating where possible
+- User should never lose work due to recoverable errors
+
 ## Documentation
 
 Architecture docs live in `docs/` as an Obsidian vault. `docs/GPI.md` and `docs/GraphCore.md` are the primary references.

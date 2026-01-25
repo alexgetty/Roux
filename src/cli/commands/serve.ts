@@ -90,16 +90,23 @@ export async function serveCommand(
 
   // Start file watcher if enabled
   if (watch) {
-    await store.startWatching(async (changedIds) => {
-      // Generate embeddings for changed nodes
-      for (const id of changedIds) {
-        const node = await store.getNode(id);
-        if (node && node.content) {
-          const vector = await embedding.embed(node.content);
-          await store.storeEmbedding(id, vector, embedding.modelId());
+    try {
+      await store.startWatching(async (changedIds) => {
+        // Generate embeddings for changed nodes
+        for (const id of changedIds) {
+          const node = await store.getNode(id);
+          if (node && node.content) {
+            const vector = await embedding.embed(node.content);
+            await store.storeEmbedding(id, vector, embedding.modelId());
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      console.warn(
+        'File watching disabled:',
+        (err as Error).message || 'Unknown error'
+      );
+    }
   }
 
   return {
