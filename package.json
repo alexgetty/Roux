@@ -21,7 +21,10 @@
     "lint:fix": "eslint src tests --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "release:patch": "npm version patch && npm publish && git push && git push --tags",
+    "release:minor": "npm version minor && npm publish && git push && git push --tags",
+    "release:major": "npm version major && npm publish && git push && git push --tags"
   },
   "keywords": [
     "graph",
@@ -61,7 +64,6 @@
     "graphology-shortest-path": "^2.1.0",
     "graphology-types": "^0.24.8",
     "gray-matter": "^4.0.3",
-    "roux": "github:alexgetty/roux",
     "yaml": "^2.8.2"
   }
 }
