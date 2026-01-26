@@ -1,11 +1,18 @@
 ---
 type: Issue
-severity: High
+priority: Medium
 component: DocStore
+status: open
+title: Createnode Case Normalization
+tags:
+  - issue
+  - docstore
+  - testing
+severity: High
 phase: 6
 ---
 
-# Issue - CreateNode Case Normalization
+# CreateNode Case Normalization
 
 Missing test for ID case normalization in `createNode`.
 

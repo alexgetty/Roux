@@ -25,11 +25,18 @@ Plugins define **domain models**, not storage locations. Plugin declares node ty
 - Neo4j (future): node labels, typed edges
 - Plugin code unchanged across backends
 
+### Single Owner Per Type
+Each node type is owned by one plugin with one schema and one version. Plugins don't layer onto each other's types — they define distinct types that *relate* via edges.
+
+This keeps versioning simple: `type: 'issue', schemaVersion: 2` unambiguously means plugin-pm's issue schema v2.
+
+See [[Schema Composition]] for future composition options.
+
 ### Interface Longevity
 Design interfaces to last. Breaking changes break all dependents. Abstract over storage, query through capabilities, not implementations.
 
 ### Graceful Degradation
-Plugin responsibility. Core provides dependency info; plugin decides what works without optional deps.
+Plugin responsibility. Core provides dependency info; plugin decides what works without optional deps. If a plugin can't function, it should fail loudly or disable itself — not silently degrade. Core is not responsible for plugin quality; market forces handle that.
 
 ## Plugin Interface
 
@@ -49,15 +56,20 @@ interface RouxPlugin {
   // Schemas this plugin introduces
   schemas: NodeSchema[];
   
-  // Node types this plugin owns
+  // Node types this plugin owns (must be unique across all plugins)
   ownsTypes: string[];
   
   // Extend MCP with plugin-specific tools
   mcpTools?: ToolDefinition[];
   
-  // Lifecycle
+  // Lifecycle (both required)
   register(core: GraphCore): Promise<void>;
-  unregister?(): Promise<void>;
+  unregister(cleanup: CleanupOptions): Promise<void>;
+}
+
+interface CleanupOptions {
+  // User's choice when plugin is removed
+  action: 'plugin-handles' | 'delete' | 'keep-orphaned';
 }
 ```
 
@@ -66,7 +78,8 @@ interface RouxPlugin {
 ```typescript
 interface NodeSchema {
   type: string;              // 'issue', 'epic', 'milestone'
-  extends?: string;          // 'base' or another schema
+  version: number;           // schema version for migrations
+  extends?: string;          // 'base' or another schema (same plugin only)
   fields: FieldDefinition[];
   relationships?: RelationshipDefinition[];
 }
@@ -84,9 +97,15 @@ interface RelationshipDefinition {
   name: string;              // 'blocks', 'contains', 'relates-to'
   targetTypes: string[];
   directional: boolean;
-  inverse?: string;          // 'blocked-by' for 'blocks'
+  inverse?: string;          // 'blocked-by' for 'blocks' (query-time derived)
 }
 ```
+
+### Relationship Inverses
+
+Inverse relationships (e.g., `blocked-by` for `blocks`) are **query-time derived**, not stored bidirectionally. For DocStore, the source file contains the forward link; the graph cache or Obsidian backlinks surface the inverse.
+
+This keeps markdown files clean and avoids bidirectional sync complexity.
 
 ## Store Query Interface
 
@@ -100,9 +119,9 @@ interface StoreQueryable {
 }
 ```
 
-## Schema Composition & Namespace Resolution
+## Field Namespace Resolution
 
-Schemas are compositional. Multiple plugins can define overlapping fields.
+Multiple plugins can use the same field names (like `status`) for interoperability. The system merges compatible definitions into a shared namespace.
 
 ### Compatibility Detection
 
@@ -110,20 +129,20 @@ Schemas are compositional. Multiple plugins can define overlapping fields.
 type SchemaCompatibility = 'identical' | 'compatible' | 'conflict';
 ```
 
-**Identical**: Same name, type, constraints → merge silently, shared ownership
+**Identical**: Same name, type, constraints → merge silently, shared namespace
 
 ```
 plugin-a: { status: { type: 'enum', values: ['open', 'closed'] } }
 plugin-b: { status: { type: 'enum', values: ['open', 'closed'] } }
-→ shared field, no namespace
+→ shared field, no namespace prefix
 ```
 
-**Compatible**: Same name, type; superset/subset constraints → merge to union, log extension
+**Compatible**: Same name, type; superset/subset constraints → merge to union
 
 ```
 plugin-a: { priority: ['low', 'medium', 'high'] }
 plugin-b: { priority: ['low', 'high', 'critical'] }
-→ merged: ['low', 'medium', 'high', 'critical']
+→ merged namespace: ['low', 'medium', 'high', 'critical']
 ```
 
 **Conflict**: Same name, incompatible types → auto-namespace latecomer
@@ -133,6 +152,10 @@ plugin-a: { status: { type: 'enum' } }
 plugin-b: { status: { type: 'string' } }
 → plugin-b gets 'plugin-b:status'
 ```
+
+### Plugin Validation Scope
+
+The merged namespace contains the union of all values. Each plugin validates only against **its own** accepted subset. How a plugin handles values outside its subset (ignore, treat as "other", error) is plugin-scoped, not system-scoped.
 
 ### Resolution Benefits
 
@@ -149,7 +172,7 @@ plugin-b: { status: { type: 'string' } }
 
 ## Registration Order
 
-Determines primary namespace ownership. Must be deterministic.
+Determines primary namespace ownership. Must be deterministic and **persisted**.
 
 ```typescript
 // roux.config.ts
@@ -162,9 +185,27 @@ export default {
 }
 ```
 
-- Explicit array = explicit order
-- Plugins not in array = alphabetical, appended after explicit list
-- Same plugins = same resolution, always
+**Persistence rules:**
+- Order is stored in config and preserved across runs
+- New plugins not in explicit list are appended alphabetically
+- User reordering is respected; new plugins still append to bottom
+- Same plugins + same order = same resolution, always
+
+## Cross-Plugin Communication
+
+**Phase 1: Polling.** Plugins that need to react to other plugins' data poll the store or cache at their own frequency. No coordination required — each plugin decides its refresh strategy.
+
+**Future: Eventing.** When patterns emerge, we may add an opt-in event system. Plugins can upgrade from polling to watching without breaking — eventing is an enhancement, not a replacement.
+
+This keeps the core simple now while preserving a clean upgrade path.
+
+## Uninstall Flow
+
+When a plugin is removed, the system prompts the user:
+
+1. **Plugin handles** — Plugin's `unregister()` runs with full cleanup authority
+2. **Delete** — System deletes all nodes with types in `ownsTypes`
+3. **Keep orphaned** — Nodes remain but lose schema validation and plugin-specific MCP tools
 
 ## Example: Project Management Plugin
 
@@ -184,6 +225,7 @@ const projectManagementPlugin: RouxPlugin = {
   schemas: [
     {
       type: 'issue',
+      version: 1,
       extends: 'base',
       fields: [
         { name: 'status', type: 'enum', values: ['open', 'in-progress', 'closed'] },
@@ -197,6 +239,7 @@ const projectManagementPlugin: RouxPlugin = {
     },
     {
       type: 'epic',
+      version: 1,
       extends: 'base',
       fields: [
         { name: 'status', type: 'enum', values: ['planning', 'active', 'completed'] },
@@ -205,6 +248,7 @@ const projectManagementPlugin: RouxPlugin = {
     },
     {
       type: 'milestone',
+      version: 1,
       extends: 'base',
       fields: [
         { name: 'target-date', type: 'date' },
@@ -220,6 +264,12 @@ const projectManagementPlugin: RouxPlugin = {
   async register(core) {
     // Register schemas, set up listeners, etc.
   },
+  
+  async unregister(cleanup) {
+    if (cleanup.action === 'plugin-handles') {
+      // Custom cleanup logic
+    }
+  },
 };
 ```
 
@@ -227,10 +277,12 @@ const projectManagementPlugin: RouxPlugin = {
 
 ### Phase 1: MVP
 - Plugin interface with id, dependencies, schemas, ownsTypes
-- Basic registration lifecycle
+- Required unregister() with cleanup options
 - Schema conflict detection (identical/compatible/conflict)
-- Auto-namespace resolution
+- Auto-namespace resolution with persistence
 - StoreQueryable interface for DocStore
+- Schema versioning (field exists, not enforced)
+- Cross-plugin communication via polling
 
 ### Phase 2: MCP Integration
 - Plugin MCP tools merge into server
@@ -246,9 +298,5 @@ const projectManagementPlugin: RouxPlugin = {
 - Schema migrations when plugin updates
 - Plugin-to-plugin dependencies
 - Hot reload without restart
-
-## Open Questions
-
-- Should plugins be able to extend other plugins' schemas?
-- Event system for cross-plugin communication?
-- Versioning strategy for schema evolution?
+- [[Schema Composition]] (if needed)
+- Event system for cross-plugin communication (if polling proves insufficient)

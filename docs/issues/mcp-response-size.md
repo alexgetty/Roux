@@ -1,3 +1,15 @@
+---
+type: '[[Enhancement]]'
+priority: High
+component: '[[MCP]]'
+status: open
+title: Mcp Response Size
+tags:
+  - issue
+  - mcp
+  - enhancement
+---
+
 # MCP Response Size Killing Token Context
 
 ## Problem

@@ -1,11 +1,18 @@
 ---
 type: Issue
-severity: Medium
+priority: Low
 component: Testing
+status: open
+title: E2e Testing
+tags:
+  - issue
+  - testing
+  - infrastructure
+severity: Medium
 phase: 11
 ---
 
-# Issue - E2E Testing
+# E2E Testing
 
 End-to-end testing gap. No full user workflow coverage.
 

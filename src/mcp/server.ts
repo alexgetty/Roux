@@ -400,6 +400,59 @@ export function getToolDefinitions(hasEmbedding: boolean): Tool[] {
   return tools;
 }
 
+/** Response format for MCP tool calls */
+export interface McpToolResponse {
+  content: Array<{ type: 'text'; text: string }>;
+  isError?: boolean;
+}
+
+/**
+ * Format a successful tool result for MCP response.
+ */
+export function formatToolResponse(result: unknown): McpToolResponse {
+  return {
+    content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+  };
+}
+
+/**
+ * Format an error for MCP response.
+ * Handles McpError, generic Error, and non-Error thrown values.
+ */
+export function formatErrorResponse(error: unknown): McpToolResponse {
+  if (error instanceof McpError) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify(error.toResponse()) }],
+      isError: true,
+    };
+  }
+  const mcpError = new McpError(
+    'PROVIDER_ERROR',
+    error instanceof Error ? error.message : 'Unknown error'
+  );
+  return {
+    content: [{ type: 'text', text: JSON.stringify(mcpError.toResponse()) }],
+    isError: true,
+  };
+}
+
+/**
+ * Execute a tool call and return formatted MCP response.
+ * Handles dispatching to the appropriate handler and error formatting.
+ */
+export async function executeToolCall(
+  ctx: HandlerContext,
+  name: string,
+  args: Record<string, unknown>
+): Promise<McpToolResponse> {
+  try {
+    const result = await dispatchTool(ctx, name, args);
+    return formatToolResponse(result);
+  } catch (error) {
+    return formatErrorResponse(error);
+  }
+}
+
 export class McpServer {
   private server: Server;
   private ctx: HandlerContext;
@@ -419,7 +472,6 @@ export class McpServer {
     this.setupHandlers();
   }
 
-  /* v8 ignore start - MCP SDK callbacks tested via integration in Phase 11 */
   private setupHandlers(): void {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: getToolDefinitions(this.ctx.hasEmbedding),
@@ -427,46 +479,18 @@ export class McpServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-
-      try {
-        const result = await dispatchTool(this.ctx, name, args ?? {});
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
-      } catch (error) {
-        if (error instanceof McpError) {
-          return {
-            content: [
-              { type: 'text', text: JSON.stringify(error.toResponse()) },
-            ],
-            isError: true,
-          };
-        }
-        const mcpError = new McpError(
-          'PROVIDER_ERROR',
-          error instanceof Error ? error.message : 'Unknown error'
-        );
-        return {
-          content: [
-            { type: 'text', text: JSON.stringify(mcpError.toResponse()) },
-          ],
-          isError: true,
-        };
-      }
+      return executeToolCall(this.ctx, name, args ?? {});
     });
   }
-  /* v8 ignore stop */
 
   /**
    * Start the server with optional transport factory.
    * @param transportFactory Factory to create transport. Defaults to StdioServerTransport.
    */
   async start(transportFactory?: TransportFactory): Promise<void> {
-    /* v8 ignore start - Default stdio transport tested via integration */
     const transport = transportFactory
       ? transportFactory()
       : new StdioServerTransport();
-    /* v8 ignore stop */
     await this.server.connect(transport as Parameters<typeof this.server.connect>[0]);
   }
 

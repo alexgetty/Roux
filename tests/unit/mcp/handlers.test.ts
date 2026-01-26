@@ -316,6 +316,16 @@ describe('handleGetNode', () => {
     expect(result).not.toHaveProperty('incomingNeighbors');
   });
 
+  it('uses default depth 0 for NaN input', async () => {
+    const node = createNode();
+    const ctx = createContext();
+    (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(node);
+
+    const result = await handleGetNode(ctx, { id: 'test.md', depth: 'abc' });
+
+    expect(result).not.toHaveProperty('incomingNeighbors');
+  });
+
   it('throws INVALID_PARAMS for non-string id', async () => {
     const ctx = createContext();
 
@@ -1223,6 +1233,19 @@ describe('handleListNodes', () => {
 
     const { handleListNodes } = await import('../../../src/mcp/handlers.js');
     await handleListNodes(ctx, { offset: 0 });
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({}, { limit: 100, offset: 0 });
+  });
+
+  it('uses default offset 0 for NaN input', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, { offset: 'abc' });
 
     expect(ctx.core.listNodes).toHaveBeenCalledWith({}, { limit: 100, offset: 0 });
   });

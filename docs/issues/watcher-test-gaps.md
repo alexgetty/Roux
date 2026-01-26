@@ -1,10 +1,15 @@
 ---
+type: '[[Test Gap]]'
+priority: Medium
+component: '[[Watcher]]'
+status: open
 title: Watcher Test Gaps
 tags:
   - issue
   - watcher
   - testing
 ---
+
 # Watcher Test Gaps
 
 Missing test coverage for watcher edge cases.

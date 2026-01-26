@@ -1,7 +1,14 @@
 ---
 type: Issue
-severity: Medium
+priority: Low
 component: DocStore
+status: open
+title: Watcher Wiki Link Resolution Test Gap
+tags:
+  - issue
+  - watcher
+  - testing
+severity: Medium
 phase: MVP
 ---
 

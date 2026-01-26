@@ -9,6 +9,14 @@ import type { GraphCore } from '../../../src/types/graphcore.js';
 import type { StoreProvider } from '../../../src/types/provider.js';
 import type { McpServerOptions, McpTransport } from '../../../src/mcp/server.js';
 
+// Mock StdioServerTransport for testing default transport path
+vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
+  StdioServerTransport: vi.fn().mockImplementation(() => ({
+    start: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 function createMockStore(): StoreProvider {
   return {
     resolveTitles: vi.fn().mockResolvedValue(new Map()),
@@ -49,12 +57,26 @@ function createMockCore(): GraphCore {
   };
 }
 
+// Capture the handlers registered with the MCP SDK Server
+const capturedHandlers = new Map<unknown, (...args: unknown[]) => unknown>();
+
+vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
+  Server: vi.fn().mockImplementation(() => ({
+    setRequestHandler: vi.fn((schema: unknown, handler: (...args: unknown[]) => unknown) => {
+      capturedHandlers.set(schema, handler);
+    }),
+    connect: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 describe('McpServer', () => {
   let mockCore: GraphCore;
   let mockStore: StoreProvider;
   let options: McpServerOptions;
 
   beforeEach(() => {
+    capturedHandlers.clear();
     mockCore = createMockCore();
     mockStore = createMockStore();
     options = {
@@ -74,6 +96,67 @@ describe('McpServer', () => {
       options.hasEmbedding = false;
       const server = new McpServer(options);
       expect(server).toBeInstanceOf(McpServer);
+    });
+  });
+
+  describe('setupHandlers', () => {
+    it('registers ListTools handler that returns tool definitions', async () => {
+      const { ListToolsRequestSchema } = await import(
+        '@modelcontextprotocol/sdk/types.js'
+      );
+      new McpServer(options);
+
+      const handler = capturedHandlers.get(ListToolsRequestSchema);
+      expect(handler).toBeDefined();
+
+      const result = await handler!();
+      expect((result as { tools: unknown[] }).tools).toBeDefined();
+      expect((result as { tools: unknown[] }).tools.length).toBeGreaterThan(0);
+    });
+
+    it('registers CallTool handler that dispatches and formats result', async () => {
+      const { CallToolRequestSchema } = await import(
+        '@modelcontextprotocol/sdk/types.js'
+      );
+      const mockNode = {
+        id: 'test.md',
+        title: 'Test',
+        content: 'Content',
+        tags: [],
+        outgoingLinks: [],
+        properties: {},
+      };
+      (mockCore.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(mockNode);
+      new McpServer(options);
+
+      const handler = capturedHandlers.get(CallToolRequestSchema);
+      expect(handler).toBeDefined();
+
+      const result = await handler!({
+        params: { name: 'get_node', arguments: { id: 'test.md' } },
+      });
+
+      expect((result as { content: unknown[] }).content).toBeDefined();
+      const text = (result as { content: Array<{ text: string }> }).content[0]?.text;
+      expect(JSON.parse(text ?? '{}').id).toBe('test.md');
+    });
+
+    it('CallTool handler defaults undefined arguments to empty object', async () => {
+      const { CallToolRequestSchema } = await import(
+        '@modelcontextprotocol/sdk/types.js'
+      );
+      new McpServer(options);
+
+      const handler = capturedHandlers.get(CallToolRequestSchema);
+      expect(handler).toBeDefined();
+
+      // Call with undefined arguments - should use empty object fallback
+      const result = await handler!({
+        params: { name: 'random_node', arguments: undefined },
+      });
+
+      // random_node with no args should work (returns null from mock)
+      expect((result as { content: unknown[] }).content).toBeDefined();
     });
   });
 
@@ -99,10 +182,15 @@ describe('McpServer', () => {
       expect(factory).toHaveBeenCalled();
     });
 
-    it('uses default stdio transport when no factory provided', () => {
+    it('uses StdioServerTransport when no factory provided', async () => {
+      const { StdioServerTransport } = await import(
+        '@modelcontextprotocol/sdk/server/stdio.js'
+      );
       const server = new McpServer(options);
-      // Verify start method exists and accepts optional factory
-      expect(typeof server.start).toBe('function');
+
+      await server.start(); // No factory = use default
+
+      expect(StdioServerTransport).toHaveBeenCalled();
     });
   });
 });
@@ -191,6 +279,182 @@ describe('getToolDefinitions', () => {
       expect(tool.inputSchema).toBeTruthy();
       expect(tool.inputSchema.type).toBe('object');
     }
+  });
+});
+
+describe('formatToolResponse', () => {
+  it('wraps result in MCP content format', async () => {
+    const { formatToolResponse } = await import('../../../src/mcp/server.js');
+    const result = { nodes: [{ id: 'test.md' }], total: 1 };
+
+    const response = formatToolResponse(result);
+
+    expect(response).toEqual({
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+    });
+  });
+
+  it('handles null result', async () => {
+    const { formatToolResponse } = await import('../../../src/mcp/server.js');
+
+    const response = formatToolResponse(null);
+
+    expect(response.content[0]?.text).toBe('null');
+  });
+
+  it('handles primitive results', async () => {
+    const { formatToolResponse } = await import('../../../src/mcp/server.js');
+
+    expect(formatToolResponse(true).content[0]?.text).toBe('true');
+    expect(formatToolResponse(42).content[0]?.text).toBe('42');
+    expect(formatToolResponse('hello').content[0]?.text).toBe('"hello"');
+  });
+});
+
+describe('formatErrorResponse', () => {
+  it('formats McpError with isError flag', async () => {
+    const { formatErrorResponse } = await import('../../../src/mcp/server.js');
+    const { McpError } = await import('../../../src/mcp/types.js');
+    const error = new McpError('NODE_NOT_FOUND', 'Node test.md not found');
+
+    const response = formatErrorResponse(error);
+
+    expect(response.isError).toBe(true);
+    expect(JSON.parse(response.content[0]?.text ?? '{}')).toEqual({
+      error: {
+        code: 'NODE_NOT_FOUND',
+        message: 'Node test.md not found',
+      },
+    });
+  });
+
+  it('wraps generic Error as PROVIDER_ERROR', async () => {
+    const { formatErrorResponse } = await import('../../../src/mcp/server.js');
+    const error = new Error('Database connection failed');
+
+    const response = formatErrorResponse(error);
+
+    expect(response.isError).toBe(true);
+    expect(JSON.parse(response.content[0]?.text ?? '{}')).toEqual({
+      error: {
+        code: 'PROVIDER_ERROR',
+        message: 'Database connection failed',
+      },
+    });
+  });
+
+  it('handles non-Error thrown values with Unknown error', async () => {
+    const { formatErrorResponse } = await import('../../../src/mcp/server.js');
+
+    const response = formatErrorResponse('string error');
+
+    expect(response.isError).toBe(true);
+    expect(JSON.parse(response.content[0]?.text ?? '{}')).toEqual({
+      error: {
+        code: 'PROVIDER_ERROR',
+        message: 'Unknown error',
+      },
+    });
+  });
+
+  it('handles null thrown value', async () => {
+    const { formatErrorResponse } = await import('../../../src/mcp/server.js');
+
+    const response = formatErrorResponse(null);
+
+    expect(response.isError).toBe(true);
+    expect(JSON.parse(response.content[0]?.text ?? '{}').error.message).toBe(
+      'Unknown error'
+    );
+  });
+
+  it('handles undefined thrown value', async () => {
+    const { formatErrorResponse } = await import('../../../src/mcp/server.js');
+
+    const response = formatErrorResponse(undefined);
+
+    expect(response.isError).toBe(true);
+    expect(JSON.parse(response.content[0]?.text ?? '{}').error.message).toBe(
+      'Unknown error'
+    );
+  });
+});
+
+describe('executeToolCall', () => {
+  let mockCore: GraphCore;
+  let mockStore: StoreProvider;
+  let ctx: { core: GraphCore; store: StoreProvider; hasEmbedding: boolean };
+
+  beforeEach(() => {
+    mockCore = createMockCore();
+    mockStore = createMockStore();
+    ctx = { core: mockCore, store: mockStore, hasEmbedding: true };
+  });
+
+  it('dispatches tool and formats successful result', async () => {
+    const { executeToolCall } = await import('../../../src/mcp/server.js');
+    const mockNode = {
+      id: 'test.md',
+      title: 'Test',
+      content: 'Content',
+      tags: [],
+      outgoingLinks: [],
+      properties: {},
+    };
+    (mockCore.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(mockNode);
+
+    const response = await executeToolCall(ctx, 'get_node', { id: 'test.md' });
+
+    expect(response.isError).toBeUndefined();
+    expect(response.content[0]?.type).toBe('text');
+    const parsed = JSON.parse(response.content[0]?.text ?? '{}');
+    expect(parsed.id).toBe('test.md');
+  });
+
+  it('formats McpError from handler', async () => {
+    const { executeToolCall } = await import('../../../src/mcp/server.js');
+    // create_node throws NODE_EXISTS when node already exists (uses core.getNode)
+    (mockCore.getNode as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'test.md',
+      title: 'Test',
+      content: '',
+      tags: [],
+      outgoingLinks: [],
+      properties: {},
+    });
+
+    const response = await executeToolCall(ctx, 'create_node', {
+      title: 'Test',
+      content: 'Content',
+    });
+
+    expect(response.isError).toBe(true);
+    const parsed = JSON.parse(response.content[0]?.text ?? '{}');
+    expect(parsed.error.code).toBe('NODE_EXISTS');
+  });
+
+  it('formats generic Error as PROVIDER_ERROR', async () => {
+    const { executeToolCall } = await import('../../../src/mcp/server.js');
+    (mockCore.getNode as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Database crashed')
+    );
+
+    const response = await executeToolCall(ctx, 'get_node', { id: 'test.md' });
+
+    expect(response.isError).toBe(true);
+    const parsed = JSON.parse(response.content[0]?.text ?? '{}');
+    expect(parsed.error.code).toBe('PROVIDER_ERROR');
+    expect(parsed.error.message).toBe('Database crashed');
+  });
+
+  it('handles unknown tool name', async () => {
+    const { executeToolCall } = await import('../../../src/mcp/server.js');
+
+    const response = await executeToolCall(ctx, 'nonexistent_tool', {});
+
+    expect(response.isError).toBe(true);
+    const parsed = JSON.parse(response.content[0]?.text ?? '{}');
+    expect(parsed.error.code).toBe('INVALID_PARAMS');
   });
 });
 

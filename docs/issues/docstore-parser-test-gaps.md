@@ -1,4 +1,8 @@
 ---
+type: '[[Test Gap]]'
+priority: Low
+component: '[[DocStore]]'
+status: open
 title: DocStore Parser Test Gaps
 tags:
   - issue
@@ -6,6 +10,7 @@ tags:
   - parser
   - testing
 ---
+
 # DocStore Parser Test Gaps
 
 Missing test coverage in DocStore and parser.

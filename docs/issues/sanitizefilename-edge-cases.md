@@ -1,10 +1,15 @@
 ---
+type: '[[Test Gap]]'
+priority: Low
+component: '[[MCP]]'
+status: open
 title: SanitizeFilename Edge Cases
 tags:
   - issue
   - mcp
   - testing
 ---
+
 # SanitizeFilename Edge Cases
 
 ## Problem

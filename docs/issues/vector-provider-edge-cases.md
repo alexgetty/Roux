@@ -1,10 +1,15 @@
 ---
+type: '[[Test Gap]]'
+priority: Low
+component: '[[Vector]]'
+status: open
 title: Vector Provider Edge Cases
 tags:
   - issue
   - vector
   - testing
 ---
+
 # Vector Provider Edge Cases
 
 Collection of untested edge cases in SqliteVectorProvider.

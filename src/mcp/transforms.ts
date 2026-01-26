@@ -71,8 +71,8 @@ export async function nodesToResponses(
 
   // Transform nodes using limited links
   return nodes.map((node) => {
-    // Defensive fallback - all node IDs are populated in the loop above
-    const limitedLinks = nodeLinkLimits.get(node.id) /* v8 ignore next */ ?? [];
+    // Invariant: all node IDs are populated in the loop above
+    const limitedLinks = nodeLinkLimits.get(node.id)!;
     const base: NodeMetadataResponse = {
       id: node.id,
       title: node.title,

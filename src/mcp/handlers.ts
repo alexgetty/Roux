@@ -205,7 +205,7 @@ export async function handleFindPath(
   return pathToResponse(path);
 }
 
-const VALID_METRICS = ['pagerank', 'in_degree', 'out_degree'] as const;
+const VALID_METRICS = ['in_degree', 'out_degree'] as const;
 
 export async function handleGetHubs(
   ctx: HandlerContext,

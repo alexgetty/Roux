@@ -1,11 +1,16 @@
 ---
+type: '[[Test Gap]]'
+priority: Medium
+component: '[[MCP]]'
+status: open
 title: MCP Integration Test Gaps
 tags:
   - issue
   - mcp
-  - integration
   - testing
+  - integration
 ---
+
 # MCP Integration Test Gaps
 
 Missing integration tests for MCP handlers.

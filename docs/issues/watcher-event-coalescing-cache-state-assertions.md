@@ -1,10 +1,15 @@
 ---
+type: '[[Test Gap]]'
+priority: Low
+component: '[[Watcher]]'
+status: open
 title: Watcher Event Coalescing Cache State Assertions
 tags:
   - issue
   - watcher
   - testing
 ---
+
 # Watcher Event Coalescing Cache State Assertions
 
 ## Problem

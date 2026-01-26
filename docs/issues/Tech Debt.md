@@ -1,11 +1,18 @@
 ---
 type: Issue
-severity: Medium
+priority: Medium
 component: Multiple
+status: open
+title: Tech Debt
+tags:
+  - issue
+  - docstore
+  - tech-debt
+severity: Medium
 phase: 7
 ---
 
-# Issue - Tech Debt Collection
+# Tech Debt Collection
 
 Lower-severity issues that should be addressed before Phase 11 (Integration & Polish).
 

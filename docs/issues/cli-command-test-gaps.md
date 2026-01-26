@@ -1,10 +1,15 @@
 ---
+type: '[[Test Gap]]'
+priority: Low
+component: '[[CLI]]'
+status: open
 title: CLI Command Test Gaps
 tags:
   - issue
   - cli
   - testing
 ---
+
 # CLI Command Test Gaps
 
 Missing test coverage for CLI commands.

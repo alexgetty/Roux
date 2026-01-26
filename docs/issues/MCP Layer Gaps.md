@@ -1,11 +1,18 @@
 ---
 type: Issue
-severity: Medium
+priority: High
 component: MCP
+status: open
+title: Mcp Layer Gaps
+tags:
+  - issue
+  - mcp
+  - bug
+severity: Medium
 phase: 9
 ---
 
-# Issue - MCP Layer Gaps
+# MCP Layer Gaps
 
 Outstanding issues from Phase 9 red-team audit. Updated after Phase 10 fixes.
 

@@ -1,11 +1,18 @@
 ---
 type: Issue
-severity: Medium
+priority: Low
 component: Graph
+status: open
+title: Graph Test Coverage
+tags:
+  - issue
+  - docstore
+  - testing
+severity: Medium
 phase: 5
 ---
 
-# Issue - Graph Test Coverage
+# Graph Test Coverage
 
 Additional test coverage for graph operations edge cases.
 

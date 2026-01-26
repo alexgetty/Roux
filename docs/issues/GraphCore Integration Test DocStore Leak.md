@@ -1,7 +1,15 @@
 ---
 type: Issue
-severity: Medium
+priority: Medium
 component: Testing
+status: open
+title: Graphcore Integration Test Docstore Leak
+tags:
+  - issue
+  - graphcore
+  - bug
+  - testing
+severity: Medium
 ---
 
 # GraphCore Integration Test DocStore Leak

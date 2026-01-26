@@ -1,11 +1,18 @@
 ---
 type: Issue
-severity: High
+priority: Medium
 component: DocStore
+status: open
+title: Updatenode Precedence
+tags:
+  - issue
+  - docstore
+  - bug
+severity: High
 phase: 6
 ---
 
-# Issue - UpdateNode Precedence
+# UpdateNode Precedence
 
 Unclear behavior when `updateNode` receives both `content` and `outgoingLinks`.
 

@@ -2,9 +2,13 @@ export {
   McpServer,
   createMcpServer,
   getToolDefinitions,
+  formatToolResponse,
+  formatErrorResponse,
+  executeToolCall,
   type McpServerOptions,
   type McpTransport,
   type TransportFactory,
+  type McpToolResponse,
 } from './server.js';
 export {
   McpError,

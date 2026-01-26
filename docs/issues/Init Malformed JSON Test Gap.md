@@ -1,7 +1,14 @@
 ---
 type: Issue
-severity: Medium
+priority: Low
 component: CLI
+status: open
+title: Init Malformed Json Test Gap
+tags:
+  - issue
+  - cli
+  - testing
+severity: Medium
 phase: MVP
 ---
 

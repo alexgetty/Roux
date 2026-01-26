@@ -1,6 +1,17 @@
-# Standardize `create_node` params to use `id`
+---
+type: '[[Enhancement]]'
+priority: High
+component: '[[MCP]]'
+status: open
+title: Standardize Create Node Params
+tags:
+  - issue
+  - mcp
+  - enhancement
+  - api
+---
 
-**Priority:** High
+# Standardize `create_node` params to use `id`
 
 ## Problem
 

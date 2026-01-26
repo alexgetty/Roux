@@ -1,7 +1,14 @@
 ---
 type: Issue
+priority: Low
+component: 'MCP, DocStore'
+status: open
+title: List Nodes Tag Filter Limitation
+tags:
+  - issue
+  - mcp
+  - enhancement
 severity: Medium
-component: MCP, DocStore
 phase: Resolution
 ---
 
