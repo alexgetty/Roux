@@ -91,7 +91,7 @@ export interface StoreProvider {
   ): Promise<VectorSearchResult[]>;
 
   // Search
-  searchByTags(tags: string[], mode: TagMode): Promise<Node[]>;
+  searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
 
   // Discovery
   getRandomNode(tags?: string[]): Promise<Node | null>;

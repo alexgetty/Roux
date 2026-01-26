@@ -597,15 +597,31 @@ describe('GraphCore', () => {
 
       const result = await core.searchByTags(['test'], 'any');
 
-      expect(mockStore.searchByTags).toHaveBeenCalledWith(['test'], 'any');
+      expect(mockStore.searchByTags).toHaveBeenCalledWith(['test'], 'any', undefined);
       expect(result).toEqual(tagged);
     });
 
-    it('respects limit parameter', async () => {
+    it('passes limit to store instead of post-slicing', async () => {
       const nodes = [
         createMockNode('a.md'),
         createMockNode('b.md'),
-        createMockNode('c.md'),
+      ];
+      vi.mocked(mockStore.searchByTags).mockResolvedValue(nodes);
+
+      const core = new GraphCoreImpl();
+      core.registerStore(mockStore);
+
+      await core.searchByTags(['test'], 'any', 2);
+
+      // The limit must be passed to the store, not handled by slicing after
+      expect(mockStore.searchByTags).toHaveBeenCalledWith(['test'], 'any', 2);
+    });
+
+    it('does not slice results when limit is passed to store', async () => {
+      // Store returns exactly what was requested with limit
+      const nodes = [
+        createMockNode('a.md'),
+        createMockNode('b.md'),
       ];
       vi.mocked(mockStore.searchByTags).mockResolvedValue(nodes);
 
@@ -615,6 +631,7 @@ describe('GraphCore', () => {
       const result = await core.searchByTags(['test'], 'any', 2);
 
       expect(result).toHaveLength(2);
+      expect(result).toEqual(nodes);
     });
   });
 

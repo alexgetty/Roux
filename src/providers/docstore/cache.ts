@@ -178,20 +178,39 @@ export class Cache {
     return rows.map((row) => this.rowToNode(row));
   }
 
-  searchByTags(tags: string[], mode: TagMode): Node[] {
+  searchByTags(tags: string[], mode: TagMode, limit?: number): Node[] {
     if (tags.length === 0) return [];
 
-    const allNodes = this.getAllNodes();
     const lowerTags = tags.map((t) => t.toLowerCase());
 
-    return allNodes.filter((node) => {
-      const nodeTags = node.tags.map((t) => t.toLowerCase());
-      if (mode === 'any') {
-        return lowerTags.some((t) => nodeTags.includes(t));
-      } else {
-        return lowerTags.every((t) => nodeTags.includes(t));
-      }
-    });
+    // Build SQL query with tag filtering in the database
+    // Tags are stored as JSON array, so we use json_each to search
+    let query: string;
+    const params: unknown[] = [];
+
+    if (mode === 'any') {
+      // Match nodes that have ANY of the specified tags
+      const tagConditions = lowerTags.map(() =>
+        "EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(json_each.value) = ?)"
+      ).join(' OR ');
+      query = `SELECT * FROM nodes WHERE ${tagConditions}`;
+      params.push(...lowerTags);
+    } else {
+      // Match nodes that have ALL of the specified tags
+      const tagConditions = lowerTags.map(() =>
+        "EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(json_each.value) = ?)"
+      ).join(' AND ');
+      query = `SELECT * FROM nodes WHERE ${tagConditions}`;
+      params.push(...lowerTags);
+    }
+
+    if (limit !== undefined) {
+      query += ' LIMIT ?';
+      params.push(limit);
+    }
+
+    const rows = this.db.prepare(query).all(...params) as NodeRow[];
+    return rows.map((row) => this.rowToNode(row));
   }
 
   getModifiedTime(sourcePath: string): number | null {

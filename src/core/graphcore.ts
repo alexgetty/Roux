@@ -170,11 +170,7 @@ export class GraphCoreImpl implements GraphCore {
     limit?: number
   ): Promise<Node[]> {
     const store = this.requireStore();
-    const results = await store.searchByTags(tags, mode);
-    if (limit !== undefined) {
-      return results.slice(0, limit);
-    }
-    return results;
+    return store.searchByTags(tags, mode, limit);
   }
 
   async getRandomNode(tags?: string[]): Promise<Node | null> {

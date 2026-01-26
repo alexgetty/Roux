@@ -266,6 +266,26 @@ describe('Cache', () => {
       });
     });
 
+    describe('searchByTags with limit', () => {
+      it('respects limit parameter at SQL level', () => {
+        // With 3 nodes tagged 'beta' or 'gamma', limit=2 should return 2
+        const result = cache.searchByTags(['beta', 'gamma'], 'any', 2);
+        expect(result).toHaveLength(2);
+      });
+
+      it('returns all matches when limit not specified', () => {
+        const result = cache.searchByTags(['beta', 'gamma'], 'any');
+        // a.md has beta, b.md has beta+gamma, c.md has gamma = 3 matches
+        expect(result).toHaveLength(3);
+      });
+
+      it('returns all matches when limit exceeds match count', () => {
+        const result = cache.searchByTags(['alpha'], 'any', 100);
+        // Only a.md has alpha
+        expect(result).toHaveLength(1);
+      });
+    });
+
     describe('searchByTags with mode "all"', () => {
       it('returns only nodes matching all tags', () => {
         const result = cache.searchByTags(['beta', 'gamma'], 'all');
@@ -531,6 +551,15 @@ describe('Cache', () => {
 
     it('filters by path prefix', () => {
       const result = cache.listNodes({ path: 'recipes/' });
+      expect(result.nodes).toHaveLength(2);
+      expect(result.total).toBe(2);
+      expect(result.nodes.every(n => n.id.startsWith('recipes/'))).toBe(true);
+    });
+
+    it('filters by path prefix case-insensitively', () => {
+      // IDs are lowercase: recipes/pasta.md, recipes/pizza.md
+      // Query with uppercase should still match
+      const result = cache.listNodes({ path: 'Recipes/' });
       expect(result.nodes).toHaveLength(2);
       expect(result.total).toBe(2);
       expect(result.nodes.every(n => n.id.startsWith('recipes/'))).toBe(true);

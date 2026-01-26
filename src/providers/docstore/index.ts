@@ -200,8 +200,8 @@ export class DocStore implements StoreProvider {
     return nodes.map((n) => n.id);
   }
 
-  async searchByTags(tags: string[], mode: TagMode): Promise<Node[]> {
-    return this.cache.searchByTags(tags, mode);
+  async searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]> {
+    return this.cache.searchByTags(tags, mode, limit);
   }
 
   async getRandomNode(tags?: string[]): Promise<Node | null> {

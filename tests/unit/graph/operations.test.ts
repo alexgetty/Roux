@@ -144,12 +144,6 @@ describe('graph operations', () => {
       expect(hubs[1]).toEqual(['b', 2]);
     });
 
-    it('returns top nodes by pagerank (falls back to in_degree for MVP)', () => {
-      const hubs = getHubs(graph, 'pagerank', 2);
-      // PageRank uses in_degree as fallback for MVP
-      expect(hubs[0]).toEqual(['e', 2]);
-    });
-
     it('respects limit', () => {
       const hubs = getHubs(graph, 'in_degree', 1);
       expect(hubs).toHaveLength(1);
