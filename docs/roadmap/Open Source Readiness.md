@@ -1,15 +1,18 @@
+---
+title: Open Source Readiness
+---
 # Open Source Readiness
 
 Checklist for preparing Roux for public GitHub release. Run this audit when the codebase is stable enough to invite scrutiny.
 
 ## Standard Files
 
-- [ ] **LICENSE** — Choose and add (see [[#Licensing Decision]] below)
+- [x] **LICENSE** — MIT. See [[decisions/Licensing]] for rationale.
 - [ ] **README.md** — Audit for first-impression quality
-  - [ ] Clear one-liner explaining what Roux is
-  - [ ] Why it exists / problem it solves
-  - [ ] Installation instructions
-  - [ ] Quick usage example
+  - [x] Clear one-liner explaining what Roux is
+  - [x] Why it exists / problem it solves
+  - [x] Installation instructions
+  - [x] Quick usage example
   - [ ] Screenshot or demo if applicable
   - [ ] Badge row (build status, npm version, license)
 - [ ] **CONTRIBUTING.md** — Verify accuracy for external contributors
@@ -38,6 +41,8 @@ git log -p | grep -iE "/Users/|/home/"
 
 If secrets found: rewrite history with `git filter-repo` or BFG Repo-Cleaner, then force push. Rotate any exposed credentials.
 
+- [x] History scrubbed (removed .claude/, .obsidian/, and related commit message references)
+
 ### Dependencies
 ```bash
 npm audit
@@ -46,7 +51,7 @@ npm outdated
 
 - [ ] No high/critical CVEs
 - [ ] Dependencies reasonably current
-- [ ] Lock file committed
+- [x] Lock file committed
 
 ### Code Review
 - [ ] No hardcoded credentials or API keys
@@ -63,10 +68,10 @@ npm outdated
 
 ## Repository Hygiene
 
-- [ ] `.gitignore` comprehensive (node_modules, .env, .DS_Store, IDE configs)
+- [x] `.gitignore` comprehensive (node_modules, .env, .DS_Store, IDE configs, .claude/, .obsidian/)
 - [ ] No large binary files in history
-- [ ] Reasonable commit history (nothing embarrassing in messages)
-- [ ] Branch naming sensible (no `alex-wip-trash-v3-final`)
+- [x] Reasonable commit history (nothing embarrassing in messages)
+- [x] Branch naming sensible
 
 ## GitHub Settings (Post-Publish)
 
@@ -79,58 +84,15 @@ npm outdated
 
 ## Optional Polish
 
-- [ ] npm package name available (if publishing to npm)
+- [x] npm package name available — Published as `@gettymade/roux`
 - [ ] GitHub Actions for CI visible in repo
 - [ ] Dependabot or Renovate configured
-- [ ] First release tagged with semantic version
+- [x] First release tagged with semantic version (v0.1.0)
 
 ---
 
 ## Licensing Decision
 
-**Goal:** Protect IP indefinitely while allowing free use for individuals, small companies, non-profits, and self-hosters. Large corporations using commercially should require paid licensing. Prevent competitors from offering Roux as a hosted service.
+**Decision:** MIT License for initial release. See [[decisions/Licensing]] for full rationale.
 
-**Not open source** in the OSI sense—this is **source-available** with commercial protection.
-
-### Option A: Polyform Small Business
-
-Pre-written, lawyer-vetted license. Free for organizations under **$1M revenue / 100 employees**. Larger orgs need commercial terms.
-
-**Pros:**
-- Clear, understood thresholds
-- No legal fees to draft
-- Generous to small players by default
-
-**Cons:**
-- Revenue/employee threshold is fixed—may not fit all cases
-- Doesn't explicitly address "competing hosted service" scenario
-
-**Reference:** https://polyformproject.org/licenses/small-business/1.0.0
-
-### Option B: Elastic License 2.0 + Commercial Tier
-
-ELv2 as base license (blocks offering as managed/hosted service), with explicit enterprise licensing for large commercial users.
-
-**Pros:**
-- Explicitly blocks the "AWS hosts your project" scenario
-- Battle-tested (Elasticsearch, Kibana)
-- No expiration clause (unlike BSL)
-- Can layer custom commercial terms on top
-
-**Cons:**
-- Doesn't inherently tier by company size—need separate commercial license doc
-- Slightly more complex to explain
-
-**Reference:** https://www.elastic.co/licensing/elastic-license
-
-### Decision Criteria
-
-| Concern | Polyform SB | ELv2 + Commercial |
-|---------|-------------|-------------------|
-| Blocks hosted competition | Unclear | ✅ Explicit |
-| Tiers by org size | ✅ Built-in | Manual |
-| No expiration | ✅ | ✅ |
-| Simplicity | ✅ | Moderate |
-| Legal precedent | Newer | Established |
-
-**Recommendation:** Revisit when ready to publish. If blocking hosted competition is the primary concern, lean ELv2. If tiered access by company size matters more, lean Polyform SB. Could also combine: ELv2 base + "free for small business" addendum.
+**Summary:** Prioritizing simplicity and adoption over protection. Can switch to Polyform Small Business on future versions if commercial interest emerges. MIT on v0.1.x doesn't lock future versions.

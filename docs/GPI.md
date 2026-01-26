@@ -1,28 +1,38 @@
+---
+title: Gpi
+---
 # GPI (Graph Programming Interface)
 
 What Roux is. Like an API connects external systems to applications, a GPI connects you (human or machine) to graph-structured knowledge.
 
-## Overview
+## The Thesis
 
-GPI is the conceptual frame for everything Roux does. Every feature, every provider, every interface exists to serve one purpose: making graph-structured knowledge programmable.
+Knowledge is fundamentally relational. Ideas connect to other ideas. Documents reference other documents. Concepts build on concepts. Yet most knowledge tools treat content as isolated documents searchable only by keywords.
 
-**Core principle:** The graph is always the target structure. Data that isn't natively a graph gets transformed during ingestion. The query model stays constant regardless of source or storage.
+Graph databases understand relationships but require infrastructure and expertise. Document tools like Obsidian enable linking but offer no programmatic access. RAG frameworks add semantic search but lose the graph structure entirely.
 
-## Why GPI?
+A GPI bridges these worlds: make graph-structured knowledge programmable, queryable, and accessible to both humans and AI—regardless of how it's stored.
 
-Existing tools force a choice:
-- **Graph databases** (Neo4j, FalkorDB) — Powerful but require infrastructure
-- **Document tools** (Obsidian plugins) — No graph traversal, no semantic search
-- **RAG frameworks** (LangChain) — No persistent graph, no co-authoring
+## What Makes This Different
 
-GPI unifies these: start with human-editable files, scale to graph databases when needed—same interface throughout.
+**It's not just "a graph database with an API."**
+
+A GPI is defined by four commitments:
+
+1. **Graph as the canonical structure** — Data that isn't natively a graph gets transformed into one during ingestion. A markdown file with wiki-links becomes nodes and edges. The underlying format is an implementation detail.
+
+2. **Semantic understanding built in** — Nodes aren't just searchable by keywords. Embedding providers enable "find notes about distributed systems" even when those words don't appear.
+
+3. **Human-editable sources** — Unlike graph databases that require specialized tools, a GPI can operate on formats humans already use (markdown, text, eventually more). No lock-in.
+
+4. **AI co-authoring as a first-class operation** — The interface assumes AI agents will read and write knowledge alongside humans. MCP isn't an afterthought—it's a primary interface.
 
 ## What a GPI Provides
 
-1. **Semantic search** — Find nodes by meaning, not just keywords
-2. **Graph traversal** — Follow links, find paths, identify hubs
-3. **CRUD operations** — Create, read, update, delete nodes programmatically
-4. **Co-authoring** — Let AI assistants read and write knowledge alongside humans
+- **Semantic search** — Find nodes by meaning, not just keywords
+- **Graph traversal** — Follow links, find paths, identify hubs
+- **CRUD operations** — Create, read, update, delete nodes programmatically
+- **Co-authoring** — Let AI assistants read and write knowledge alongside humans
 
 ## The Stack
 
@@ -41,6 +51,18 @@ GPI unifies these: start with human-editable files, scale to graph databases whe
 │  Store, Embedding, LLM...   │
 └─────────────────────────────┘
 ```
+
+GraphCore is the invariant center. It defines interfaces but has zero capabilities without providers. This enables configurations from "point at a folder" to "production-scale graph database"—same queries, same results.
+
+## Why Now?
+
+Large language models changed the game. Suddenly:
+- AI can traverse and reason about knowledge graphs
+- AI can co-author content in human-readable formats
+- AI can extract structure from unstructured text
+- Products differentiate by how well they manage knowledge
+
+We're building infrastructure for this new reality.
 
 ## Related
 

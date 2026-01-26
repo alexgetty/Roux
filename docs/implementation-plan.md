@@ -1,3 +1,6 @@
+---
+title: Implementation Plan
+---
 # Roux: Graph Programming Interface (GPI)
 
 ## The Bet
@@ -113,7 +116,7 @@ Summary: Point Roux at a markdown directory, query via MCP, edit in Obsidian, ch
 - [ ] File watcher for live sync
 - [ ] Test against existing markdown directory
 
-**Output**: `npm install -g roux && roux init ~/docs && roux serve`
+**Output**: `npm install -g @gettymade/roux && roux init ~/docs && roux serve`
 
 ### Phase 0.5: LLMProvider
 **Goal**: Expose text generation alongside embeddings
@@ -224,10 +227,29 @@ These don't block MVP but need answers during implementation:
 - ~~**File Watching Details**: What debounce interval? How to handle partial reads during write? `.roux/` ignored automatically?~~ Resolved. 100ms debounce, parse failure = skip + retry, `.roux/` always excluded. See [[DocStore]].
 - ~~**Centrality Computation Timing**: Compute PageRank on init, invalidate on change, recompute lazily on query? Or background job?~~ Decided: piggyback on file sync. See [[decisions/Graphology Lifecycle]].
 - **Tag Format**: YAML array in frontmatter? Inline `#tag` syntax? Case-sensitive matching? Document in [[DocStore]].
-- **Broken Link Handling**: MVP logs warning and skips edge. No mode configuration until a real use case demands it.
-- ~~**ID Derivation Edge Cases**: What if title contains special characters? Slashes? Unicode? Document normalization rules.~~ Resolved. See [[decisions/Node Identity]].
+- **Broken Link Handling**: MVP logs warning and skips edge. No mode configuration until a real use case emerges.
+- **Case Sensitivity**: File system dependent. Document behavior, don't try to normalize.
 
-See also:
+---
+
+## Decision Log
+
+See [[Decisions]] for the full index of architectural decisions.
+
+Key decisions made:
+
+| Decision | Status | Notes |
+|----------|--------|-------|
+| [[decisions/Node Identity]] | Decided | Paths as IDs, normalized lowercase |
+| [[decisions/Graphology Lifecycle]] | Decided | Piggyback on file sync |
+| [[decisions/MCP Transport]] | Decided | stdio for MVP, SSE later |
+| [[decisions/Default Embeddings]] | Decided | transformers.js as zero-config default |
+| [[decisions/Vector Storage]] | Decided | SQLite with invalidation on model change |
+
+## Open Questions
+
+Questions have been distributed to their relevant component docs:
+
 - [[GraphCore#Open Questions]]
 - [[Node#Open Questions]]
 - [[StoreProvider#Open Questions]]
@@ -237,91 +259,8 @@ See also:
 
 ---
 
-## Why Not Existing Tools?
+## References
 
-| Tool | What it does | What it lacks |
-|------|--------------|---------------|
-| Graphiti, Memento MCP | Full KG + MCP | Require Neo4j/FalkorDB infrastructure |
-| Obsidian MCP plugins | File access for Claude | No graph traversal, no semantic search, no write-back |
-| Neo4j + Neosemantics | Full graph DB | Infrastructure overhead, no MCP built-in |
-| LangChain/LlamaIndex | RAG pipelines | No persistent graph, no true co-authoring |
-
-**Roux's position**: Zero-to-minimal infrastructure graph-aware querying that scales up. Start with human-editable files, upgrade to graph databases when needed—same [[GPI]] throughout.
-
----
-
-## File Structure (MVP)
-
-```
-roux/
-├── package.json
-├── tsconfig.json
-├── src/
-│   ├── index.ts                  # Entry point
-│   ├── core/
-│   │   ├── graph-core.ts         # GraphCore
-│   │   └── types.ts              # Node, enums, shared types
-│   ├── interfaces/
-│   │   ├── cli.ts                # CLI
-│   │   ├── mcp-server.ts         # MCP Server
-│   │   └── api.ts                # API (future)
-│   └── providers/
-│       ├── store/
-│       │   ├── store-provider.ts # StoreProvider interface
-│       │   └── doc-store.ts      # DocStore implementation
-│       ├── embedding/
-│       │   ├── embedding-provider.ts
-│       │   └── ollama.ts
-│       ├── llm/
-│       │   ├── llm-provider.ts
-│       │   └── ollama.ts
-│       ├── ingestion/            # Future
-│       ├── validation/           # Future
-│       ├── analytics/            # Future
-│       └── authoring/            # Future
-├── tests/
-└── README.md
-```
-
----
-
-## Decision Log
-
-| Decision | Rationale | Reversible? |
-|----------|-----------|-------------|
-| Roux as [[GPI]] | Unifying mental model: everything serves the graph programming interface | N/A (framing) |
-| Full modularity | Every capability is a pluggable provider. Enables minimal to full-featured configurations. | No (architectural) |
-| [[GraphCore]] as orchestration hub | Zero functionality without providers. Routes requests, defines interfaces. | No |
-| [X]Provider naming pattern | Consistent interface naming. [[StoreProvider]], [[EmbeddingProvider]], etc. | No |
-| External interfaces as separate modules | [[MCP Server]], [[API]], [[CLI]] are distinct modules. Different protocols, different clients. | No |
-| Store categories (file → enterprise) | Spectrum of options from zero-infra to full-scale. Same interface regardless. | N/A (conceptual) |
-| [[DocStore]] for MVP | Lightweight, human-editable, zero infrastructure. Proves the architecture. | Yes, via [[StoreProvider]] |
-| TypeScript | Familiar ecosystem, official MCP SDK | Yes, but painful |
-| [[Ollama]] as default provider | Local-first, no cloud dependency | Yes, provider abstraction |
-| SQLite cache for [[DocStore]] | Zero infrastructure, fast enough for MVP scale | Yes, internal to DocStore |
-| Graphology for graph ops | Mature JS library for in-memory operations | Yes, behind interface |
-
----
-
-## Glossary
-
-| Term | Definition |
-|------|------------|
-| **[[Config]]** | Configuration schema for `roux.yaml`. |
-| **[[GPI]]** | Graph Programming Interface. What Roux is. |
-| **[[MVP]]** | First use case: Personal Knowledge Base. |
-| **[[Transformers]]** | Default local embedding provider using transformers.js. |
-| **[[GraphCore]]** | The orchestration hub. Defines provider interfaces, routes requests. |
-| **Provider** | A pluggable capability module. See specific provider notes. |
-| **[[StoreProvider]]** | Provider for data persistence and graph operations. |
-| **[[EmbeddingProvider]]** | Provider for vector generation. |
-| **[[LLMProvider]]** | Provider for text generation. |
-| **[[IngestionProvider]]** | Provider for data transformation and import. |
-| **[[ValidationProvider]]** | Provider for data integrity. |
-| **[[AnalyticsProvider]]** | Provider for graph health and metrics. |
-| **[[AuthoringProvider]]** | Provider for content creation assistance. |
-| **[[DocStore]]** | [[StoreProvider]] implementation for text documents. |
-| **[[Node]]** | The entity data model. |
-| **[[Edge]]** | The relationship model (implicit in MVP, typed edges on roadmap). |
-| **[[Graph Projection]]** | Inferring graph structure from non-graph data. |
-| **External Interface** | How you access Roux: [[MCP Server]], [[API]], or [[CLI]]. |
+- [[Config]] — Configuration schema
+- [[Node]] — Data model
+- [[Edge]] — Relationship model

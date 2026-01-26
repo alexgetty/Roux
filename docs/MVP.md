@@ -1,6 +1,11 @@
+---
+title: Mvp
+---
 # MVP: Personal Knowledge Base
 
-First use case for Roux. Validates core architecture with minimal infrastructure.
+**Phase 0 of the [[GPI]] roadmap.** First use case for Roux. Validates core architecture with minimal infrastructure.
+
+> This document scopes what ships in v0.1.x. For the full vision—multiple stores, LLM providers, ingestion pipelines, production features—see [[implementation-plan]].
 
 ## The Scenario
 
@@ -9,7 +14,7 @@ You maintain a directory of interconnected markdown files—research notes, proj
 You want to query this knowledge programmatically:
 - **Semantic search**: Find notes by meaning, not just keyword
 - **Graph traversal**: Follow links, find paths between concepts, identify central nodes
-- **AI co-authoring**: Let Claude Code (or any MCP client) read, create, and update notes as part of your workflow
+- **AI co-authoring**: Let any MCP client read, create, and update notes as part of your workflow
 - **Human-editable**: Files remain plain markdown—no lock-in, no proprietary format
 - LLMs can reference relevant docs when planning or implementing code for modular project context.
 
@@ -72,7 +77,7 @@ MVP is complete when:
 
 ```
 1. Install
-   npm install -g roux
+   npm install -g @gettymade/roux
 
 2. Initialize
    cd ~/my-notes
@@ -83,7 +88,7 @@ MVP is complete when:
    roux serve
    # Builds cache, generates embeddings, starts MCP server, watches for changes
 
-4. Use via Claude Code (or any MCP client)
+4. Use via MCP client
    "Search my notes for distributed systems concepts"
    "What links to my note on consensus algorithms?"
    "Create a new note summarizing what I learned today"

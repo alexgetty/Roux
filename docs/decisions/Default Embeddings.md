@@ -1,3 +1,6 @@
+---
+title: Default Embeddings
+---
 # Decision - Default Embeddings
 
 **Status:** Decided
@@ -152,7 +155,7 @@ Users can switch to Ollama or OpenAI anytime via config. No code changes. The [[
 
 ### Rationale
 
-1. **Zero friction MVP** — `npm install -g roux && roux init .` gives full semantic search
+1. **Zero friction MVP** — `npm install -g @gettymade/roux && roux init .` gives full semantic search
 2. **No external dependencies** — Works offline, no services to manage
 3. **Clean architecture** — Default is just another provider, not special-cased
 4. **Reversible** — Easy upgrade to better providers when needed

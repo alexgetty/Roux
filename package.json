@@ -1,5 +1,5 @@
 {
-  "name": "roux",
+  "name": "@gettymade/roux",
   "version": "0.1.0",
   "description": "Graph Programming Interface for knowledge bases",
   "type": "module",
