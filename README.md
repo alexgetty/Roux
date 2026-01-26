@@ -45,7 +45,7 @@ Roux is a platform of pluggable modules. GraphCore is the coordination hub—it 
 
 Same queries, same results—regardless of what's plugged in.
 
-## Current State (v0.1.x)
+## Quick Start
 
 Roux ships today with **DocStore**: point it at a markdown directory, query via MCP, edit in Obsidian.
 
@@ -56,12 +56,11 @@ npm install -g @gettymade/roux
 # Initialize on your markdown directory
 cd ~/my-notes
 roux init
-
-# Start the MCP server
-roux serve
 ```
 
-Then ask your AI things like:
+That's it. `roux init` creates a `.mcp.json` file that Claude Code detects automatically. The MCP server starts in the background when you open the project.
+
+Then ask Claude things like:
 - "Search my notes for distributed systems concepts"
 - "What links to my note on consensus algorithms?"
 - "Create a new note summarizing what I learned today"
@@ -74,7 +73,7 @@ Then ask your AI things like:
 
 ```bash
 roux init [directory]     # Initialize (creates roux.yaml, .roux/, .mcp.json)
-roux serve [directory]    # Start MCP server with file watching
+roux serve [directory]    # Start MCP server manually (for debugging or non-Claude clients)
 roux serve --no-watch     # Start without watching for changes
 roux status [directory]   # Show node/edge/embedding counts
 roux viz [directory]      # Generate interactive graph visualization
@@ -111,9 +110,16 @@ providers:
 
 Embeddings use local transformers.js by default. No external services required.
 
-### MCP Client Integration
+### Non-Claude MCP Clients
 
-`roux init` creates `.mcp.json` in your project directory. MCP clients detect and offer to enable the server automatically.
+`roux init` creates `.mcp.json` which Claude Code reads automatically. Other MCP clients may need manual configuration:
+
+```bash
+# Option 1: Run the server manually
+roux serve
+
+# Option 2: Configure your client to spawn it (check your client's docs)
+```
 
 ## Roadmap
 
@@ -140,7 +146,7 @@ See [implementation-plan.md](docs/implementation-plan.md) for details.
 4. **Graph** — Builds in-memory graph from link relationships
 5. **Serving** — Exposes operations via MCP protocol
 
-File changes sync automatically when running `roux serve`.
+File changes sync automatically when the MCP server is running.
 
 ## Documentation
 
