@@ -1,7 +1,7 @@
 import type { Node } from './node.js';
 import type { Direction, NeighborOptions } from './edge.js';
 
-export type Metric = 'pagerank' | 'in_degree' | 'out_degree';
+export type Metric = 'in_degree' | 'out_degree';
 
 // Batch operation types
 export interface ListFilter {

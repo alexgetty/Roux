@@ -90,10 +90,6 @@ export function getHubs(
       case 'out_degree':
         score = graph.outDegree(id);
         break;
-      case 'pagerank':
-        // PageRank is post-MVP, use in_degree as fallback
-        score = graph.inDegree(id);
-        break;
     }
     scores.push([id, score]);
   });
