@@ -14,6 +14,7 @@ import {
   handleUpdateNode,
   handleDeleteNode,
   sanitizeFilename,
+  deriveTitle,
   dispatchTool,
   type HandlerContext,
 } from '../../../src/mcp/handlers.js';
@@ -767,32 +768,88 @@ describe('handleRandomNode', () => {
 });
 
 describe('handleCreateNode', () => {
-  it('creates node and returns NodeResponse', async () => {
-    const created = createNode({ id: 'new-node.md', title: 'New Node' });
+  // Core behavior tests
+  it('creates node at exact ID path (lowercased)', async () => {
+    const created = createNode({ id: 'notes/my note.md', title: 'My Note' });
     const ctx = createContext();
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      title: 'New Node',
-      content: 'Content',
+      id: 'notes/My Note.md',
+      content: 'Hello',
     });
 
-    expect(result.id).toBe('new-node.md');
+    expect(result.id).toBe('notes/my note.md');
     expect(ctx.core.createNode).toHaveBeenCalledWith({
-      id: 'new-node.md',
-      title: 'New Node',
-      content: 'Content',
+      id: 'notes/my note.md',
+      title: 'My Note',
+      content: 'Hello',
       tags: [],
     });
   });
 
-  it('passes valid tags to core.createNode', async () => {
-    const created = createNode({ id: 'tagged.md', tags: ['idea', 'important'] });
+  it('derives title from filename when not provided', async () => {
+    const created = createNode({
+      id: 'graph/ingredients/sesame oil.md',
+      title: 'Sesame Oil',
+    });
     const ctx = createContext();
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      title: 'Tagged',
+      id: 'graph/Ingredients/Sesame Oil.md',
+      content: 'A fragrant oil',
+    });
+
+    expect(result.title).toBe('Sesame Oil');
+    expect(ctx.core.createNode).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Sesame Oil' })
+    );
+  });
+
+  it('uses explicit title when provided', async () => {
+    const created = createNode({
+      id: 'notes/abbrev.md',
+      title: 'Full Descriptive Title',
+    });
+    const ctx = createContext();
+    (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
+
+    const result = await handleCreateNode(ctx, {
+      id: 'notes/abbrev.md',
+      title: 'Full Descriptive Title',
+      content: 'Content here',
+    });
+
+    expect(result.title).toBe('Full Descriptive Title');
+    expect(ctx.core.createNode).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Full Descriptive Title' })
+    );
+  });
+
+  it('normalizes ID case consistently', async () => {
+    const created = createNode({ id: 'folder/note.md', title: 'NOTE' });
+    const ctx = createContext();
+    (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
+
+    await handleCreateNode(ctx, { id: 'FOLDER/NOTE.MD', content: '' });
+
+    expect(ctx.core.createNode).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'folder/note.md' })
+    );
+  });
+
+  it('passes valid tags to core.createNode', async () => {
+    const created = createNode({
+      id: 'tagged.md',
+      title: 'tagged',
+      tags: ['idea', 'important'],
+    });
+    const ctx = createContext();
+    (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
+
+    const result = await handleCreateNode(ctx, {
+      id: 'tagged.md',
       content: 'Content',
       tags: ['idea', 'important'],
     });
@@ -800,39 +857,48 @@ describe('handleCreateNode', () => {
     expect(result.tags).toEqual(['idea', 'important']);
     expect(ctx.core.createNode).toHaveBeenCalledWith({
       id: 'tagged.md',
-      title: 'Tagged',
+      title: 'tagged',
       content: 'Content',
       tags: ['idea', 'important'],
     });
   });
 
-  it('includes directory in id', async () => {
-    const created = createNode({ id: 'notes/new.md' });
+  it('creates nested directories that do not exist', async () => {
+    const created = createNode({
+      id: 'deep/nested/path/note.md',
+      title: 'note',
+    });
     const ctx = createContext();
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
-    await handleCreateNode(ctx, {
-      title: 'New',
-      content: 'Content',
-      directory: 'notes',
+    const result = await handleCreateNode(ctx, {
+      id: 'deep/nested/path/note.md',
+      content: '',
     });
 
-    expect(ctx.core.createNode).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'notes/new.md' })
-    );
+    expect(result.id).toBe('deep/nested/path/note.md');
   });
 
   it('throws NODE_EXISTS when node exists', async () => {
-    const existing = createNode();
+    const existing = createNode({ id: 'existing.md' });
     const ctx = createContext();
     (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(existing);
 
     await expect(
-      handleCreateNode(ctx, { title: 'Test Node', content: 'Content' })
+      handleCreateNode(ctx, { id: 'existing.md', content: 'Content' })
     ).rejects.toMatchObject({ code: 'NODE_EXISTS' });
   });
 
-  it('throws INVALID_PARAMS when title missing', async () => {
+  // Validation tests
+  it('rejects empty id', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleCreateNode(ctx, { id: '', content: 'Content' })
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+
+  it('rejects missing id', async () => {
     const ctx = createContext();
 
     await expect(
@@ -840,11 +906,33 @@ describe('handleCreateNode', () => {
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
+  it('rejects id without .md extension', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleCreateNode(ctx, { id: 'notes/file', content: '' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringMatching(/must end with \.md/i),
+    });
+  });
+
+  it('rejects id with wrong extension (.txt)', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleCreateNode(ctx, { id: 'notes/file.txt', content: '' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringMatching(/must end with \.md/i),
+    });
+  });
+
   it('throws INVALID_PARAMS when content missing', async () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { title: 'Title' })
+      handleCreateNode(ctx, { id: 'test.md' })
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
@@ -852,7 +940,7 @@ describe('handleCreateNode', () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { title: 'Test', content: 'x', tags: [123, 'valid'] })
+      handleCreateNode(ctx, { id: 'test.md', content: 'x', tags: [123, 'valid'] })
     ).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
       message: expect.stringContaining('only strings'),
@@ -863,7 +951,7 @@ describe('handleCreateNode', () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { title: 'Test', content: 'x', tags: [null, 'valid'] })
+      handleCreateNode(ctx, { id: 'test.md', content: 'x', tags: [null, 'valid'] })
     ).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
       message: expect.stringContaining('only strings'),
@@ -877,8 +965,27 @@ describe('handleCreateNode', () => {
     );
 
     await expect(
-      handleCreateNode(ctx, { title: 'Test', content: 'x', directory: '../escape' })
+      handleCreateNode(ctx, { id: '../escape/test.md', content: 'x' })
     ).rejects.toThrow(/outside.*source/i);
+  });
+
+  it('derives title from original case, not lowercased ID', async () => {
+    const created = createNode({
+      id: 'notes/my title here.md',
+      title: 'My Title Here',
+    });
+    const ctx = createContext();
+    (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
+
+    const result = await handleCreateNode(ctx, {
+      id: 'notes/My Title Here.md',
+      content: '',
+    });
+
+    // ID is lowercased
+    expect(result.id).toBe('notes/my title here.md');
+    // Title preserves original case
+    expect(result.title).toBe('My Title Here');
   });
 });
 
@@ -1107,6 +1214,49 @@ describe('sanitizeFilename', () => {
   it('returns untitled for unicode-only input', () => {
     expect(sanitizeFilename('\u4e2d\u6587')).toBe('untitled');
     expect(sanitizeFilename('\u{1F600}')).toBe('untitled');
+  });
+});
+
+describe('deriveTitle', () => {
+  it('extracts filename without .md extension', () => {
+    expect(deriveTitle('notes/My Note.md')).toBe('My Note');
+  });
+
+  it('handles deeply nested paths', () => {
+    expect(deriveTitle('a/b/c/d/File Name.md')).toBe('File Name');
+  });
+
+  it('handles root-level files', () => {
+    expect(deriveTitle('Simple.md')).toBe('Simple');
+  });
+
+  it('is case-insensitive for .md extension', () => {
+    expect(deriveTitle('Note.MD')).toBe('Note');
+    expect(deriveTitle('Note.Md')).toBe('Note');
+  });
+
+  it('returns Untitled for empty path', () => {
+    expect(deriveTitle('')).toBe('Untitled');
+  });
+
+  it('preserves spaces and special characters in filename', () => {
+    expect(deriveTitle("notes/Tom's Recipe (Draft).md")).toBe("Tom's Recipe (Draft)");
+  });
+
+  it('handles double extension gracefully', () => {
+    expect(deriveTitle('notes/file.md.md')).toBe('file.md');
+  });
+
+  it('handles dot-prefixed filename', () => {
+    expect(deriveTitle('notes/.hidden.md')).toBe('.hidden');
+  });
+
+  it('returns Untitled for all-special-char filename', () => {
+    expect(deriveTitle('notes/!!!.md')).toBe('Untitled');
+  });
+
+  it('returns Untitled for empty filename', () => {
+    expect(deriveTitle('notes/.md')).toBe('Untitled');
   });
 });
 
@@ -1452,7 +1602,7 @@ describe('dispatchTool', () => {
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await dispatchTool(ctx, 'create_node', {
-      title: 'Test',
+      id: 'test.md',
       content: 'Content',
     });
 

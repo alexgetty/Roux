@@ -50,6 +50,7 @@ export {
   handleUpdateNode,
   handleDeleteNode,
   sanitizeFilename,
+  deriveTitle,
   dispatchTool,
   type HandlerContext,
   type ToolResult,

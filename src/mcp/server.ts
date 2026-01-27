@@ -181,10 +181,15 @@ const TOOL_SCHEMAS = {
   create_node: {
     type: 'object',
     properties: {
+      id: {
+        type: 'string',
+        description:
+          'Full path for new node (must end in .md). Will be lowercased (spaces and special characters preserved). Example: "notes/My Note.md" creates "notes/my note.md"',
+      },
       title: {
         type: 'string',
         description:
-          'Node title (becomes filename for DocStore). Returned ID will be normalized to lowercase.',
+          'Optional display title. Defaults to filename without .md extension.',
       },
       content: {
         type: 'string',
@@ -196,12 +201,8 @@ const TOOL_SCHEMAS = {
         default: [],
         description: 'Classification tags',
       },
-      directory: {
-        type: 'string',
-        description: "Optional: subdirectory path (e.g., 'notes/drafts')",
-      },
     },
-    required: ['title', 'content'],
+    required: ['id', 'content'],
   },
 
   update_node: {

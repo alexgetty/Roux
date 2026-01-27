@@ -424,7 +424,7 @@ describe('executeToolCall', () => {
     });
 
     const response = await executeToolCall(ctx, 'create_node', {
-      title: 'Test',
+      id: 'test.md',
       content: 'Content',
     });
 

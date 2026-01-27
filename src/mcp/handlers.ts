@@ -278,22 +278,48 @@ export async function handleRandomNode(
   return nodeToResponse(node, ctx.store, 'primary');
 }
 
+/**
+ * Derive display title from node ID.
+ * Extracts filename without extension.
+ * Returns 'Untitled' for empty or all-special-char filenames.
+ */
+export function deriveTitle(id: string): string {
+  const basename = id.split('/').pop() || '';
+  const rawTitle = basename.replace(/\.md$/i, '');
+
+  // If title is empty or contains no alphanumeric characters, fall back to Untitled
+  if (!rawTitle || !/[a-zA-Z0-9]/.test(rawTitle)) {
+    return 'Untitled';
+  }
+
+  return rawTitle;
+}
+
 export async function handleCreateNode(
   ctx: HandlerContext,
   args: Record<string, unknown>
 ): Promise<NodeResponse> {
-  const title = args.title as string;
+  const idRaw = args.id as string;
+  const titleRaw = args.title as string | undefined;
   const content = args.content as string;
   const tagsRaw = args.tags;
-  const directory = args.directory as string | undefined;
 
-  if (!title || typeof title !== 'string') {
-    throw new McpError('INVALID_PARAMS', 'title is required and must be a string');
+  // Validate id
+  if (!idRaw || typeof idRaw !== 'string') {
+    throw new McpError('INVALID_PARAMS', 'id is required and must be a string');
   }
-  if (!content || typeof content !== 'string') {
+
+  // Validate .md extension
+  if (!idRaw.toLowerCase().endsWith('.md')) {
+    throw new McpError('INVALID_PARAMS', 'id must end with .md extension');
+  }
+
+  // Validate content
+  if (content === undefined || typeof content !== 'string') {
     throw new McpError('INVALID_PARAMS', 'content is required and must be a string');
   }
 
+  // Validate tags
   let tags: string[] = [];
   if (tagsRaw !== undefined) {
     if (!Array.isArray(tagsRaw) || !tagsRaw.every((t) => typeof t === 'string')) {
@@ -302,8 +328,11 @@ export async function handleCreateNode(
     tags = tagsRaw;
   }
 
-  const filename = sanitizeFilename(title) + '.md';
-  const id = directory ? `${directory}/${filename}` : filename;
+  // Normalize ID to lowercase
+  const id = idRaw.toLowerCase();
+
+  // Derive or use explicit title
+  const title = titleRaw ?? deriveTitle(idRaw);
 
   const existing = await ctx.core.getNode(id);
   if (existing) {

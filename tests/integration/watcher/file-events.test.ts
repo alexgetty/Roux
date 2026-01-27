@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,38 +9,36 @@ import { SqliteVectorProvider } from '../../../src/providers/vector/index.js';
  * Delay after startWatching() resolves to let OS-level filesystem watcher stabilize.
  * chokidar's 'ready' event fires after initial directory scan, but FSEvents/inotify
  * may need additional time before reliably delivering events.
- * This is not a "generous timeout" - it's a real precondition for the test.
  */
 const WATCHER_STABILIZATION_MS = 100;
 
 /**
- * Creates a promise that resolves when the watcher's onChange callback fires.
- * This provides deterministic synchronization instead of polling.
- *
- * The 5 second timeout is a hard failure boundary, not a "generous" allowance.
- * Expected processing time is ~1.2s (1s debounce + processing).
- * If we hit 5s, something is broken.
+ * Creates a callback that captures changed IDs for later assertion.
+ * Uses vi.waitFor for proper cleanup instead of leaky manual timeouts.
  */
-function createChangePromise(): {
-  promise: Promise<string[]>;
+function createChangeCapture(): {
   callback: (ids: string[]) => void;
+  waitForChanges: () => Promise<string[]>;
 } {
-  let resolveChange: (ids: string[]) => void;
-
-  const promise = new Promise<string[]>((resolve, reject) => {
-    resolveChange = resolve;
-
-    // Hard timeout - if we reach this, the watcher is broken
-    setTimeout(() => {
-      reject(new Error('Watcher did not fire within 5 seconds - this indicates a bug'));
-    }, 5000);
-  });
+  let capturedIds: string[] | null = null;
 
   const callback = (changedIds: string[]) => {
-    resolveChange(changedIds);
+    capturedIds = changedIds;
   };
 
-  return { promise, callback };
+  const waitForChanges = async (): Promise<string[]> => {
+    await vi.waitFor(
+      () => {
+        if (capturedIds === null) {
+          throw new Error('Changes not yet received');
+        }
+      },
+      { timeout: 5000 }
+    );
+    return capturedIds!;
+  };
+
+  return { callback, waitForChanges };
 }
 
 /**
@@ -89,12 +87,12 @@ describe('File Watcher Integration', () => {
 
   describe('real filesystem watching', () => {
     it('detects new file and adds to cache', async () => {
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
 
       await writeMarkdownFile('new-note.md', '---\ntitle: New Note\n---\nContent');
 
-      const changedIds = await promise;
+      const changedIds = await waitForChanges();
 
       expect(changedIds).toContain('new-note.md');
       const node = await store.getNode('new-note.md');
@@ -106,12 +104,12 @@ describe('File Watcher Integration', () => {
       await writeMarkdownFile('existing.md', '---\ntitle: Original\n---\nContent');
       await store.sync();
 
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
 
       await writeMarkdownFile('existing.md', '---\ntitle: Updated\n---\nNew content');
 
-      const changedIds = await promise;
+      const changedIds = await waitForChanges();
 
       expect(changedIds).toContain('existing.md');
       const node = await store.getNode('existing.md');
@@ -124,12 +122,12 @@ describe('File Watcher Integration', () => {
 
       expect(await store.getNode('to-delete.md')).not.toBeNull();
 
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
 
       await unlink(filePath);
 
-      const changedIds = await promise;
+      const changedIds = await waitForChanges();
 
       expect(changedIds).toContain('to-delete.md');
       expect(await store.getNode('to-delete.md')).toBeNull();
@@ -175,7 +173,7 @@ describe('File Watcher Integration', () => {
     });
 
     it('handles transient files (create then delete quickly)', async () => {
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
 
       // Create persistent file first
@@ -187,7 +185,7 @@ describe('File Watcher Integration', () => {
       await unlink(transientPath);
 
       // Wait for watcher to process
-      const changedIds = await promise;
+      const changedIds = await waitForChanges();
 
       // Persistent file should be in the changes and cached
       expect(changedIds).toContain('persistent.md');
@@ -206,19 +204,19 @@ describe('File Watcher Integration', () => {
       let neighbors = await store.getNeighbors('source.md', { direction: 'out' });
       expect(neighbors.map((n) => n.id)).not.toContain('target.md');
 
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
 
       await writeMarkdownFile('source.md', '---\ntitle: Source\n---\nLink to [[target]]');
 
-      await promise;
+      await waitForChanges();
 
       neighbors = await store.getNeighbors('source.md', { direction: 'out' });
       expect(neighbors.map((n) => n.id)).toContain('target.md');
     });
 
     it('ignores non-markdown files', async () => {
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
 
       // Create non-md files (these should be ignored)
@@ -228,7 +226,7 @@ describe('File Watcher Integration', () => {
       // Create md file - this will trigger onChange
       await writeMarkdownFile('real.md', '# Real');
 
-      const changedIds = await promise;
+      const changedIds = await waitForChanges();
 
       // Only the md file should be in changes
       expect(changedIds).toContain('real.md');
@@ -241,7 +239,7 @@ describe('File Watcher Integration', () => {
     });
 
     it('ignores .obsidian directory', async () => {
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
 
       // Create files in .obsidian (should be ignored)
@@ -251,7 +249,7 @@ describe('File Watcher Integration', () => {
       // Create valid file - this will trigger onChange
       await writeMarkdownFile('valid.md', '# Valid');
 
-      const changedIds = await promise;
+      const changedIds = await waitForChanges();
 
       expect(changedIds).toContain('valid.md');
       expect(changedIds).not.toContain('.obsidian/workspace.md');
@@ -261,12 +259,12 @@ describe('File Watcher Integration', () => {
     });
 
     it('handles deeply nested directories', async () => {
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
 
       await writeMarkdownFile('a/b/c/d/deep.md', '---\ntitle: Deep\n---\nContent');
 
-      const changedIds = await promise;
+      const changedIds = await waitForChanges();
 
       expect(changedIds).toContain('a/b/c/d/deep.md');
       const node = await store.getNode('a/b/c/d/deep.md');
@@ -289,12 +287,12 @@ describe('File Watcher Integration', () => {
       await vectorProvider.store('with-embedding.md', [0.1, 0.2, 0.3], 'test-model');
       expect(vectorProvider.hasEmbedding('with-embedding.md')).toBe(true);
 
-      const { promise, callback } = createChangePromise();
+      const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(storeWithVector, callback);
 
       await unlink(filePath);
 
-      const changedIds = await promise;
+      const changedIds = await waitForChanges();
 
       expect(changedIds).toContain('with-embedding.md');
       expect(await storeWithVector.getNode('with-embedding.md')).toBeNull();

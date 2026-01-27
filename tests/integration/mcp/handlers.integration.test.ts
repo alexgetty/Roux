@@ -17,6 +17,7 @@ import {
   handleUpdateNode,
   handleDeleteNode,
   handleListNodes,
+  handleNodesExist,
   type HandlerContext,
 } from '../../../src/mcp/handlers.js';
 import { McpError } from '../../../src/mcp/types.js';
@@ -351,42 +352,53 @@ describe('MCP Handlers Integration', () => {
 
     it('creates a new node', async () => {
       const result = await handleCreateNode(ctx, {
-        title: 'New Note',
+        id: 'New Note.md',
         content: 'This is new content.',
         tags: ['new', 'test'],
       });
 
-      expect(result.id).toBe('new-note.md');
+      expect(result.id).toBe('new note.md');
       expect(result.title).toBe('New Note');
       expect(result.tags).toContain('new');
 
       // Verify it persisted
-      const retrieved = await store.getNode('new-note.md');
+      const retrieved = await store.getNode('new note.md');
       expect(retrieved).not.toBeNull();
     });
 
     it('creates node in subdirectory', async () => {
       const result = await handleCreateNode(ctx, {
-        title: 'Nested Note',
+        id: 'subdir/Nested Note.md',
         content: 'Nested content.',
-        directory: 'subdir',
       });
 
-      expect(result.id).toBe('subdir/nested-note.md');
+      expect(result.id).toBe('subdir/nested note.md');
     });
 
     it('throws NODE_EXISTS for duplicate', async () => {
       await handleCreateNode(ctx, {
-        title: 'Duplicate',
+        id: 'Duplicate.md',
         content: 'First version.',
       });
 
       await expect(
         handleCreateNode(ctx, {
-          title: 'Duplicate',
+          id: 'Duplicate.md',
           content: 'Second version.',
         })
       ).rejects.toThrow(McpError);
+    });
+
+    it('nodes_exist returns true for created node using original ID input', async () => {
+      await handleCreateNode(ctx, { id: 'Test/Sesame Oil.md', content: 'test' });
+
+      // The exact ID input (mixed case) should resolve via normalization
+      const result = await handleNodesExist(ctx, { ids: ['Test/Sesame Oil.md'] });
+      expect(result['test/sesame oil.md']).toBe(true);
+
+      // Also verify lowercase variant works
+      const result2 = await handleNodesExist(ctx, { ids: ['test/sesame oil.md'] });
+      expect(result2['test/sesame oil.md']).toBe(true);
     });
   });
 
