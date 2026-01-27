@@ -1,5 +1,5 @@
-import { readFile, writeFile, stat, readdir, mkdir, rm } from 'node:fs/promises';
-import { join, relative, dirname, resolve } from 'node:path';
+import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { join, relative, dirname, extname } from 'node:path';
 import type { DirectedGraph } from 'graphology';
 import type { Node } from '../../types/node.js';
 import type {
@@ -18,10 +18,8 @@ import type {
 import { Cache } from './cache.js';
 import { SqliteVectorProvider } from '../vector/sqlite.js';
 import {
-  parseMarkdown,
   extractWikiLinks,
   normalizeId,
-  titleFromPath,
   serializeToMarkdown,
 } from './parser.js';
 import { buildGraph } from '../../graph/builder.js';
@@ -31,12 +29,23 @@ import {
   getHubs as graphGetHubs,
   computeCentrality,
 } from '../../graph/operations.js';
-import { FileWatcher, EXCLUDED_DIRS, type FileEventType } from './watcher.js';
+import { FileWatcher, type FileEventType } from './watcher.js';
 import {
   normalizeWikiLink,
   buildFilenameIndex,
   resolveLinks,
 } from './links.js';
+import {
+  getFileMtime,
+  validatePathWithinSource,
+  collectFiles,
+  readFileContent,
+} from './file-operations.js';
+import {
+  ReaderRegistry,
+  createDefaultRegistry,
+  type FileContext,
+} from './reader-registry.js';
 
 export class DocStore implements StoreProvider {
   private cache: Cache;
@@ -44,6 +53,7 @@ export class DocStore implements StoreProvider {
   private graph: DirectedGraph | null = null;
   private vectorProvider: VectorProvider;
   private ownsVectorProvider: boolean;
+  private registry: ReaderRegistry;
 
   private fileWatcher: FileWatcher | null = null;
   private onChangeCallback: ((changedIds: string[]) => void) | undefined;
@@ -52,35 +62,39 @@ export class DocStore implements StoreProvider {
     sourceRoot: string,
     cacheDir: string,
     vectorProvider?: VectorProvider,
-    fileWatcher?: FileWatcher
+    registry?: ReaderRegistry
   ) {
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
     this.ownsVectorProvider = !vectorProvider;
     this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
-    this.fileWatcher = fileWatcher ?? null;
+    this.registry = registry ?? createDefaultRegistry();
   }
 
   async sync(): Promise<void> {
-    const currentPaths = await this.collectMarkdownFiles(this.sourceRoot);
+    const extensions = this.registry.getExtensions();
+    const currentPaths = await collectFiles(this.sourceRoot, extensions);
     const trackedPaths = this.cache.getAllTrackedPaths();
 
     // Process new/modified files
     for (const filePath of currentPaths) {
       try {
-        const mtime = await this.getFileMtime(filePath);
+        const mtime = await getFileMtime(filePath);
         const cachedMtime = this.cache.getModifiedTime(filePath);
 
         if (cachedMtime === null || mtime > cachedMtime) {
-          const node = await this.fileToNode(filePath);
+          const node = await this.parseFile(filePath);
           this.cache.upsertNode(node, 'file', filePath, mtime);
         }
       } catch (err) {
-        // File may have been deleted between readdir and stat — skip it
+        // File may have been deleted between readdir and stat — skip silently
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           continue;
         }
-        throw err;
+        // All other errors (parse failures, read errors): log and skip file
+        // Graceful degradation - one bad file shouldn't crash the entire sync
+        console.warn(`Failed to process file ${filePath}:`, err);
+        continue;
       }
     }
 
@@ -104,7 +118,7 @@ export class DocStore implements StoreProvider {
 
   async createNode(node: Node): Promise<void> {
     const normalizedId = normalizeId(node.id);
-    this.validatePathWithinSource(normalizedId);
+    validatePathWithinSource(this.sourceRoot, normalizedId);
 
     const existing = this.cache.getNode(normalizedId);
     if (existing) {
@@ -124,7 +138,7 @@ export class DocStore implements StoreProvider {
     const markdown = serializeToMarkdown(parsed);
     await writeFile(filePath, markdown, 'utf-8');
 
-    const mtime = await this.getFileMtime(filePath);
+    const mtime = await getFileMtime(filePath);
     const normalizedNode = { ...node, id: normalizedId };
     this.cache.upsertNode(normalizedNode, 'file', filePath, mtime);
 
@@ -163,7 +177,7 @@ export class DocStore implements StoreProvider {
     const markdown = serializeToMarkdown(parsed);
     await writeFile(filePath, markdown, 'utf-8');
 
-    const mtime = await this.getFileMtime(filePath);
+    const mtime = await getFileMtime(filePath);
     this.cache.upsertNode(updated, 'file', filePath, mtime);
 
     // Rebuild graph if links changed
@@ -311,6 +325,7 @@ export class DocStore implements StoreProvider {
     if (!this.fileWatcher) {
       this.fileWatcher = new FileWatcher({
         root: this.sourceRoot,
+        extensions: this.registry.getExtensions(),
         onBatch: (events) => this.handleWatcherBatch(events),
       });
     }
@@ -343,8 +358,8 @@ export class DocStore implements StoreProvider {
         } else {
           // add or change
           const filePath = join(this.sourceRoot, id);
-          const node = await this.fileToNode(filePath);
-          const mtime = await this.getFileMtime(filePath);
+          const node = await this.parseFile(filePath);
+          const mtime = await getFileMtime(filePath);
           this.cache.upsertNode(node, 'file', filePath, mtime);
           processedIds.push(id);
         }
@@ -409,76 +424,23 @@ export class DocStore implements StoreProvider {
     }
   }
 
-  private async collectMarkdownFiles(dir: string): Promise<string[]> {
-    const results: string[] = [];
-
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      // Directory doesn't exist yet
-      return results;
-    }
-
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        // Skip excluded directories
-        if (EXCLUDED_DIRS.has(entry.name)) {
-          continue;
-        }
-        const nested = await this.collectMarkdownFiles(fullPath);
-        results.push(...nested);
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        results.push(fullPath);
-      }
-    }
-
-    return results;
-  }
-
-  private async getFileMtime(filePath: string): Promise<number> {
-    const stats = await stat(filePath);
-    return stats.mtimeMs;
-  }
-
-  private async fileToNode(filePath: string): Promise<Node> {
-    const raw = await readFile(filePath, 'utf-8');
-    const parsed = parseMarkdown(raw);
-
+  /**
+   * Parse a file into a Node using the appropriate FormatReader.
+   */
+  private async parseFile(filePath: string): Promise<Node> {
+    const content = await readFileContent(filePath);
     const relativePath = relative(this.sourceRoot, filePath);
-    const id = normalizeId(relativePath);
+    const ext = extname(filePath).toLowerCase();
+    const mtime = new Date(await getFileMtime(filePath));
 
-    // Derive title from path if not in frontmatter
-    const title = parsed.title ?? titleFromPath(id);
-
-    // Extract and normalize wiki links
-    const rawLinks = extractWikiLinks(parsed.content);
-    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
-
-    return {
-      id,
-      title,
-      content: parsed.content,
-      tags: parsed.tags,
-      outgoingLinks,
-      properties: parsed.properties,
-      sourceRef: {
-        type: 'file',
-        path: filePath,
-        lastModified: new Date(await this.getFileMtime(filePath)),
-      },
+    const context: FileContext = {
+      absolutePath: filePath,
+      relativePath,
+      extension: ext,
+      mtime,
     };
-  }
 
-  private validatePathWithinSource(id: string): void {
-    const resolvedPath = resolve(this.sourceRoot, id);
-    const resolvedRoot = resolve(this.sourceRoot);
-
-    if (!resolvedPath.startsWith(resolvedRoot + '/')) {
-      throw new Error(`Path traversal detected: ${id} resolves outside source root`);
-    }
+    return this.registry.parse(content, context);
   }
 }
 
@@ -491,3 +453,16 @@ export {
   serializeToMarkdown,
 } from './parser.js';
 export { FileWatcher, EXCLUDED_DIRS, type FileEventType } from './watcher.js';
+export {
+  getFileMtime,
+  validatePathWithinSource,
+  collectFiles,
+  readFileContent,
+} from './file-operations.js';
+export {
+  ReaderRegistry,
+  createDefaultRegistry,
+  type FormatReader,
+  type FileContext,
+} from './reader-registry.js';
+export { MarkdownReader } from './readers/index.js';

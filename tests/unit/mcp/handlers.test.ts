@@ -16,6 +16,7 @@ import {
   sanitizeFilename,
   deriveTitle,
   dispatchTool,
+  coerceInt,
   type HandlerContext,
 } from '../../../src/mcp/handlers.js';
 import { McpError } from '../../../src/mcp/types.js';

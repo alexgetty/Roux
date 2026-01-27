@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import stringSimilarity from 'string-similarity';
 import type { Node, SourceRef } from '../../types/node.js';
 import type {
   TagMode,
@@ -11,18 +10,17 @@ import type {
   ResolveOptions,
   ResolveResult,
 } from '../../types/provider.js';
+import {
+  type EmbeddingRecord,
+  type CentralityRecord,
+  storeEmbedding,
+  getEmbedding,
+  storeCentrality,
+  getCentrality,
+  resolveNames,
+} from './cache/index.js';
 
-export interface EmbeddingRecord {
-  model: string;
-  vector: number[];
-}
-
-export interface CentralityRecord {
-  pagerank: number;
-  inDegree: number;
-  outDegree: number;
-  computedAt: number;
-}
+export type { EmbeddingRecord, CentralityRecord };
 
 interface NodeRow {
   id: string;
@@ -36,19 +34,6 @@ interface NodeRow {
   source_modified: number;
 }
 
-interface EmbeddingRow {
-  node_id: string;
-  model: string;
-  vector: Buffer;
-}
-
-interface CentralityRow {
-  node_id: string;
-  pagerank: number;
-  in_degree: number;
-  out_degree: number;
-  computed_at: number;
-}
 
 export class Cache {
   private db: Database.Database;
@@ -317,45 +302,7 @@ export class Cache {
     // Get candidate nodes (applying tag/path filters)
     const { nodes: candidates } = this.listNodes(filter, { limit: 1000 });
 
-    if (candidates.length === 0) {
-      return names.map((query) => ({ query, match: null, score: 0 }));
-    }
-
-    const candidateTitles = candidates.map((c) => c.title.toLowerCase());
-    const titleToId = new Map<string, string>();
-    for (const c of candidates) {
-      titleToId.set(c.title.toLowerCase(), c.id);
-    }
-
-    return names.map((query): ResolveResult => {
-      const queryLower = query.toLowerCase();
-
-      if (strategy === 'exact') {
-        // Exact case-insensitive title match
-        const matchedId = titleToId.get(queryLower);
-        if (matchedId) {
-          return { query, match: matchedId, score: 1 };
-        }
-        return { query, match: null, score: 0 };
-      }
-
-      // Fuzzy strategy using string-similarity
-      if (strategy === 'fuzzy') {
-        const result = stringSimilarity.findBestMatch(queryLower, candidateTitles);
-        const bestMatch = result.bestMatch;
-
-        if (bestMatch.rating >= threshold) {
-          // bestMatch.target is guaranteed to exist in titleToId since both come from candidates
-          const matchedId = titleToId.get(bestMatch.target)!;
-          return { query, match: matchedId, score: bestMatch.rating };
-        }
-        return { query, match: null, score: 0 };
-      }
-
-      // Semantic strategy - not supported at cache level, return no match
-      // DocStore will handle semantic by using embedding provider
-      return { query, match: null, score: 0 };
-    });
+    return resolveNames(names, candidates, { strategy, threshold });
   }
 
   updateOutgoingLinks(nodeId: string, links: string[]): void {
@@ -365,36 +312,11 @@ export class Cache {
   }
 
   storeEmbedding(nodeId: string, vector: number[], model: string): void {
-    const buffer = Buffer.from(new Float32Array(vector).buffer);
-    this.db
-      .prepare(
-        `
-      INSERT INTO embeddings (node_id, model, vector)
-      VALUES (?, ?, ?)
-      ON CONFLICT(node_id) DO UPDATE SET
-        model = excluded.model,
-        vector = excluded.vector
-    `
-      )
-      .run(nodeId, model, buffer);
+    storeEmbedding(this.db, nodeId, vector, model);
   }
 
   getEmbedding(nodeId: string): EmbeddingRecord | null {
-    const row = this.db
-      .prepare('SELECT model, vector FROM embeddings WHERE node_id = ?')
-      .get(nodeId) as EmbeddingRow | undefined;
-
-    if (!row) return null;
-
-    const float32 = new Float32Array(
-      row.vector.buffer,
-      row.vector.byteOffset,
-      row.vector.length / 4
-    );
-    return {
-      model: row.model,
-      vector: Array.from(float32),
-    };
+    return getEmbedding(this.db, nodeId);
   }
 
   storeCentrality(
@@ -404,34 +326,11 @@ export class Cache {
     outDegree: number,
     computedAt: number
   ): void {
-    this.db
-      .prepare(
-        `
-      INSERT INTO centrality (node_id, pagerank, in_degree, out_degree, computed_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(node_id) DO UPDATE SET
-        pagerank = excluded.pagerank,
-        in_degree = excluded.in_degree,
-        out_degree = excluded.out_degree,
-        computed_at = excluded.computed_at
-    `
-      )
-      .run(nodeId, pagerank, inDegree, outDegree, computedAt);
+    storeCentrality(this.db, nodeId, pagerank, inDegree, outDegree, computedAt);
   }
 
   getCentrality(nodeId: string): CentralityRecord | null {
-    const row = this.db
-      .prepare('SELECT * FROM centrality WHERE node_id = ?')
-      .get(nodeId) as CentralityRow | undefined;
-
-    if (!row) return null;
-
-    return {
-      pagerank: row.pagerank,
-      inDegree: row.in_degree,
-      outDegree: row.out_degree,
-      computedAt: row.computed_at,
-    };
+    return getCentrality(this.db, nodeId);
   }
 
   getStats(): { nodeCount: number; embeddingCount: number; edgeCount: number } {

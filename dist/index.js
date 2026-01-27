@@ -129,14 +129,102 @@ var DEFAULT_CONFIG = {
 };
 
 // src/providers/docstore/index.ts
-import { readFile, writeFile, stat, readdir, mkdir, rm } from "fs/promises";
-import { join as join3, relative as relative2, dirname, resolve } from "path";
+import { writeFile, mkdir, rm } from "fs/promises";
+import { join as join4, relative as relative2, dirname, extname as extname3 } from "path";
 
 // src/providers/docstore/cache.ts
-var import_string_similarity = __toESM(require_src(), 1);
 import Database from "better-sqlite3";
 import { join } from "path";
 import { mkdirSync } from "fs";
+
+// src/providers/docstore/cache/embeddings.ts
+function storeEmbedding(db, nodeId, vector, model) {
+  const buffer = Buffer.from(new Float32Array(vector).buffer);
+  db.prepare(
+    `
+    INSERT INTO embeddings (node_id, model, vector)
+    VALUES (?, ?, ?)
+    ON CONFLICT(node_id) DO UPDATE SET
+      model = excluded.model,
+      vector = excluded.vector
+  `
+  ).run(nodeId, model, buffer);
+}
+function getEmbedding(db, nodeId) {
+  const row = db.prepare("SELECT model, vector FROM embeddings WHERE node_id = ?").get(nodeId);
+  if (!row) return null;
+  const float32 = new Float32Array(
+    row.vector.buffer,
+    row.vector.byteOffset,
+    row.vector.length / 4
+  );
+  return {
+    model: row.model,
+    vector: Array.from(float32)
+  };
+}
+
+// src/providers/docstore/cache/centrality.ts
+function storeCentrality(db, nodeId, pagerank, inDegree, outDegree, computedAt) {
+  db.prepare(
+    `
+    INSERT INTO centrality (node_id, pagerank, in_degree, out_degree, computed_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(node_id) DO UPDATE SET
+      pagerank = excluded.pagerank,
+      in_degree = excluded.in_degree,
+      out_degree = excluded.out_degree,
+      computed_at = excluded.computed_at
+  `
+  ).run(nodeId, pagerank, inDegree, outDegree, computedAt);
+}
+function getCentrality(db, nodeId) {
+  const row = db.prepare("SELECT * FROM centrality WHERE node_id = ?").get(nodeId);
+  if (!row) return null;
+  return {
+    pagerank: row.pagerank,
+    inDegree: row.in_degree,
+    outDegree: row.out_degree,
+    computedAt: row.computed_at
+  };
+}
+
+// src/providers/docstore/cache/resolve.ts
+var import_string_similarity = __toESM(require_src(), 1);
+function resolveNames(names, candidates, options) {
+  if (names.length === 0) return [];
+  const { strategy, threshold } = options;
+  if (candidates.length === 0) {
+    return names.map((query) => ({ query, match: null, score: 0 }));
+  }
+  const candidateTitles = candidates.map((c) => c.title.toLowerCase());
+  const titleToId = /* @__PURE__ */ new Map();
+  for (const c of candidates) {
+    titleToId.set(c.title.toLowerCase(), c.id);
+  }
+  return names.map((query) => {
+    const queryLower = query.toLowerCase();
+    if (strategy === "exact") {
+      const matchedId = titleToId.get(queryLower);
+      if (matchedId) {
+        return { query, match: matchedId, score: 1 };
+      }
+      return { query, match: null, score: 0 };
+    }
+    if (strategy === "fuzzy") {
+      const result = import_string_similarity.default.findBestMatch(queryLower, candidateTitles);
+      const bestMatch = result.bestMatch;
+      if (bestMatch.rating >= threshold) {
+        const matchedId = titleToId.get(bestMatch.target);
+        return { query, match: matchedId, score: bestMatch.rating };
+      }
+      return { query, match: null, score: 0 };
+    }
+    return { query, match: null, score: 0 };
+  });
+}
+
+// src/providers/docstore/cache.ts
 var Cache = class {
   db;
   constructor(cacheDir) {
@@ -326,85 +414,22 @@ var Cache = class {
     if (options?.tag) filter.tag = options.tag;
     if (options?.path) filter.path = options.path;
     const { nodes: candidates } = this.listNodes(filter, { limit: 1e3 });
-    if (candidates.length === 0) {
-      return names.map((query) => ({ query, match: null, score: 0 }));
-    }
-    const candidateTitles = candidates.map((c) => c.title.toLowerCase());
-    const titleToId = /* @__PURE__ */ new Map();
-    for (const c of candidates) {
-      titleToId.set(c.title.toLowerCase(), c.id);
-    }
-    return names.map((query) => {
-      const queryLower = query.toLowerCase();
-      if (strategy === "exact") {
-        const matchedId = titleToId.get(queryLower);
-        if (matchedId) {
-          return { query, match: matchedId, score: 1 };
-        }
-        return { query, match: null, score: 0 };
-      }
-      if (strategy === "fuzzy") {
-        const result = import_string_similarity.default.findBestMatch(queryLower, candidateTitles);
-        const bestMatch = result.bestMatch;
-        if (bestMatch.rating >= threshold) {
-          const matchedId = titleToId.get(bestMatch.target);
-          return { query, match: matchedId, score: bestMatch.rating };
-        }
-        return { query, match: null, score: 0 };
-      }
-      return { query, match: null, score: 0 };
-    });
+    return resolveNames(names, candidates, { strategy, threshold });
   }
   updateOutgoingLinks(nodeId, links) {
     this.db.prepare("UPDATE nodes SET outgoing_links = ? WHERE id = ?").run(JSON.stringify(links), nodeId);
   }
   storeEmbedding(nodeId, vector, model) {
-    const buffer = Buffer.from(new Float32Array(vector).buffer);
-    this.db.prepare(
-      `
-      INSERT INTO embeddings (node_id, model, vector)
-      VALUES (?, ?, ?)
-      ON CONFLICT(node_id) DO UPDATE SET
-        model = excluded.model,
-        vector = excluded.vector
-    `
-    ).run(nodeId, model, buffer);
+    storeEmbedding(this.db, nodeId, vector, model);
   }
   getEmbedding(nodeId) {
-    const row = this.db.prepare("SELECT model, vector FROM embeddings WHERE node_id = ?").get(nodeId);
-    if (!row) return null;
-    const float32 = new Float32Array(
-      row.vector.buffer,
-      row.vector.byteOffset,
-      row.vector.length / 4
-    );
-    return {
-      model: row.model,
-      vector: Array.from(float32)
-    };
+    return getEmbedding(this.db, nodeId);
   }
   storeCentrality(nodeId, pagerank, inDegree, outDegree, computedAt) {
-    this.db.prepare(
-      `
-      INSERT INTO centrality (node_id, pagerank, in_degree, out_degree, computed_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(node_id) DO UPDATE SET
-        pagerank = excluded.pagerank,
-        in_degree = excluded.in_degree,
-        out_degree = excluded.out_degree,
-        computed_at = excluded.computed_at
-    `
-    ).run(nodeId, pagerank, inDegree, outDegree, computedAt);
+    storeCentrality(this.db, nodeId, pagerank, inDegree, outDegree, computedAt);
   }
   getCentrality(nodeId) {
-    const row = this.db.prepare("SELECT * FROM centrality WHERE node_id = ?").get(nodeId);
-    if (!row) return null;
-    return {
-      pagerank: row.pagerank,
-      inDegree: row.in_degree,
-      outDegree: row.out_degree,
-      computedAt: row.computed_at
-    };
+    return getCentrality(this.db, nodeId);
   }
   getStats() {
     const nodeCount = this.db.prepare("SELECT COUNT(*) as count FROM nodes").get();
@@ -445,6 +470,35 @@ var Cache = class {
 // src/providers/vector/sqlite.ts
 import Database2 from "better-sqlite3";
 import { join as join2 } from "path";
+
+// src/utils/math.ts
+function cosineSimilarity(a, b) {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+function cosineDistance(a, b) {
+  const similarity = cosineSimilarity(a, b);
+  if (similarity === 0 && (isZeroVector(a) || isZeroVector(b))) {
+    return 1;
+  }
+  return 1 - similarity;
+}
+function isZeroVector(v) {
+  for (let i = 0; i < v.length; i++) {
+    if (v[i] !== 0) return false;
+  }
+  return true;
+}
+
+// src/providers/vector/sqlite.ts
 var SqliteVectorProvider = class {
   db;
   ownsDb;
@@ -555,23 +609,6 @@ var SqliteVectorProvider = class {
     }
   }
 };
-function cosineDistance(a, b) {
-  let dotProduct = 0;
-  let magnitudeA = 0;
-  let magnitudeB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
-    magnitudeA += a[i] * a[i];
-    magnitudeB += b[i] * b[i];
-  }
-  magnitudeA = Math.sqrt(magnitudeA);
-  magnitudeB = Math.sqrt(magnitudeB);
-  if (magnitudeA === 0 || magnitudeB === 0) {
-    return 1;
-  }
-  const similarity = dotProduct / (magnitudeA * magnitudeB);
-  return 1 - similarity;
-}
 
 // src/providers/docstore/parser.ts
 import matter from "gray-matter";
@@ -743,7 +780,7 @@ function computeCentrality(graph) {
 
 // src/providers/docstore/watcher.ts
 import { watch } from "chokidar";
-import { relative } from "path";
+import { relative, extname } from "path";
 var EXCLUDED_DIRS = /* @__PURE__ */ new Set([
   ".roux",
   "node_modules",
@@ -753,6 +790,7 @@ var EXCLUDED_DIRS = /* @__PURE__ */ new Set([
 var DEFAULT_DEBOUNCE_MS = 1e3;
 var FileWatcher = class {
   root;
+  extensions;
   debounceMs;
   onBatch;
   watcher = null;
@@ -760,6 +798,7 @@ var FileWatcher = class {
   pendingChanges = /* @__PURE__ */ new Map();
   constructor(options) {
     this.root = options.root;
+    this.extensions = options.extensions;
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.onBatch = options.onBatch;
   }
@@ -831,7 +870,8 @@ var FileWatcher = class {
   }
   queueChange(filePath, event) {
     const relativePath = relative(this.root, filePath);
-    if (!filePath.endsWith(".md")) {
+    const ext = extname(filePath).toLowerCase();
+    if (!ext || !this.extensions.has(ext)) {
       return;
     }
     const pathParts = relativePath.split("/");
@@ -910,6 +950,134 @@ function resolveLinks(outgoingLinks, filenameIndex, validNodeIds) {
   });
 }
 
+// src/providers/docstore/file-operations.ts
+import { readFile, stat, readdir } from "fs/promises";
+import { join as join3, resolve, extname as extname2 } from "path";
+async function getFileMtime(filePath) {
+  const stats = await stat(filePath);
+  return stats.mtimeMs;
+}
+function validatePathWithinSource(sourceRoot, id) {
+  const resolvedPath = resolve(sourceRoot, id);
+  const resolvedRoot = resolve(sourceRoot);
+  if (!resolvedPath.startsWith(resolvedRoot + "/")) {
+    throw new Error(`Path traversal detected: ${id} resolves outside source root`);
+  }
+}
+async function collectFiles(dir, extensions) {
+  if (extensions.size === 0) {
+    return [];
+  }
+  const results = [];
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+  for (const entry of entries) {
+    const fullPath = join3(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (EXCLUDED_DIRS.has(entry.name)) {
+        continue;
+      }
+      const nested = await collectFiles(fullPath, extensions);
+      results.push(...nested);
+    } else if (entry.isFile()) {
+      const ext = extname2(entry.name).toLowerCase();
+      if (ext && extensions.has(ext)) {
+        results.push(fullPath);
+      }
+    }
+  }
+  return results;
+}
+async function readFileContent(filePath) {
+  return readFile(filePath, "utf-8");
+}
+
+// src/providers/docstore/readers/markdown.ts
+var MarkdownReader = class {
+  extensions = [".md", ".markdown"];
+  parse(content, context) {
+    const parsed = parseMarkdown(content);
+    const id = normalizeId(context.relativePath);
+    const title = parsed.title ?? titleFromPath(id);
+    const rawLinks = extractWikiLinks(parsed.content);
+    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
+    return {
+      id,
+      title,
+      content: parsed.content,
+      tags: parsed.tags,
+      outgoingLinks,
+      properties: parsed.properties,
+      sourceRef: {
+        type: "file",
+        path: context.absolutePath,
+        lastModified: context.mtime
+      }
+    };
+  }
+};
+
+// src/providers/docstore/reader-registry.ts
+var ReaderRegistry = class {
+  readers = /* @__PURE__ */ new Map();
+  /**
+   * Register a reader for its declared extensions.
+   * Throws if any extension is already registered (atomic - no partial registration).
+   */
+  register(reader) {
+    for (const ext of reader.extensions) {
+      const normalizedExt = ext.toLowerCase();
+      if (this.readers.has(normalizedExt)) {
+        throw new Error(`Extension already registered: ${ext}`);
+      }
+    }
+    for (const ext of reader.extensions) {
+      const normalizedExt = ext.toLowerCase();
+      this.readers.set(normalizedExt, reader);
+    }
+  }
+  /**
+   * Get reader for an extension, or null if none registered.
+   * Case-insensitive.
+   */
+  getReader(extension) {
+    return this.readers.get(extension.toLowerCase()) ?? null;
+  }
+  /**
+   * Get all registered extensions
+   */
+  getExtensions() {
+    return new Set(this.readers.keys());
+  }
+  /**
+   * Check if an extension has a registered reader.
+   * Case-insensitive.
+   */
+  hasReader(extension) {
+    return this.readers.has(extension.toLowerCase());
+  }
+  /**
+   * Parse content using the appropriate reader for the file's extension.
+   * Throws if no reader is registered for the extension.
+   */
+  parse(content, context) {
+    const reader = this.getReader(context.extension);
+    if (!reader) {
+      throw new Error(`No reader registered for extension: ${context.extension}`);
+    }
+    return reader.parse(content, context);
+  }
+};
+function createDefaultRegistry() {
+  const registry = new ReaderRegistry();
+  registry.register(new MarkdownReader());
+  return registry;
+}
+
 // src/providers/docstore/index.ts
 var DocStore = class {
   cache;
@@ -917,31 +1085,34 @@ var DocStore = class {
   graph = null;
   vectorProvider;
   ownsVectorProvider;
+  registry;
   fileWatcher = null;
   onChangeCallback;
-  constructor(sourceRoot, cacheDir, vectorProvider, fileWatcher) {
+  constructor(sourceRoot, cacheDir, vectorProvider, registry) {
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
     this.ownsVectorProvider = !vectorProvider;
     this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
-    this.fileWatcher = fileWatcher ?? null;
+    this.registry = registry ?? createDefaultRegistry();
   }
   async sync() {
-    const currentPaths = await this.collectMarkdownFiles(this.sourceRoot);
+    const extensions = this.registry.getExtensions();
+    const currentPaths = await collectFiles(this.sourceRoot, extensions);
     const trackedPaths = this.cache.getAllTrackedPaths();
     for (const filePath of currentPaths) {
       try {
-        const mtime = await this.getFileMtime(filePath);
+        const mtime = await getFileMtime(filePath);
         const cachedMtime = this.cache.getModifiedTime(filePath);
         if (cachedMtime === null || mtime > cachedMtime) {
-          const node = await this.fileToNode(filePath);
+          const node = await this.parseFile(filePath);
           this.cache.upsertNode(node, "file", filePath, mtime);
         }
       } catch (err) {
         if (err.code === "ENOENT") {
           continue;
         }
-        throw err;
+        console.warn(`Failed to process file ${filePath}:`, err);
+        continue;
       }
     }
     const currentSet = new Set(currentPaths);
@@ -958,12 +1129,12 @@ var DocStore = class {
   }
   async createNode(node) {
     const normalizedId = normalizeId(node.id);
-    this.validatePathWithinSource(normalizedId);
+    validatePathWithinSource(this.sourceRoot, normalizedId);
     const existing = this.cache.getNode(normalizedId);
     if (existing) {
       throw new Error(`Node already exists: ${normalizedId}`);
     }
-    const filePath = join3(this.sourceRoot, normalizedId);
+    const filePath = join4(this.sourceRoot, normalizedId);
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true });
     const parsed = {
@@ -974,7 +1145,7 @@ var DocStore = class {
     };
     const markdown = serializeToMarkdown(parsed);
     await writeFile(filePath, markdown, "utf-8");
-    const mtime = await this.getFileMtime(filePath);
+    const mtime = await getFileMtime(filePath);
     const normalizedNode = { ...node, id: normalizedId };
     this.cache.upsertNode(normalizedNode, "file", filePath, mtime);
     this.rebuildGraph();
@@ -997,7 +1168,7 @@ var DocStore = class {
       id: existing.id
       // ID cannot be changed
     };
-    const filePath = join3(this.sourceRoot, existing.id);
+    const filePath = join4(this.sourceRoot, existing.id);
     const parsed = {
       title: updated.title,
       tags: updated.tags,
@@ -1006,7 +1177,7 @@ var DocStore = class {
     };
     const markdown = serializeToMarkdown(parsed);
     await writeFile(filePath, markdown, "utf-8");
-    const mtime = await this.getFileMtime(filePath);
+    const mtime = await getFileMtime(filePath);
     this.cache.upsertNode(updated, "file", filePath, mtime);
     if (outgoingLinks !== void 0 || updates.outgoingLinks !== void 0) {
       this.rebuildGraph();
@@ -1018,7 +1189,7 @@ var DocStore = class {
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
-    const filePath = join3(this.sourceRoot, existing.id);
+    const filePath = join4(this.sourceRoot, existing.id);
     await rm(filePath);
     this.cache.deleteNode(existing.id);
     await this.vectorProvider.delete(existing.id);
@@ -1106,6 +1277,7 @@ var DocStore = class {
     if (!this.fileWatcher) {
       this.fileWatcher = new FileWatcher({
         root: this.sourceRoot,
+        extensions: this.registry.getExtensions(),
         onBatch: (events) => this.handleWatcherBatch(events)
       });
     }
@@ -1131,9 +1303,9 @@ var DocStore = class {
             processedIds.push(id);
           }
         } else {
-          const filePath = join3(this.sourceRoot, id);
-          const node = await this.fileToNode(filePath);
-          const mtime = await this.getFileMtime(filePath);
+          const filePath = join4(this.sourceRoot, id);
+          const node = await this.parseFile(filePath);
+          const mtime = await getFileMtime(filePath);
           this.cache.upsertNode(node, "file", filePath, mtime);
           processedIds.push(id);
         }
@@ -1183,60 +1355,21 @@ var DocStore = class {
       this.cache.storeCentrality(id, 0, metrics.inDegree, metrics.outDegree, now);
     }
   }
-  async collectMarkdownFiles(dir) {
-    const results = [];
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return results;
-    }
-    for (const entry of entries) {
-      const fullPath = join3(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (EXCLUDED_DIRS.has(entry.name)) {
-          continue;
-        }
-        const nested = await this.collectMarkdownFiles(fullPath);
-        results.push(...nested);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        results.push(fullPath);
-      }
-    }
-    return results;
-  }
-  async getFileMtime(filePath) {
-    const stats = await stat(filePath);
-    return stats.mtimeMs;
-  }
-  async fileToNode(filePath) {
-    const raw = await readFile(filePath, "utf-8");
-    const parsed = parseMarkdown(raw);
+  /**
+   * Parse a file into a Node using the appropriate FormatReader.
+   */
+  async parseFile(filePath) {
+    const content = await readFileContent(filePath);
     const relativePath = relative2(this.sourceRoot, filePath);
-    const id = normalizeId(relativePath);
-    const title = parsed.title ?? titleFromPath(id);
-    const rawLinks = extractWikiLinks(parsed.content);
-    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
-    return {
-      id,
-      title,
-      content: parsed.content,
-      tags: parsed.tags,
-      outgoingLinks,
-      properties: parsed.properties,
-      sourceRef: {
-        type: "file",
-        path: filePath,
-        lastModified: new Date(await this.getFileMtime(filePath))
-      }
+    const ext = extname3(filePath).toLowerCase();
+    const mtime = new Date(await getFileMtime(filePath));
+    const context = {
+      absolutePath: filePath,
+      relativePath,
+      extension: ext,
+      mtime
     };
-  }
-  validatePathWithinSource(id) {
-    const resolvedPath = resolve(this.sourceRoot, id);
-    const resolvedRoot = resolve(this.sourceRoot);
-    if (!resolvedPath.startsWith(resolvedRoot + "/")) {
-      throw new Error(`Path traversal detected: ${id} resolves outside source root`);
-    }
+    return this.registry.parse(content, context);
   }
 };
 
@@ -1435,7 +1568,7 @@ var GraphCoreImpl = class _GraphCoreImpl {
         let bestScore = 0;
         let bestMatch = null;
         for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
-          const similarity = this.cosineSimilarity(queryVector, candidateVectors[cIdx]);
+          const similarity = cosineSimilarity(queryVector, candidateVectors[cIdx]);
           if (similarity > bestScore) {
             bestScore = similarity;
             bestMatch = candidates[cIdx].id;
@@ -1448,18 +1581,6 @@ var GraphCoreImpl = class _GraphCoreImpl {
       });
     }
     return store.resolveNodes(names, options);
-  }
-  cosineSimilarity(a, b) {
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    if (normA === 0 || normB === 0) return 0;
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
   static fromConfig(config) {
     if (!config.providers?.store) {
@@ -1491,7 +1612,7 @@ var GraphCoreImpl = class _GraphCoreImpl {
 };
 
 // src/index.ts
-var VERSION = "0.1.0";
+var VERSION = "0.1.3";
 export {
   DEFAULT_CONFIG,
   DocStore,

@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DocStore } from '../../../src/providers/docstore/index.js';
+import * as fileOps from '../../../src/providers/docstore/file-operations.js';
 import type { Node } from '../../../src/types/node.js';
 import type { VectorProvider, VectorSearchResult } from '../../../src/types/provider.js';
 
@@ -920,70 +921,105 @@ No links yet`
     });
 
     it('handles file deleted during sync gracefully (ENOENT)', async () => {
+      // This test verifies the ENOENT handling in sync() still works.
+      // We test by creating files, syncing once, deleting a file,
+      // and re-syncing to verify the deleted file is removed from cache.
       await writeMarkdownFile('a.md', '# A');
       await writeMarkdownFile('b.md', '# B');
-      // Create file in subdirectory that we'll delete
-      await writeMarkdownFile('subdir/vanish.md', '# Will vanish');
+      await writeMarkdownFile('vanish.md', '# Will vanish');
 
-      // Create a custom DocStore with overridden sync that deletes mid-operation
+      await store.sync();
+
+      // Verify all files are synced
+      let ids = await store.getAllNodeIds();
+      expect(ids.sort()).toEqual(['a.md', 'b.md', 'vanish.md']);
+
+      // Delete file on disk
+      await rm(join(sourceDir, 'vanish.md'));
+
+      // Re-sync should not throw and should remove deleted file
+      await expect(store.sync()).resolves.not.toThrow();
+
+      ids = await store.getAllNodeIds();
+      expect(ids.sort()).toEqual(['a.md', 'b.md']);
+    });
+
+    it('skips ENOENT during first sync (file deleted between collectFiles and getFileMtime)', async () => {
+      // Create files
+      await writeMarkdownFile('a.md', '# A');
+      await writeMarkdownFile('b.md', '# B');
+      await writeMarkdownFile('vanish.md', '# Will vanish');
+
+      // Mock getFileMtime to throw ENOENT for vanish.md (simulating race condition)
+      const originalGetFileMtime = fileOps.getFileMtime;
+      const mockGetFileMtime = vi.spyOn(fileOps, 'getFileMtime').mockImplementation(
+        async (filePath: string) => {
+          if (filePath.includes('vanish.md')) {
+            const error = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+            error.code = 'ENOENT';
+            throw error;
+          }
+          return originalGetFileMtime(filePath);
+        }
+      );
+
+      // Use a fresh store
       const racyStore = new DocStore(sourceDir, join(tempDir, 'racy-cache'));
 
-      // Monkey-patch getFileMtime to delete the subdir on first call to vanish.md
-      const originalProto = Object.getPrototypeOf(racyStore);
-      let deleted = false;
-      const originalGetFileMtime = originalProto.getFileMtime;
-
-      // Override via prototype to intercept private method
-      Object.getPrototypeOf(racyStore).getFileMtime = async function (
-        filePath: string
-      ): Promise<number> {
-        if (filePath.includes('vanish.md') && !deleted) {
-          deleted = true;
-          await rm(join(sourceDir, 'subdir'), { recursive: true });
-        }
-        return originalGetFileMtime.call(this, filePath);
-      };
-
       try {
-        // Sync should not throw — skips the deleted file
+        // Sync should not throw - ENOENT should be caught and file skipped
         await expect(racyStore.sync()).resolves.not.toThrow();
 
         const ids = await racyStore.getAllNodeIds();
         expect(ids.sort()).toEqual(['a.md', 'b.md']);
       } finally {
-        // Restore original method
-        Object.getPrototypeOf(racyStore).getFileMtime = originalGetFileMtime;
+        mockGetFileMtime.mockRestore();
         racyStore.close();
       }
     });
 
-    it('rethrows non-ENOENT errors during sync', async () => {
+    it('logs non-ENOENT errors and continues sync (graceful degradation)', async () => {
       await writeMarkdownFile('a.md', '# A');
+      await writeMarkdownFile('b.md', '# B');
 
-      // Create a custom DocStore that throws a non-ENOENT error
+      // Mock getFileMtime to throw non-ENOENT error for a.md
+      const mockGetFileMtime = vi.spyOn(fileOps, 'getFileMtime').mockImplementation(
+        async (filePath: string) => {
+          if (filePath.includes('a.md')) {
+            const error = new Error('EACCES: permission denied') as NodeJS.ErrnoException;
+            error.code = 'EACCES';
+            throw error;
+          }
+          // Return real mtime for other files
+          const { stat } = await import('node:fs/promises');
+          return (await stat(filePath)).mtimeMs;
+        }
+      );
+
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const errorStore = new DocStore(sourceDir, join(tempDir, 'error-cache'));
 
-      const originalProto = Object.getPrototypeOf(errorStore);
-      const originalGetFileMtime = originalProto.getFileMtime;
-
-      Object.getPrototypeOf(errorStore).getFileMtime = async function (
-        filePath: string
-      ): Promise<number> {
-        if (filePath.endsWith('a.md')) {
-          const error = new Error('EACCES: permission denied') as NodeJS.ErrnoException;
-          error.code = 'EACCES';
-          throw error;
-        }
-        return originalGetFileMtime.call(this, filePath);
-      };
-
       try {
-        await expect(errorStore.sync()).rejects.toThrow('EACCES');
+        // Sync should NOT throw - graceful degradation
+        await expect(errorStore.sync()).resolves.not.toThrow();
+
+        // Warning should be logged for the failing file
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('a.md'),
+          expect.any(Error)
+        );
+
+        // Other files should still be synced
+        const ids = await errorStore.getAllNodeIds();
+        expect(ids).toContain('b.md');
+        expect(ids).not.toContain('a.md');
       } finally {
-        Object.getPrototypeOf(errorStore).getFileMtime = originalGetFileMtime;
+        mockGetFileMtime.mockRestore();
+        consoleSpy.mockRestore();
         errorStore.close();
       }
     });
+
   });
 
   describe('unicode filenames', () => {
@@ -1309,6 +1345,154 @@ No links yet`
       const result = await store.getRandomNode(['match']);
       expect(result).not.toBeNull();
       expect(['first.md', 'second.md']).toContain(result?.id);
+    });
+  });
+
+  describe('FormatReader integration', () => {
+    describe('backward compatibility', () => {
+      it('syncs .md files identically with default registry', async () => {
+        await writeMarkdownFile(
+          'note.md',
+          `---
+title: Test Note
+tags:
+  - tag1
+custom: value
+---
+Content with [[Link]]`
+        );
+
+        await store.sync();
+        const node = await store.getNode('note.md');
+
+        expect(node).not.toBeNull();
+        expect(node?.title).toBe('Test Note');
+        expect(node?.tags).toEqual(['tag1']);
+        expect(node?.properties['custom']).toBe('value');
+        expect(node?.outgoingLinks).toContain('link.md');
+      });
+    });
+
+    describe('multi-format filtering', () => {
+      it('syncs only files with registered reader extensions', async () => {
+        await writeMarkdownFile('note.md', '# Note');
+        await writeFile(join(sourceDir, 'data.json'), '{}');
+        await writeFile(join(sourceDir, 'README'), 'text');
+
+        await store.sync();
+
+        const ids = await store.getAllNodeIds();
+        expect(ids).toEqual(['note.md']);
+      });
+
+      it('handles files with multiple dots in name', async () => {
+        await writeMarkdownFile('report.2024.01.md', '# Report');
+
+        await store.sync();
+        const node = await store.getNode('report.2024.01.md');
+
+        expect(node).not.toBeNull();
+        expect(node?.id).toBe('report.2024.01.md');
+      });
+    });
+
+    describe('graceful degradation', () => {
+      it('continues sync when reader throws for a single file', async () => {
+        // Create a custom registry with a throwing reader
+        const { ReaderRegistry } = await import(
+          '../../../src/providers/docstore/reader-registry.js'
+        );
+        const { MarkdownReader } = await import(
+          '../../../src/providers/docstore/readers/markdown.js'
+        );
+
+        const realReader = new MarkdownReader();
+        const throwingReader = {
+          extensions: ['.md'],
+          parse: (content: string, context: { relativePath: string }) => {
+            if (context.relativePath.includes('broken')) {
+              throw new Error('Simulated parse failure');
+            }
+            // Delegate to real reader for other files
+            return realReader.parse(content, context as Parameters<typeof MarkdownReader.prototype.parse>[1]);
+          },
+        };
+
+        const customRegistry = new ReaderRegistry();
+        customRegistry.register(throwingReader);
+
+        // Create store with custom registry
+        const customStore = new DocStore(
+          sourceDir,
+          join(tempDir, 'graceful-cache'),
+          undefined, // vectorProvider
+          customRegistry
+        );
+
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        try {
+          await writeMarkdownFile('valid.md', '# Valid');
+          await writeMarkdownFile('broken.md', '# This will fail to parse');
+          await writeMarkdownFile('also-valid.md', '# Also Valid');
+
+          // Sync should not throw - parse error should be logged and file skipped
+          await expect(customStore.sync()).resolves.not.toThrow();
+
+          // Only valid files should be synced
+          const ids = await customStore.getAllNodeIds();
+          expect(ids.sort()).toEqual(['also-valid.md', 'valid.md']);
+
+          // Warning should have been logged
+          expect(consoleSpy).toHaveBeenCalledWith(
+            expect.stringContaining('broken.md'),
+            expect.any(Error)
+          );
+        } finally {
+          consoleSpy.mockRestore();
+          customStore.close();
+        }
+      });
+
+      it('logs warning with file path when reader throws', async () => {
+        const { ReaderRegistry } = await import(
+          '../../../src/providers/docstore/reader-registry.js'
+        );
+
+        const alwaysThrowsReader = {
+          extensions: ['.md'],
+          parse: () => {
+            throw new Error('Always fails');
+          },
+        };
+
+        const customRegistry = new ReaderRegistry();
+        customRegistry.register(alwaysThrowsReader);
+
+        const customStore = new DocStore(
+          sourceDir,
+          join(tempDir, 'logging-cache'),
+          undefined,
+          customRegistry
+        );
+
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        try {
+          await writeMarkdownFile('test.md', '# Test');
+
+          await customStore.sync();
+
+          // Should log with helpful context
+          expect(consoleSpy).toHaveBeenCalledWith(
+            expect.stringMatching(/test\.md/i),
+            expect.any(Error)
+          );
+        } finally {
+          consoleSpy.mockRestore();
+          customStore.close();
+        }
+      });
     });
   });
 });

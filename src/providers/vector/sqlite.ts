@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import type { Database as DatabaseType } from 'better-sqlite3';
 import { join } from 'node:path';
 import type { VectorProvider, VectorSearchResult } from '../../types/provider.js';
+import { cosineDistance } from '../../utils/math.js';
 
 export class SqliteVectorProvider implements VectorProvider {
   private db: DatabaseType;
@@ -150,26 +151,4 @@ export class SqliteVectorProvider implements VectorProvider {
       this.db.close();
     }
   }
-}
-
-function cosineDistance(a: Float32Array, b: Float32Array): number {
-  let dotProduct = 0;
-  let magnitudeA = 0;
-  let magnitudeB = 0;
-
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i]! * b[i]!;
-    magnitudeA += a[i]! * a[i]!;
-    magnitudeB += b[i]! * b[i]!;
-  }
-
-  magnitudeA = Math.sqrt(magnitudeA);
-  magnitudeB = Math.sqrt(magnitudeB);
-
-  if (magnitudeA === 0 || magnitudeB === 0) {
-    return 1; // No similarity for zero vectors
-  }
-
-  const similarity = dotProduct / (magnitudeA * magnitudeB);
-  return 1 - similarity;
 }

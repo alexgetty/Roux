@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { VERSION } from '../../src/index.js';
 
 describe('roux', () => {
-  it('exports VERSION', () => {
-    expect(VERSION).toBe('0.1.0');
+  it('exports VERSION as semver string', () => {
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });

@@ -65,6 +65,7 @@ describe('FileWatcher', () => {
     it('isWatching returns false initially', () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       expect(watcher.isWatching()).toBe(false);
@@ -73,6 +74,7 @@ describe('FileWatcher', () => {
     it('isWatching returns true after start()', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -84,6 +86,7 @@ describe('FileWatcher', () => {
     it('isWatching returns false after stop()', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -96,6 +99,7 @@ describe('FileWatcher', () => {
     it('stop() before start() is a no-op', () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       expect(() => watcher.stop()).not.toThrow();
@@ -105,6 +109,7 @@ describe('FileWatcher', () => {
     it('start() throws if already watching', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -119,6 +124,7 @@ describe('FileWatcher', () => {
     it('initializes chokidar with correct options', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -140,6 +146,7 @@ describe('FileWatcher', () => {
     it('configures ignored patterns for excluded directories', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -161,6 +168,7 @@ describe('FileWatcher', () => {
     it('registers handlers for ready, add, change, unlink, and error events', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       watcher.start();
@@ -179,6 +187,7 @@ describe('FileWatcher', () => {
     it('resolves start() promise when ready event fires', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -199,6 +208,7 @@ describe('FileWatcher', () => {
     it('closes chokidar watcher on stop()', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -213,10 +223,11 @@ describe('FileWatcher', () => {
   });
 
   describe('event filtering', () => {
-    it('ignores non-.md files', () => {
+    it('ignores files not in extensions set', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -230,10 +241,108 @@ describe('FileWatcher', () => {
       expect(onBatch).not.toHaveBeenCalled();
     });
 
+    it('allows multiple extensions', () => {
+      const onBatch = vi.fn();
+      const watcher = new FileWatcher({
+        root: sourceDir,
+        extensions: new Set(['.md', '.markdown']),
+        onBatch,
+      });
+      watcher.start();
+      triggerReady();
+
+      triggerEvent('add', join(sourceDir, 'note.md'));
+      triggerEvent('add', join(sourceDir, 'readme.markdown'));
+
+      watcher.flush();
+      expect(onBatch).toHaveBeenCalledWith(
+        new Map([
+          ['note.md', 'add'],
+          ['readme.markdown', 'add'],
+        ])
+      );
+    });
+
+    it('skips files with no extension', () => {
+      const onBatch = vi.fn();
+      const watcher = new FileWatcher({
+        root: sourceDir,
+        extensions: new Set(['.md']),
+        onBatch,
+      });
+      watcher.start();
+      triggerReady();
+
+      triggerEvent('add', join(sourceDir, 'README'));
+      triggerEvent('add', join(sourceDir, 'LICENSE'));
+
+      watcher.flush();
+      expect(onBatch).not.toHaveBeenCalled();
+    });
+
+    it('skips dotfiles (extension is empty)', () => {
+      const onBatch = vi.fn();
+      const watcher = new FileWatcher({
+        root: sourceDir,
+        extensions: new Set(['.md']),
+        onBatch,
+      });
+      watcher.start();
+      triggerReady();
+
+      triggerEvent('add', join(sourceDir, '.gitignore'));
+      triggerEvent('add', join(sourceDir, '.env'));
+
+      watcher.flush();
+      expect(onBatch).not.toHaveBeenCalled();
+    });
+
+    it('is case-insensitive for extension matching', () => {
+      const onBatch = vi.fn();
+      const watcher = new FileWatcher({
+        root: sourceDir,
+        extensions: new Set(['.md']),
+        onBatch,
+      });
+      watcher.start();
+      triggerReady();
+
+      triggerEvent('add', join(sourceDir, 'upper.MD'));
+      triggerEvent('add', join(sourceDir, 'lower.md'));
+      triggerEvent('add', join(sourceDir, 'mixed.Md'));
+
+      watcher.flush();
+      expect(onBatch).toHaveBeenCalledWith(
+        new Map([
+          ['upper.md', 'add'],
+          ['lower.md', 'add'],
+          ['mixed.md', 'add'],
+        ])
+      );
+    });
+
+    it('skips all files when extensions set is empty', () => {
+      const onBatch = vi.fn();
+      const watcher = new FileWatcher({
+        root: sourceDir,
+        extensions: new Set(),
+        onBatch,
+      });
+      watcher.start();
+      triggerReady();
+
+      triggerEvent('add', join(sourceDir, 'note.md'));
+      triggerEvent('add', join(sourceDir, 'data.json'));
+
+      watcher.flush();
+      expect(onBatch).not.toHaveBeenCalled();
+    });
+
     it('ignores files in .roux directory', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -249,6 +358,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -264,6 +374,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -279,6 +390,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -294,6 +406,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -309,6 +422,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -328,6 +442,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -344,6 +459,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -361,6 +477,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -379,6 +496,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -395,6 +513,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -411,6 +530,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -427,6 +547,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -443,6 +564,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -461,6 +583,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -481,6 +604,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         debounceMs: 1000,
         onBatch,
       });
@@ -512,6 +636,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         debounceMs: 200,
         onBatch,
       });
@@ -550,6 +675,7 @@ describe('FileWatcher', () => {
       // through integration testing, but assert the default exists
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       // Start and trigger events
@@ -569,6 +695,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -586,6 +713,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -603,6 +731,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -616,6 +745,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
 
@@ -628,6 +758,7 @@ describe('FileWatcher', () => {
     it('rejects start() promise on chokidar error', async () => {
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -648,6 +779,7 @@ describe('FileWatcher', () => {
 
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -676,6 +808,7 @@ describe('FileWatcher', () => {
       });
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -723,6 +856,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       const promise = watcher.start();
@@ -743,6 +877,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
 
@@ -777,6 +912,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
 
@@ -814,6 +950,7 @@ describe('FileWatcher', () => {
 
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch: vi.fn(),
       });
       const promise = watcher.start();
@@ -842,6 +979,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       const promise = watcher.start();
@@ -873,6 +1011,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn().mockRejectedValue(new Error('Async batch failed'));
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();
@@ -902,6 +1041,7 @@ describe('FileWatcher', () => {
       const onBatch = vi.fn().mockResolvedValue(undefined);
       const watcher = new FileWatcher({
         root: sourceDir,
+        extensions: new Set(['.md']),
         onBatch,
       });
       watcher.start();

@@ -1,6 +1,6 @@
 // Roux - Graph Programming Interface
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.3';
 
 // Re-export all types
 export * from './types/index.js';

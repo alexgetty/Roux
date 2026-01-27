@@ -18,6 +18,7 @@ import type {
 import type { RouxConfig } from '../types/config.js';
 import { DocStore } from '../providers/docstore/index.js';
 import { TransformersEmbeddingProvider } from '../providers/embedding/transformers.js';
+import { cosineSimilarity } from '../utils/math.js';
 
 export class GraphCoreImpl implements GraphCore {
   private store: StoreProvider | null = null;
@@ -237,7 +238,7 @@ export class GraphCoreImpl implements GraphCore {
         let bestMatch: string | null = null;
 
         for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
-          const similarity = this.cosineSimilarity(queryVector, candidateVectors[cIdx]!);
+          const similarity = cosineSimilarity(queryVector, candidateVectors[cIdx]!);
           if (similarity > bestScore) {
             bestScore = similarity;
             bestMatch = candidates[cIdx]!.id;
@@ -253,19 +254,6 @@ export class GraphCoreImpl implements GraphCore {
 
     // Exact and fuzzy delegate to store
     return store.resolveNodes(names, options);
-  }
-
-  private cosineSimilarity(a: number[], b: number[]): number {
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i]! * b[i]!;
-      normA += a[i]! * a[i]!;
-      normB += b[i]! * b[i]!;
-    }
-    if (normA === 0 || normB === 0) return 0;
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 
   static fromConfig(config: RouxConfig): GraphCoreImpl {

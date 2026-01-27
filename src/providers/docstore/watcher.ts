@@ -10,12 +10,14 @@
  */
 
 import { watch, type FSWatcher } from 'chokidar';
-import { relative } from 'node:path';
+import { relative, extname } from 'node:path';
 
 export type FileEventType = 'add' | 'change' | 'unlink';
 
 export interface FileWatcherOptions {
   root: string;
+  /** File extensions to watch (e.g., new Set(['.md', '.markdown'])). Required. */
+  extensions: ReadonlySet<string>;
   debounceMs?: number;
   /** Called after debounce with coalesced events. Exceptions (sync or async) are
    *  logged and swallowed; watcher continues operating. */
@@ -33,6 +35,7 @@ const DEFAULT_DEBOUNCE_MS = 1000;
 
 export class FileWatcher {
   private readonly root: string;
+  private readonly extensions: ReadonlySet<string>;
   private readonly debounceMs: number;
   private readonly onBatch: (events: Map<string, FileEventType>) => void | Promise<void>;
 
@@ -42,6 +45,7 @@ export class FileWatcher {
 
   constructor(options: FileWatcherOptions) {
     this.root = options.root;
+    this.extensions = options.extensions;
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.onBatch = options.onBatch;
   }
@@ -135,8 +139,9 @@ export class FileWatcher {
   private queueChange(filePath: string, event: FileEventType): void {
     const relativePath = relative(this.root, filePath);
 
-    // Filter: only .md files
-    if (!filePath.endsWith('.md')) {
+    // Filter by extension using path.extname for correctness
+    const ext = extname(filePath).toLowerCase();
+    if (!ext || !this.extensions.has(ext)) {
       return;
     }
 

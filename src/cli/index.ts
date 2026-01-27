@@ -7,13 +7,14 @@ import { initCommand } from './commands/init.js';
 import { statusCommand } from './commands/status.js';
 import { serveCommand } from './commands/serve.js';
 import { vizCommand } from './commands/viz.js';
+import { VERSION } from '../index.js';
 
 const program = new Command();
 
 program
   .name('roux')
   .description('Graph Programming Interface for knowledge bases')
-  .version('0.1.0');
+  .version(VERSION);
 
 program
   .command('init')

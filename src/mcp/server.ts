@@ -8,6 +8,7 @@ import {
 
 import type { GraphCore } from '../types/graphcore.js';
 import type { StoreProvider } from '../types/provider.js';
+import { VERSION } from '../index.js';
 import { McpError } from './types.js';
 import { dispatchTool, type HandlerContext } from './handlers.js';
 
@@ -466,7 +467,7 @@ export class McpServer {
     };
 
     this.server = new Server(
-      { name: 'roux', version: '0.1.0' },
+      { name: 'roux', version: VERSION },
       { capabilities: { tools: {} } }
     );
 

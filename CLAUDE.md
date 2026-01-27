@@ -1,3 +1,6 @@
+---
+title: Claude
+---
 # CLAUDE.md
 
 ## What is Roux
@@ -12,12 +15,26 @@ GraphCore is the orchestration hub with zero functionality itself - delegates to
 
 **Strict TDD. No exceptions.**
 
+> **STOP. Before you edit any file in `src/`, ask yourself:**
+> 1. Have I written or modified a test in `tests/` for this change?
+> 2. Did I run that test and watch it fail?
+>
+> If the answer to either is "no", you are violating TDD. Step back. Write the test first. This is not optional.
+
 - Never write implementation code without a failing test first
 - Red → Green → Refactor. Always.
 - Tests define the contract before code fulfills it
 - 100% coverage required. No untested code ships.
 - **No flaky tests.** A test that sometimes passes and sometimes fails is a broken test. Fix the test or fix the code — never ignore it.
 - **Never loosen tests to make code pass.** If a test fails, fix the code or fix a genuinely broken test. Increasing timeouts, widening thresholds, or adding retries to hide flakiness is an anti-pattern. If acceptance criteria need adjustment due to real limitations, that's a deliberate product decision — not a testing hack.
+
+**TDD Workflow (mandatory):**
+1. Read/understand the requirement
+2. Write a failing test that asserts the expected behavior
+3. Run the test — confirm it fails (red)
+4. Write the minimum implementation to pass the test
+5. Run the test — confirm it passes (green)
+6. Refactor if needed, keeping tests green
 
 See [[TDD]] for full methodology and tooling.
 

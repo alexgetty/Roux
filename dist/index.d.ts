@@ -244,41 +244,67 @@ declare class GraphCoreImpl implements GraphCore {
     getRandomNode(tags?: string[]): Promise<Node | null>;
     listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
-    private cosineSimilarity;
     static fromConfig(config: RouxConfig): GraphCoreImpl;
 }
 
 /**
- * FileWatcher - Pure file system event emitter
+ * FormatReader plugin architecture
  *
- * Responsibilities:
- * - Wraps chokidar
- * - Filters (.md only, excluded dirs)
- * - Coalesces events
- * - Debounces
- * - Emits batched events via callback
+ * Provides a registry for file format readers, enabling multi-format support
+ * in DocStore while keeping format-specific logic isolated.
  */
-type FileEventType = 'add' | 'change' | 'unlink';
-interface FileWatcherOptions {
-    root: string;
-    debounceMs?: number;
-    /** Called after debounce with coalesced events. Exceptions (sync or async) are
-     *  logged and swallowed; watcher continues operating. */
-    onBatch: (events: Map<string, FileEventType>) => void | Promise<void>;
+
+/**
+ * Context provided to readers during parsing
+ */
+interface FileContext {
+    /** Full absolute path to the file */
+    absolutePath: string;
+    /** Path relative to source root (becomes node ID) */
+    relativePath: string;
+    /** File extension including dot (e.g., '.md') */
+    extension: string;
+    /** File modification time */
+    mtime: Date;
 }
-declare class FileWatcher {
-    private readonly root;
-    private readonly debounceMs;
-    private readonly onBatch;
-    private watcher;
-    private debounceTimer;
-    private pendingChanges;
-    constructor(options: FileWatcherOptions);
-    start(): Promise<void>;
-    stop(): void;
-    isWatching(): boolean;
-    flush(): void;
-    private queueChange;
+/**
+ * Interface for format-specific file readers
+ */
+interface FormatReader {
+    /** Extensions this reader handles (e.g., ['.md', '.markdown']) */
+    readonly extensions: string[];
+    /** Parse file content into a Node */
+    parse(content: string, context: FileContext): Node;
+}
+/**
+ * Registry for FormatReader implementations
+ */
+declare class ReaderRegistry {
+    private readers;
+    /**
+     * Register a reader for its declared extensions.
+     * Throws if any extension is already registered (atomic - no partial registration).
+     */
+    register(reader: FormatReader): void;
+    /**
+     * Get reader for an extension, or null if none registered.
+     * Case-insensitive.
+     */
+    getReader(extension: string): FormatReader | null;
+    /**
+     * Get all registered extensions
+     */
+    getExtensions(): ReadonlySet<string>;
+    /**
+     * Check if an extension has a registered reader.
+     * Case-insensitive.
+     */
+    hasReader(extension: string): boolean;
+    /**
+     * Parse content using the appropriate reader for the file's extension.
+     * Throws if no reader is registered for the extension.
+     */
+    parse(content: string, context: FileContext): Node;
 }
 
 declare class DocStore implements StoreProvider {
@@ -287,9 +313,10 @@ declare class DocStore implements StoreProvider {
     private graph;
     private vectorProvider;
     private ownsVectorProvider;
+    private registry;
     private fileWatcher;
     private onChangeCallback;
-    constructor(sourceRoot: string, cacheDir: string, vectorProvider?: VectorProvider, fileWatcher?: FileWatcher);
+    constructor(sourceRoot: string, cacheDir: string, vectorProvider?: VectorProvider, registry?: ReaderRegistry);
     sync(): Promise<void>;
     createNode(node: Node): Promise<void>;
     updateNode(id: string, updates: Partial<Node>): Promise<void>;
@@ -317,10 +344,10 @@ declare class DocStore implements StoreProvider {
     private resolveAllLinks;
     private ensureGraph;
     private rebuildGraph;
-    private collectMarkdownFiles;
-    private getFileMtime;
-    private fileToNode;
-    private validatePathWithinSource;
+    /**
+     * Parse a file into a Node using the appropriate FormatReader.
+     */
+    private parseFile;
 }
 
 declare class TransformersEmbeddingProvider implements EmbeddingProvider {
@@ -354,6 +381,6 @@ declare class SqliteVectorProvider implements VectorProvider {
     close(): void;
 }
 
-declare const VERSION = "0.1.0";
+declare const VERSION = "0.1.3";
 
 export { type CacheConfig, type CentralityMetrics, DEFAULT_CONFIG, type Direction, DocStore, type DocStoreConfig, type Edge, type EmbeddingConfig, type EmbeddingProvider, type GraphCore, GraphCoreImpl, type LLMConfig, type LinkInfo, type ListFilter, type ListOptions, type LocalEmbeddingConfig, type Metric, type ModelChangeBehavior, type NeighborOptions, type Node, type NodeSummary, type NodeWithContext, type OllamaEmbeddingConfig, type OllamaLLMConfig, type OpenAIEmbeddingConfig, type OpenAILLMConfig, type ProvidersConfig, type ResolveOptions, type ResolveResult, type ResolveStrategy, type RouxConfig, type SearchOptions, type SourceConfig, type SourceRef, SqliteVectorProvider, type StoreConfig, type StoreProvider, type SystemConfig, type TagMode, TransformersEmbeddingProvider, VERSION, type VectorProvider, type VectorSearchResult, isNode, isSourceRef, isVectorProvider };
