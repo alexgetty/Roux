@@ -711,6 +711,70 @@ function buildGraph(nodes) {
 
 // src/graph/operations.ts
 import { bidirectional } from "graphology-shortest-path";
+
+// src/utils/heap.ts
+var MinHeap = class {
+  data = [];
+  compare;
+  constructor(comparator) {
+    this.compare = comparator;
+  }
+  size() {
+    return this.data.length;
+  }
+  peek() {
+    return this.data[0];
+  }
+  push(value) {
+    this.data.push(value);
+    this.bubbleUp(this.data.length - 1);
+  }
+  pop() {
+    if (this.data.length === 0) return void 0;
+    if (this.data.length === 1) return this.data.pop();
+    const min = this.data[0];
+    this.data[0] = this.data.pop();
+    this.bubbleDown(0);
+    return min;
+  }
+  toArray() {
+    return [...this.data];
+  }
+  bubbleUp(index) {
+    while (index > 0) {
+      const parentIndex = Math.floor((index - 1) / 2);
+      if (this.compare(this.data[index], this.data[parentIndex]) >= 0) {
+        break;
+      }
+      this.swap(index, parentIndex);
+      index = parentIndex;
+    }
+  }
+  bubbleDown(index) {
+    const length = this.data.length;
+    while (true) {
+      const leftChild = 2 * index + 1;
+      const rightChild = 2 * index + 2;
+      let smallest = index;
+      if (leftChild < length && this.compare(this.data[leftChild], this.data[smallest]) < 0) {
+        smallest = leftChild;
+      }
+      if (rightChild < length && this.compare(this.data[rightChild], this.data[smallest]) < 0) {
+        smallest = rightChild;
+      }
+      if (smallest === index) break;
+      this.swap(index, smallest);
+      index = smallest;
+    }
+  }
+  swap(i, j) {
+    const temp = this.data[i];
+    this.data[i] = this.data[j];
+    this.data[j] = temp;
+  }
+};
+
+// src/graph/operations.ts
 function getNeighborIds(graph, id, options) {
   if (!graph.hasNode(id)) {
     return [];
@@ -751,21 +815,17 @@ function getHubs(graph, metric, limit) {
   if (limit <= 0) {
     return [];
   }
-  const scores = [];
+  const heap = new MinHeap((a, b) => a[1] - b[1]);
   graph.forEachNode((id) => {
-    let score;
-    switch (metric) {
-      case "in_degree":
-        score = graph.inDegree(id);
-        break;
-      case "out_degree":
-        score = graph.outDegree(id);
-        break;
+    const score = metric === "in_degree" ? graph.inDegree(id) : graph.outDegree(id);
+    if (heap.size() < limit) {
+      heap.push([id, score]);
+    } else if (score > heap.peek()[1]) {
+      heap.pop();
+      heap.push([id, score]);
     }
-    scores.push([id, score]);
   });
-  scores.sort((a, b) => b[1] - a[1]);
-  return scores.slice(0, limit);
+  return heap.toArray().sort((a, b) => b[1] - a[1]);
 }
 function computeCentrality(graph) {
   const result = /* @__PURE__ */ new Map();
@@ -996,31 +1056,6 @@ async function readFileContent(filePath) {
   return readFile(filePath, "utf-8");
 }
 
-// src/providers/docstore/readers/markdown.ts
-var MarkdownReader = class {
-  extensions = [".md", ".markdown"];
-  parse(content, context) {
-    const parsed = parseMarkdown(content);
-    const id = normalizeId(context.relativePath);
-    const title = parsed.title ?? titleFromPath(id);
-    const rawLinks = extractWikiLinks(parsed.content);
-    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
-    return {
-      id,
-      title,
-      content: parsed.content,
-      tags: parsed.tags,
-      outgoingLinks,
-      properties: parsed.properties,
-      sourceRef: {
-        type: "file",
-        path: context.absolutePath,
-        lastModified: context.mtime
-      }
-    };
-  }
-};
-
 // src/providers/docstore/reader-registry.ts
 var ReaderRegistry = class {
   readers = /* @__PURE__ */ new Map();
@@ -1072,13 +1107,38 @@ var ReaderRegistry = class {
     return reader.parse(content, context);
   }
 };
+
+// src/providers/docstore/readers/markdown.ts
+var MarkdownReader = class {
+  extensions = [".md", ".markdown"];
+  parse(content, context) {
+    const parsed = parseMarkdown(content);
+    const id = normalizeId(context.relativePath);
+    const title = parsed.title ?? titleFromPath(id);
+    const rawLinks = extractWikiLinks(parsed.content);
+    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
+    return {
+      id,
+      title,
+      content: parsed.content,
+      tags: parsed.tags,
+      outgoingLinks,
+      properties: parsed.properties,
+      sourceRef: {
+        type: "file",
+        path: context.absolutePath,
+        lastModified: context.mtime
+      }
+    };
+  }
+};
+
+// src/providers/docstore/index.ts
 function createDefaultRegistry() {
   const registry = new ReaderRegistry();
   registry.register(new MarkdownReader());
   return registry;
 }
-
-// src/providers/docstore/index.ts
 var DocStore = class {
   cache;
   sourceRoot;

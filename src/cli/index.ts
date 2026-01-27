@@ -9,6 +9,11 @@ import { serveCommand } from './commands/serve.js';
 import { vizCommand } from './commands/viz.js';
 import { VERSION } from '../index.js';
 
+function handleCliError(error: unknown): never {
+  console.error(error instanceof Error ? error.message : 'Unknown error');
+  process.exit(1);
+}
+
 const program = new Command();
 
 program
@@ -57,10 +62,7 @@ program
         `  Coverage: ${(result.embeddingCoverage * 100).toFixed(1)}%`
       );
     } catch (error) {
-      console.error(
-        error instanceof Error ? error.message : 'Unknown error'
-      );
-      process.exit(1);
+      handleCliError(error);
     }
   });
 
@@ -105,10 +107,7 @@ program
       // Keep process alive
       await new Promise(() => {});
     } catch (error) {
-      console.error(
-        error instanceof Error ? error.message : 'Unknown error'
-      );
-      process.exit(1);
+      handleCliError(error);
     }
   });
 
@@ -143,10 +142,7 @@ program
           execFile(openCmd, [result.outputPath]);
         }
       } catch (error) {
-        console.error(
-          error instanceof Error ? error.message : 'Unknown error'
-        );
-        process.exit(1);
+        handleCliError(error);
       }
     }
   );

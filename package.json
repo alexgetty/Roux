@@ -22,6 +22,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "ci": "npm run typecheck && npm run test",
     "release:patch": "npm version patch && npm publish && git push && git push --tags",
     "release:minor": "npm version minor && npm publish && git push && git push --tags",
     "release:major": "npm version major && npm publish && git push && git push --tags",

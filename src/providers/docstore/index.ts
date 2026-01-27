@@ -41,11 +41,19 @@ import {
   collectFiles,
   readFileContent,
 } from './file-operations.js';
-import {
-  ReaderRegistry,
-  createDefaultRegistry,
-  type FileContext,
-} from './reader-registry.js';
+import { ReaderRegistry } from './reader-registry.js';
+import type { FileContext } from './types.js';
+import { MarkdownReader } from './readers/index.js';
+
+/**
+ * Create a registry with default readers pre-registered.
+ * Returns a new instance each call.
+ */
+function createDefaultRegistry(): ReaderRegistry {
+  const registry = new ReaderRegistry();
+  registry.register(new MarkdownReader());
+  return registry;
+}
 
 export class DocStore implements StoreProvider {
   private cache: Cache;
@@ -459,10 +467,7 @@ export {
   collectFiles,
   readFileContent,
 } from './file-operations.js';
-export {
-  ReaderRegistry,
-  createDefaultRegistry,
-  type FormatReader,
-  type FileContext,
-} from './reader-registry.js';
+export type { FormatReader, FileContext } from './types.js';
+export { ReaderRegistry } from './reader-registry.js';
 export { MarkdownReader } from './readers/index.js';
+export { createDefaultRegistry };

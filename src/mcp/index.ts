@@ -20,8 +20,8 @@ export {
   type DeleteResponse,
   type ErrorResponse,
   type ErrorCode,
-  type LinkInfo,
 } from './types.js';
+export type { LinkInfo } from '../types/provider.js';
 export {
   truncateContent,
   isTruncated,

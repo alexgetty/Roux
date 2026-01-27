@@ -8,7 +8,7 @@
  */
 
 import type { Node } from '../../../types/node.js';
-import type { FormatReader, FileContext } from '../reader-registry.js';
+import type { FormatReader, FileContext } from '../types.js';
 import {
   parseMarkdown,
   extractWikiLinks,

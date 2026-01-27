@@ -4,6 +4,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type Tool,
+  type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 
 import type { GraphCore } from '../types/graphcore.js';
@@ -321,6 +322,10 @@ const TOOL_SCHEMAS = {
   },
 } as const;
 
+/** Cast schema to Tool inputSchema type (readonly arrays → mutable) */
+type InputSchema = Tool['inputSchema'];
+const asSchema = (s: unknown): InputSchema => s as InputSchema;
+
 /** Tool definitions for MCP protocol */
 export function getToolDefinitions(hasEmbedding: boolean): Tool[] {
   const tools: Tool[] = [
@@ -328,66 +333,66 @@ export function getToolDefinitions(hasEmbedding: boolean): Tool[] {
       name: 'get_node',
       description:
         'Retrieve a single node by ID with optional neighbor context',
-      inputSchema: TOOL_SCHEMAS.get_node,
+      inputSchema: asSchema(TOOL_SCHEMAS.get_node),
     },
     {
       name: 'get_neighbors',
       description: 'Get nodes linked to or from a specific node',
-      inputSchema: TOOL_SCHEMAS.get_neighbors,
+      inputSchema: asSchema(TOOL_SCHEMAS.get_neighbors),
     },
     {
       name: 'find_path',
       description: 'Find the shortest path between two nodes',
-      inputSchema: TOOL_SCHEMAS.find_path,
+      inputSchema: asSchema(TOOL_SCHEMAS.find_path),
     },
     {
       name: 'get_hubs',
       description: 'Get the most central nodes by graph metric',
-      inputSchema: TOOL_SCHEMAS.get_hubs,
+      inputSchema: asSchema(TOOL_SCHEMAS.get_hubs),
     },
     {
       name: 'search_by_tags',
       description: 'Filter nodes by tags (AND or OR matching)',
-      inputSchema: TOOL_SCHEMAS.search_by_tags,
+      inputSchema: asSchema(TOOL_SCHEMAS.search_by_tags),
     },
     {
       name: 'random_node',
       description: 'Get a random node for discovery, optionally filtered by tags',
-      inputSchema: TOOL_SCHEMAS.random_node,
+      inputSchema: asSchema(TOOL_SCHEMAS.random_node),
     },
     {
       name: 'create_node',
       description: 'Create a new node (writes file for DocStore)',
-      inputSchema: TOOL_SCHEMAS.create_node,
+      inputSchema: asSchema(TOOL_SCHEMAS.create_node),
     },
     {
       name: 'update_node',
       description:
         'Update an existing node. Title changes rejected if incoming links exist.',
-      inputSchema: TOOL_SCHEMAS.update_node,
+      inputSchema: asSchema(TOOL_SCHEMAS.update_node),
     },
     {
       name: 'delete_node',
       description: 'Delete a node by ID',
-      inputSchema: TOOL_SCHEMAS.delete_node,
+      inputSchema: asSchema(TOOL_SCHEMAS.delete_node),
     },
     {
       name: 'list_nodes',
       description:
         'List nodes with optional filters and pagination. Tag filter searches the "tags" frontmatter array only. All IDs returned are lowercase.',
-      inputSchema: TOOL_SCHEMAS.list_nodes,
+      inputSchema: asSchema(TOOL_SCHEMAS.list_nodes),
     },
     {
       name: 'resolve_nodes',
       description:
         'Batch resolve names to existing node IDs. Strategy selection: "exact" for known titles, "fuzzy" for typos/misspellings (e.g., "chikken" -> "chicken"), "semantic" for synonyms/concepts (e.g., "poultry leg meat" -> "chicken thigh"). Semantic does NOT handle typos — misspellings produce garbage embeddings.',
-      inputSchema: TOOL_SCHEMAS.resolve_nodes,
+      inputSchema: asSchema(TOOL_SCHEMAS.resolve_nodes),
     },
     {
       name: 'nodes_exist',
       description:
         'Batch check if node IDs exist. IDs are normalized to lowercase before checking.',
-      inputSchema: TOOL_SCHEMAS.nodes_exist,
+      inputSchema: asSchema(TOOL_SCHEMAS.nodes_exist),
     },
   ];
 
@@ -395,18 +400,15 @@ export function getToolDefinitions(hasEmbedding: boolean): Tool[] {
     tools.unshift({
       name: 'search',
       description: 'Semantic similarity search across all nodes',
-      inputSchema: TOOL_SCHEMAS.search,
+      inputSchema: asSchema(TOOL_SCHEMAS.search),
     });
   }
 
   return tools;
 }
 
-/** Response format for MCP tool calls */
-export interface McpToolResponse {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}
+/** Response format for MCP tool calls. Extends SDK's CallToolResult. */
+export type McpToolResponse = CallToolResult;
 
 /**
  * Format a successful tool result for MCP response.

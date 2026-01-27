@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { ReaderRegistry } from '../../../src/providers/docstore/reader-registry.js';
 import {
-  ReaderRegistry,
   createDefaultRegistry,
   type FormatReader,
   type FileContext,
-} from '../../../src/providers/docstore/reader-registry.js';
+} from '../../../src/providers/docstore/index.js';
 import type { Node } from '../../../src/types/node.js';
+import * as typesModule from '../../../src/providers/docstore/types.js';
 
 describe('ReaderRegistry', () => {
   let registry: ReaderRegistry;
@@ -177,6 +178,15 @@ describe('ReaderRegistry', () => {
       const exts = defaultRegistry.getExtensions();
       expect(exts.has('.md')).toBe(true);
       expect(exts.has('.markdown')).toBe(true);
+    });
+  });
+
+  describe('types.ts contract', () => {
+    it('exports only types (no runtime exports)', () => {
+      // types.ts should contain only TypeScript interfaces/types
+      // which compile away to nothing at runtime
+      const runtimeExports = Object.keys(typesModule);
+      expect(runtimeExports).toEqual([]);
     });
   });
 });

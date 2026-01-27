@@ -248,10 +248,9 @@ declare class GraphCoreImpl implements GraphCore {
 }
 
 /**
- * FormatReader plugin architecture
+ * FormatReader plugin types
  *
- * Provides a registry for file format readers, enabling multi-format support
- * in DocStore while keeping format-specific logic isolated.
+ * Extracted to break circular dependency between reader-registry and readers.
  */
 
 /**
@@ -276,6 +275,14 @@ interface FormatReader {
     /** Parse file content into a Node */
     parse(content: string, context: FileContext): Node;
 }
+
+/**
+ * FormatReader plugin architecture
+ *
+ * Provides a registry for file format readers, enabling multi-format support
+ * in DocStore while keeping format-specific logic isolated.
+ */
+
 /**
  * Registry for FormatReader implementations
  */

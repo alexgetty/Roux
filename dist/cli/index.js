@@ -807,6 +807,70 @@ function buildGraph(nodes) {
 
 // src/graph/operations.ts
 import { bidirectional } from "graphology-shortest-path";
+
+// src/utils/heap.ts
+var MinHeap = class {
+  data = [];
+  compare;
+  constructor(comparator) {
+    this.compare = comparator;
+  }
+  size() {
+    return this.data.length;
+  }
+  peek() {
+    return this.data[0];
+  }
+  push(value) {
+    this.data.push(value);
+    this.bubbleUp(this.data.length - 1);
+  }
+  pop() {
+    if (this.data.length === 0) return void 0;
+    if (this.data.length === 1) return this.data.pop();
+    const min = this.data[0];
+    this.data[0] = this.data.pop();
+    this.bubbleDown(0);
+    return min;
+  }
+  toArray() {
+    return [...this.data];
+  }
+  bubbleUp(index) {
+    while (index > 0) {
+      const parentIndex = Math.floor((index - 1) / 2);
+      if (this.compare(this.data[index], this.data[parentIndex]) >= 0) {
+        break;
+      }
+      this.swap(index, parentIndex);
+      index = parentIndex;
+    }
+  }
+  bubbleDown(index) {
+    const length = this.data.length;
+    while (true) {
+      const leftChild = 2 * index + 1;
+      const rightChild = 2 * index + 2;
+      let smallest = index;
+      if (leftChild < length && this.compare(this.data[leftChild], this.data[smallest]) < 0) {
+        smallest = leftChild;
+      }
+      if (rightChild < length && this.compare(this.data[rightChild], this.data[smallest]) < 0) {
+        smallest = rightChild;
+      }
+      if (smallest === index) break;
+      this.swap(index, smallest);
+      index = smallest;
+    }
+  }
+  swap(i, j) {
+    const temp = this.data[i];
+    this.data[i] = this.data[j];
+    this.data[j] = temp;
+  }
+};
+
+// src/graph/operations.ts
 function getNeighborIds(graph, id, options) {
   if (!graph.hasNode(id)) {
     return [];
@@ -847,21 +911,17 @@ function getHubs(graph, metric, limit) {
   if (limit <= 0) {
     return [];
   }
-  const scores = [];
+  const heap = new MinHeap((a, b) => a[1] - b[1]);
   graph.forEachNode((id) => {
-    let score;
-    switch (metric) {
-      case "in_degree":
-        score = graph.inDegree(id);
-        break;
-      case "out_degree":
-        score = graph.outDegree(id);
-        break;
+    const score = metric === "in_degree" ? graph.inDegree(id) : graph.outDegree(id);
+    if (heap.size() < limit) {
+      heap.push([id, score]);
+    } else if (score > heap.peek()[1]) {
+      heap.pop();
+      heap.push([id, score]);
     }
-    scores.push([id, score]);
   });
-  scores.sort((a, b) => b[1] - a[1]);
-  return scores.slice(0, limit);
+  return heap.toArray().sort((a, b) => b[1] - a[1]);
 }
 function computeCentrality(graph) {
   const result = /* @__PURE__ */ new Map();
@@ -1092,31 +1152,6 @@ async function readFileContent(filePath) {
   return readFile2(filePath, "utf-8");
 }
 
-// src/providers/docstore/readers/markdown.ts
-var MarkdownReader = class {
-  extensions = [".md", ".markdown"];
-  parse(content, context) {
-    const parsed = parseMarkdown(content);
-    const id = normalizeId(context.relativePath);
-    const title = parsed.title ?? titleFromPath(id);
-    const rawLinks = extractWikiLinks(parsed.content);
-    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
-    return {
-      id,
-      title,
-      content: parsed.content,
-      tags: parsed.tags,
-      outgoingLinks,
-      properties: parsed.properties,
-      sourceRef: {
-        type: "file",
-        path: context.absolutePath,
-        lastModified: context.mtime
-      }
-    };
-  }
-};
-
 // src/providers/docstore/reader-registry.ts
 var ReaderRegistry = class {
   readers = /* @__PURE__ */ new Map();
@@ -1168,13 +1203,38 @@ var ReaderRegistry = class {
     return reader.parse(content, context);
   }
 };
+
+// src/providers/docstore/readers/markdown.ts
+var MarkdownReader = class {
+  extensions = [".md", ".markdown"];
+  parse(content, context) {
+    const parsed = parseMarkdown(content);
+    const id = normalizeId(context.relativePath);
+    const title = parsed.title ?? titleFromPath(id);
+    const rawLinks = extractWikiLinks(parsed.content);
+    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
+    return {
+      id,
+      title,
+      content: parsed.content,
+      tags: parsed.tags,
+      outgoingLinks,
+      properties: parsed.properties,
+      sourceRef: {
+        type: "file",
+        path: context.absolutePath,
+        lastModified: context.mtime
+      }
+    };
+  }
+};
+
+// src/providers/docstore/index.ts
 function createDefaultRegistry() {
   const registry = new ReaderRegistry();
   registry.register(new MarkdownReader());
   return registry;
 }
-
-// src/providers/docstore/index.ts
 var DocStore = class {
   cache;
   sourceRoot;
@@ -1845,7 +1905,7 @@ function pathToResponse(path) {
 }
 
 // src/mcp/handlers.ts
-function coerceLimit(value, defaultValue) {
+function coerceInt(value, defaultValue, minValue, fieldName) {
   if (value === void 0 || value === null) {
     return defaultValue;
   }
@@ -1854,24 +1914,16 @@ function coerceLimit(value, defaultValue) {
     return defaultValue;
   }
   const floored = Math.floor(num);
-  if (floored < 1) {
-    throw new McpError("INVALID_PARAMS", "limit must be at least 1");
+  if (floored < minValue) {
+    throw new McpError("INVALID_PARAMS", `${fieldName} must be at least ${minValue}`);
   }
   return floored;
 }
+function coerceLimit(value, defaultValue) {
+  return coerceInt(value, defaultValue, 1, "limit");
+}
 function coerceOffset(value, defaultValue) {
-  if (value === void 0 || value === null) {
-    return defaultValue;
-  }
-  const num = Number(value);
-  if (Number.isNaN(num)) {
-    return defaultValue;
-  }
-  const floored = Math.floor(num);
-  if (floored < 0) {
-    throw new McpError("INVALID_PARAMS", "offset must be at least 0");
-  }
-  return floored;
+  return coerceInt(value, defaultValue, 0, "offset");
 }
 async function handleSearch(ctx, args) {
   if (!ctx.hasEmbedding) {
@@ -2437,74 +2489,75 @@ var TOOL_SCHEMAS = {
     required: ["ids"]
   }
 };
+var asSchema = (s) => s;
 function getToolDefinitions(hasEmbedding) {
   const tools = [
     {
       name: "get_node",
       description: "Retrieve a single node by ID with optional neighbor context",
-      inputSchema: TOOL_SCHEMAS.get_node
+      inputSchema: asSchema(TOOL_SCHEMAS.get_node)
     },
     {
       name: "get_neighbors",
       description: "Get nodes linked to or from a specific node",
-      inputSchema: TOOL_SCHEMAS.get_neighbors
+      inputSchema: asSchema(TOOL_SCHEMAS.get_neighbors)
     },
     {
       name: "find_path",
       description: "Find the shortest path between two nodes",
-      inputSchema: TOOL_SCHEMAS.find_path
+      inputSchema: asSchema(TOOL_SCHEMAS.find_path)
     },
     {
       name: "get_hubs",
       description: "Get the most central nodes by graph metric",
-      inputSchema: TOOL_SCHEMAS.get_hubs
+      inputSchema: asSchema(TOOL_SCHEMAS.get_hubs)
     },
     {
       name: "search_by_tags",
       description: "Filter nodes by tags (AND or OR matching)",
-      inputSchema: TOOL_SCHEMAS.search_by_tags
+      inputSchema: asSchema(TOOL_SCHEMAS.search_by_tags)
     },
     {
       name: "random_node",
       description: "Get a random node for discovery, optionally filtered by tags",
-      inputSchema: TOOL_SCHEMAS.random_node
+      inputSchema: asSchema(TOOL_SCHEMAS.random_node)
     },
     {
       name: "create_node",
       description: "Create a new node (writes file for DocStore)",
-      inputSchema: TOOL_SCHEMAS.create_node
+      inputSchema: asSchema(TOOL_SCHEMAS.create_node)
     },
     {
       name: "update_node",
       description: "Update an existing node. Title changes rejected if incoming links exist.",
-      inputSchema: TOOL_SCHEMAS.update_node
+      inputSchema: asSchema(TOOL_SCHEMAS.update_node)
     },
     {
       name: "delete_node",
       description: "Delete a node by ID",
-      inputSchema: TOOL_SCHEMAS.delete_node
+      inputSchema: asSchema(TOOL_SCHEMAS.delete_node)
     },
     {
       name: "list_nodes",
       description: 'List nodes with optional filters and pagination. Tag filter searches the "tags" frontmatter array only. All IDs returned are lowercase.',
-      inputSchema: TOOL_SCHEMAS.list_nodes
+      inputSchema: asSchema(TOOL_SCHEMAS.list_nodes)
     },
     {
       name: "resolve_nodes",
       description: 'Batch resolve names to existing node IDs. Strategy selection: "exact" for known titles, "fuzzy" for typos/misspellings (e.g., "chikken" -> "chicken"), "semantic" for synonyms/concepts (e.g., "poultry leg meat" -> "chicken thigh"). Semantic does NOT handle typos \u2014 misspellings produce garbage embeddings.',
-      inputSchema: TOOL_SCHEMAS.resolve_nodes
+      inputSchema: asSchema(TOOL_SCHEMAS.resolve_nodes)
     },
     {
       name: "nodes_exist",
       description: "Batch check if node IDs exist. IDs are normalized to lowercase before checking.",
-      inputSchema: TOOL_SCHEMAS.nodes_exist
+      inputSchema: asSchema(TOOL_SCHEMAS.nodes_exist)
     }
   ];
   if (hasEmbedding) {
     tools.unshift({
       name: "search",
       description: "Semantic similarity search across all nodes",
-      inputSchema: TOOL_SCHEMAS.search
+      inputSchema: asSchema(TOOL_SCHEMAS.search)
     });
   }
   return tools;
@@ -2850,6 +2903,10 @@ function generateHtml(nodes, edges) {
 }
 
 // src/cli/index.ts
+function handleCliError(error) {
+  console.error(error instanceof Error ? error.message : "Unknown error");
+  process.exit(1);
+}
 var program = new Command();
 program.name("roux").description("Graph Programming Interface for knowledge bases").version(VERSION);
 program.command("init").description("Initialize Roux in a directory").argument("[directory]", "Directory to initialize", ".").action(async (directory) => {
@@ -2882,10 +2939,7 @@ program.command("status").description("Show graph statistics").argument("[direct
       `  Coverage: ${(result.embeddingCoverage * 100).toFixed(1)}%`
     );
   } catch (error) {
-    console.error(
-      error instanceof Error ? error.message : "Unknown error"
-    );
-    process.exit(1);
+    handleCliError(error);
   }
 });
 program.command("serve").description("Start MCP server with file watching").argument("[directory]", "Directory to serve", ".").option("--no-watch", "Disable file watching").action(async (directory, options) => {
@@ -2917,10 +2971,7 @@ program.command("serve").description("Start MCP server with file watching").argu
     await new Promise(() => {
     });
   } catch (error) {
-    console.error(
-      error instanceof Error ? error.message : "Unknown error"
-    );
-    process.exit(1);
+    handleCliError(error);
   }
 });
 program.command("viz").description("Generate graph visualization").argument("[directory]", "Directory to visualize", ".").option("-o, --output <path>", "Output file path").option("--open", "Open in browser after generation").action(
@@ -2940,10 +2991,7 @@ program.command("viz").description("Generate graph visualization").argument("[di
         execFile(openCmd, [result.outputPath]);
       }
     } catch (error) {
-      console.error(
-        error instanceof Error ? error.message : "Unknown error"
-      );
-      process.exit(1);
+      handleCliError(error);
     }
   }
 );

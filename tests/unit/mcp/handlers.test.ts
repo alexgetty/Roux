@@ -1671,3 +1671,43 @@ describe('dispatchTool', () => {
     expect(result).toEqual({});
   });
 });
+
+describe('coerceInt', () => {
+  it('returns default for undefined', () => {
+    expect(coerceInt(undefined, 10, 1, 'limit')).toBe(10);
+  });
+
+  it('returns default for null', () => {
+    expect(coerceInt(null, 10, 1, 'limit')).toBe(10);
+  });
+
+  it('returns default for NaN string', () => {
+    expect(coerceInt('abc', 10, 1, 'limit')).toBe(10);
+  });
+
+  it('coerces string to number', () => {
+    expect(coerceInt('5', 10, 1, 'limit')).toBe(5);
+  });
+
+  it('floors float values', () => {
+    expect(coerceInt(5.9, 10, 1, 'limit')).toBe(5);
+  });
+
+  it('throws McpError when below minimum', () => {
+    expect(() => coerceInt(0, 10, 1, 'limit')).toThrow(McpError);
+    expect(() => coerceInt(0, 10, 1, 'limit')).toThrow(/limit must be at least 1/);
+  });
+
+  it('throws McpError with field name in message', () => {
+    expect(() => coerceInt(-5, 0, 0, 'offset')).toThrow(/offset must be at least 0/);
+  });
+
+  it('accepts value equal to minimum', () => {
+    expect(coerceInt(1, 10, 1, 'limit')).toBe(1);
+    expect(coerceInt(0, 10, 0, 'offset')).toBe(0);
+  });
+
+  it('accepts value greater than minimum', () => {
+    expect(coerceInt(50, 10, 1, 'limit')).toBe(50);
+  });
+});

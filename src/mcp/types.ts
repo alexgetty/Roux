@@ -1,8 +1,5 @@
 import type { LinkInfo } from '../types/provider.js';
 
-/** Link with resolved human-readable title. Re-export for MCP layer. */
-export type { LinkInfo };
-
 /** Metadata-only response for browsing operations (search, get_neighbors). */
 export interface NodeMetadataResponse {
   id: string;

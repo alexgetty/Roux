@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MarkdownReader } from '../../../../src/providers/docstore/readers/markdown.js';
-import type { FileContext } from '../../../../src/providers/docstore/reader-registry.js';
+import type { FileContext } from '../../../../src/providers/docstore/types.js';
 
 describe('MarkdownReader', () => {
   const reader = new MarkdownReader();

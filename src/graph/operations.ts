@@ -5,6 +5,7 @@ import type {
   Metric,
   CentralityMetrics,
 } from '../types/provider.js';
+import { MinHeap } from '../utils/heap.js';
 
 /**
  * Get neighbor IDs based on direction.
@@ -69,6 +70,7 @@ export function findPath(
 /**
  * Get top nodes by centrality metric.
  * Returns array of [id, score] tuples sorted descending.
+ * Uses min-heap for O(n log k) complexity instead of O(n log n).
  */
 export function getHubs(
   graph: DirectedGraph,
@@ -79,23 +81,20 @@ export function getHubs(
     return [];
   }
 
-  const scores: Array<[string, number]> = [];
+  const heap = new MinHeap<[string, number]>((a, b) => a[1] - b[1]);
 
   graph.forEachNode((id) => {
-    let score: number;
-    switch (metric) {
-      case 'in_degree':
-        score = graph.inDegree(id);
-        break;
-      case 'out_degree':
-        score = graph.outDegree(id);
-        break;
+    const score = metric === 'in_degree' ? graph.inDegree(id) : graph.outDegree(id);
+
+    if (heap.size() < limit) {
+      heap.push([id, score]);
+    } else if (score > heap.peek()![1]) {
+      heap.pop();
+      heap.push([id, score]);
     }
-    scores.push([id, score]);
   });
 
-  scores.sort((a, b) => b[1] - a[1]);
-  return scores.slice(0, limit);
+  return heap.toArray().sort((a, b) => b[1] - a[1]);
 }
 
 /**

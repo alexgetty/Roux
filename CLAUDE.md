@@ -48,6 +48,14 @@ When changing behavior, update all relevant documentation in the same change:
 
 ## Design Principles
 
+**Single source of truth. Always.**
+
+Every type, constant, and interface has exactly one canonical definition. Never re-export types from convenience locations—import from the source. If you need a type, trace it to where it's defined and import from there.
+
+- Types live in `types/` — import from there, not from modules that happen to re-export them
+- Constants live in one place — if two modules need the same constant, extract to a shared location
+- When you see a re-export, ask: "Why doesn't the consumer import directly from the source?"
+
 **Graceful degradation. Always.**
 
 - Features that fail should degrade, not crash

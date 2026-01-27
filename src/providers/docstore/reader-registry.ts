@@ -6,31 +6,7 @@
  */
 
 import type { Node } from '../../types/node.js';
-import { MarkdownReader } from './readers/markdown.js';
-
-/**
- * Context provided to readers during parsing
- */
-export interface FileContext {
-  /** Full absolute path to the file */
-  absolutePath: string;
-  /** Path relative to source root (becomes node ID) */
-  relativePath: string;
-  /** File extension including dot (e.g., '.md') */
-  extension: string;
-  /** File modification time */
-  mtime: Date;
-}
-
-/**
- * Interface for format-specific file readers
- */
-export interface FormatReader {
-  /** Extensions this reader handles (e.g., ['.md', '.markdown']) */
-  readonly extensions: string[];
-  /** Parse file content into a Node */
-  parse(content: string, context: FileContext): Node;
-}
+import type { FormatReader, FileContext } from './types.js';
 
 /**
  * Registry for FormatReader implementations
@@ -92,14 +68,4 @@ export class ReaderRegistry {
     }
     return reader.parse(content, context);
   }
-}
-
-/**
- * Create a registry with default readers pre-registered.
- * Returns a new instance each call.
- */
-export function createDefaultRegistry(): ReaderRegistry {
-  const registry = new ReaderRegistry();
-  registry.register(new MarkdownReader());
-  return registry;
 }
