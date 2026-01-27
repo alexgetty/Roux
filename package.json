@@ -24,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "release:patch": "npm version patch && npm publish && git push && git push --tags",
     "release:minor": "npm version minor && npm publish && git push && git push --tags",
-    "release:major": "npm version major && npm publish && git push && git push --tags"
+    "release:major": "npm version major && npm publish && git push && git push --tags",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "keywords": [
     "graph",

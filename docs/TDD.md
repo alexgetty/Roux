@@ -1,3 +1,6 @@
+---
+title: Tdd
+---
 # Test-Driven Development
 
 Roux follows strict test-driven development. No implementation code exists without a failing test that demanded it.
@@ -17,6 +20,8 @@ Strict TDD inverts this. The test defines the contract *before* the agent writes
 3. **Refactor**: Clean up while keeping tests green
 
 If there's no failing test, there's no reason to write code.
+
+**When adding tests for existing code**, temporarily break the implementation to verify the test fails. A test that can't catch a regression is worthless. This inverts the flow (break → red → restore → green) but maintains the discipline: you must see the test fail to trust it.
 
 ## Why This Matters
 

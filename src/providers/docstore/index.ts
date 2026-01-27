@@ -1,6 +1,5 @@
 import { readFile, writeFile, stat, readdir, mkdir, rm } from 'node:fs/promises';
 import { join, relative, dirname, resolve } from 'node:path';
-import { watch, type FSWatcher } from 'chokidar';
 import type { DirectedGraph } from 'graphology';
 import type { Node } from '../../types/node.js';
 import type {
@@ -32,6 +31,12 @@ import {
   getHubs as graphGetHubs,
   computeCentrality,
 } from '../../graph/operations.js';
+import { FileWatcher, EXCLUDED_DIRS, type FileEventType } from './watcher.js';
+import {
+  normalizeWikiLink,
+  buildFilenameIndex,
+  resolveLinks,
+} from './links.js';
 
 export class DocStore implements StoreProvider {
   private cache: Cache;
@@ -40,20 +45,20 @@ export class DocStore implements StoreProvider {
   private vectorProvider: VectorProvider;
   private ownsVectorProvider: boolean;
 
-  private watcher: FSWatcher | null = null;
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingChanges: Map<string, 'add' | 'change' | 'unlink'> = new Map();
+  private fileWatcher: FileWatcher | null = null;
   private onChangeCallback: ((changedIds: string[]) => void) | undefined;
 
   constructor(
     sourceRoot: string,
     cacheDir: string,
-    vectorProvider?: VectorProvider
+    vectorProvider?: VectorProvider,
+    fileWatcher?: FileWatcher
   ) {
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
     this.ownsVectorProvider = !vectorProvider;
     this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
+    this.fileWatcher = fileWatcher ?? null;
   }
 
   async sync(): Promise<void> {
@@ -91,8 +96,7 @@ export class DocStore implements StoreProvider {
     }
 
     // Resolve wiki-links after all nodes are cached
-    const filenameIndex = this.buildFilenameIndex();
-    this.resolveOutgoingLinks(filenameIndex);
+    this.resolveAllLinks();
 
     // Rebuild graph from all nodes
     this.rebuildGraph();
@@ -139,7 +143,7 @@ export class DocStore implements StoreProvider {
     let outgoingLinks = updates.outgoingLinks;
     if (updates.content !== undefined && outgoingLinks === undefined) {
       const rawLinks = extractWikiLinks(updates.content);
-      outgoingLinks = rawLinks.map((link) => this.normalizeWikiLink(link));
+      outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     }
 
     const updated: Node = {
@@ -298,110 +302,36 @@ export class DocStore implements StoreProvider {
   }
 
   startWatching(onChange?: (changedIds: string[]) => void): Promise<void> {
-    if (this.watcher) {
+    if (this.fileWatcher?.isWatching()) {
       throw new Error('Already watching. Call stopWatching() first.');
     }
 
     this.onChangeCallback = onChange;
 
-    return new Promise((resolve, reject) => {
-      this.watcher = watch(this.sourceRoot, {
-        ignoreInitial: true,
-        ignored: [...DocStore.EXCLUDED_DIRS].map((dir) => `**/${dir}/**`),
-        awaitWriteFinish: {
-          stabilityThreshold: 100,
-        },
-        followSymlinks: false,
+    if (!this.fileWatcher) {
+      this.fileWatcher = new FileWatcher({
+        root: this.sourceRoot,
+        onBatch: (events) => this.handleWatcherBatch(events),
       });
+    }
 
-      this.watcher
-        .on('ready', () => resolve())
-        .on('add', (path) => this.queueChange(path, 'add'))
-        .on('change', (path) => this.queueChange(path, 'change'))
-        .on('unlink', (path) => this.queueChange(path, 'unlink'))
-        .on('error', (err) => {
-          if ((err as NodeJS.ErrnoException).code === 'EMFILE') {
-            console.error(
-              'File watcher hit file descriptor limit. ' +
-                'Try: ulimit -n 65536 or reduce watched files.'
-            );
-          }
-          reject(err);
-        });
-    });
+    return this.fileWatcher.start();
   }
 
   stopWatching(): void {
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
-    this.pendingChanges.clear();
-
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
+    if (this.fileWatcher) {
+      this.fileWatcher.stop();
     }
   }
 
   isWatching(): boolean {
-    return this.watcher !== null;
+    return this.fileWatcher?.isWatching() ?? false;
   }
 
-  private queueChange(filePath: string, event: 'add' | 'change' | 'unlink'): void {
-    const relativePath = relative(this.sourceRoot, filePath);
-    const id = normalizeId(relativePath);
-
-    // Check exclusions
-    if (!filePath.endsWith('.md')) {
-      return;
-    }
-
-    // Check if path contains any excluded directory
-    const pathParts = relativePath.split('/');
-    for (const part of pathParts) {
-      if (DocStore.EXCLUDED_DIRS.has(part)) {
-        return;
-      }
-    }
-
-    // Apply coalescing rules
-    const existing = this.pendingChanges.get(id);
-
-    if (existing) {
-      if (existing === 'add' && event === 'change') {
-        // add + change = add (keep as add)
-        return;
-      } else if (existing === 'add' && event === 'unlink') {
-        // add + unlink = remove from queue
-        this.pendingChanges.delete(id);
-      } else if (existing === 'change' && event === 'unlink') {
-        // change + unlink = unlink
-        this.pendingChanges.set(id, 'unlink');
-      }
-      // change + change = change (already set, no action needed)
-    } else {
-      this.pendingChanges.set(id, event);
-    }
-
-    // Reset debounce timer
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-    }
-
-    this.debounceTimer = setTimeout(() => {
-      this.processQueue();
-    }, 1000);
-  }
-
-  private async processQueue(): Promise<void> {
-    const changes = new Map(this.pendingChanges);
-    this.pendingChanges.clear();
-    this.debounceTimer = null;
-
+  private async handleWatcherBatch(events: Map<string, FileEventType>): Promise<void> {
     const processedIds: string[] = [];
 
-    for (const [id, event] of changes) {
+    for (const [id, event] of events) {
       try {
         if (event === 'unlink') {
           const existing = this.cache.getNode(id);
@@ -425,8 +355,7 @@ export class DocStore implements StoreProvider {
 
     // Resolve wiki-links and rebuild graph after processing all changes
     if (processedIds.length > 0) {
-      const filenameIndex = this.buildFilenameIndex();
-      this.resolveOutgoingLinks(filenameIndex);
+      this.resolveAllLinks();
       this.rebuildGraph();
     }
 
@@ -436,23 +365,11 @@ export class DocStore implements StoreProvider {
     }
   }
 
-  private buildFilenameIndex(): Map<string, string[]> {
-    const index = new Map<string, string[]>();
-    for (const node of this.cache.getAllNodes()) {
-      const basename = node.id.split('/').pop()!;
-      const existing = index.get(basename) ?? [];
-      existing.push(node.id);
-      index.set(basename, existing);
-    }
-    // Sort each array alphabetically for deterministic first-match
-    for (const paths of index.values()) {
-      paths.sort();
-    }
-    return index;
-  }
+  private resolveAllLinks(): void {
+    const nodes = this.cache.getAllNodes();
+    const filenameIndex = buildFilenameIndex(nodes);
 
-  private resolveOutgoingLinks(filenameIndex: Map<string, string[]>): void {
-    // Build set of valid node IDs for quick lookup
+    // Build set of valid node IDs
     const validNodeIds = new Set<string>();
     for (const paths of filenameIndex.values()) {
       for (const path of paths) {
@@ -460,26 +377,14 @@ export class DocStore implements StoreProvider {
       }
     }
 
-    for (const node of this.cache.getAllNodes()) {
-      const resolved = node.outgoingLinks.map((link) => {
-        // If link already exists as a valid node ID, keep it
-        if (validNodeIds.has(link)) {
-          return link;
-        }
-        // Only resolve bare filenames (no path separators)
-        // Partial paths like "folder/target.md" stay literal
-        if (link.includes('/')) {
-          return link;
-        }
-        // Try basename lookup for bare filenames
-        const matches = filenameIndex.get(link);
-        if (matches && matches.length > 0) {
-          return matches[0]!;
-        }
-        return link;
-      });
+    // Resolve links for each node and update cache if changed
+    for (const node of nodes) {
+      const resolved = resolveLinks(
+        node.outgoingLinks,
+        filenameIndex,
+        validNodeIds
+      );
 
-      // Only update if something changed
       if (resolved.some((r, i) => r !== node.outgoingLinks[i])) {
         this.cache.updateOutgoingLinks(node.id, resolved);
       }
@@ -504,8 +409,6 @@ export class DocStore implements StoreProvider {
     }
   }
 
-  private static readonly EXCLUDED_DIRS = new Set(['.roux', 'node_modules', '.git', '.obsidian']);
-
   private async collectMarkdownFiles(dir: string): Promise<string[]> {
     const results: string[] = [];
 
@@ -522,7 +425,7 @@ export class DocStore implements StoreProvider {
 
       if (entry.isDirectory()) {
         // Skip excluded directories
-        if (DocStore.EXCLUDED_DIRS.has(entry.name)) {
+        if (EXCLUDED_DIRS.has(entry.name)) {
           continue;
         }
         const nested = await this.collectMarkdownFiles(fullPath);
@@ -552,7 +455,7 @@ export class DocStore implements StoreProvider {
 
     // Extract and normalize wiki links
     const rawLinks = extractWikiLinks(parsed.content);
-    const outgoingLinks = rawLinks.map((link) => this.normalizeWikiLink(link));
+    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
 
     return {
       id,
@@ -567,33 +470,6 @@ export class DocStore implements StoreProvider {
         lastModified: new Date(await this.getFileMtime(filePath)),
       },
     };
-  }
-
-  /**
-   * Normalize a wiki-link target to an ID.
-   * - If it has a file extension, normalize as-is
-   * - If no extension, add .md
-   * - Lowercase, forward slashes
-   */
-  private normalizeWikiLink(target: string): string {
-    let normalized = target.toLowerCase().replace(/\\/g, '/');
-
-    // Add .md if no file extension present
-    // File extension = dot followed by 1-4 alphanumeric chars at end
-    if (!this.hasFileExtension(normalized)) {
-      normalized += '.md';
-    }
-
-    return normalized;
-  }
-
-  private hasFileExtension(path: string): boolean {
-    // Match common file extensions: .md, .txt, .png, .json, etc.
-    // Extension must contain at least one letter (to exclude .2024, .123, etc.)
-    const match = path.match(/\.([a-z0-9]{1,4})$/i);
-    if (!match?.[1]) return false;
-    // Require at least one letter in the extension
-    return /[a-z]/i.test(match[1]);
   }
 
   private validatePathWithinSource(id: string): void {
@@ -614,3 +490,4 @@ export {
   titleFromPath,
   serializeToMarkdown,
 } from './parser.js';
+export { FileWatcher, EXCLUDED_DIRS, type FileEventType } from './watcher.js';

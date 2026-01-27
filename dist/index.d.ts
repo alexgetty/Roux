@@ -41,7 +41,7 @@ interface Edge {
     properties?: Record<string, unknown>;
 }
 
-type Metric = 'pagerank' | 'in_degree' | 'out_degree';
+type Metric = 'in_degree' | 'out_degree';
 interface ListFilter {
     /** Filter by tag (case-insensitive) */
     tag?: string;
@@ -108,7 +108,7 @@ interface StoreProvider {
     getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
     storeEmbedding(id: string, vector: number[], model: string): Promise<void>;
     searchByVector(vector: number[], limit: number): Promise<VectorSearchResult[]>;
-    searchByTags(tags: string[], mode: TagMode): Promise<Node[]>;
+    searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
     getRandomNode(tags?: string[]): Promise<Node | null>;
     resolveTitles(ids: string[]): Promise<Map<string, string>>;
     listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
@@ -248,17 +248,48 @@ declare class GraphCoreImpl implements GraphCore {
     static fromConfig(config: RouxConfig): GraphCoreImpl;
 }
 
+/**
+ * FileWatcher - Pure file system event emitter
+ *
+ * Responsibilities:
+ * - Wraps chokidar
+ * - Filters (.md only, excluded dirs)
+ * - Coalesces events
+ * - Debounces
+ * - Emits batched events via callback
+ */
+type FileEventType = 'add' | 'change' | 'unlink';
+interface FileWatcherOptions {
+    root: string;
+    debounceMs?: number;
+    /** Called after debounce with coalesced events. Exceptions (sync or async) are
+     *  logged and swallowed; watcher continues operating. */
+    onBatch: (events: Map<string, FileEventType>) => void | Promise<void>;
+}
+declare class FileWatcher {
+    private readonly root;
+    private readonly debounceMs;
+    private readonly onBatch;
+    private watcher;
+    private debounceTimer;
+    private pendingChanges;
+    constructor(options: FileWatcherOptions);
+    start(): Promise<void>;
+    stop(): void;
+    isWatching(): boolean;
+    flush(): void;
+    private queueChange;
+}
+
 declare class DocStore implements StoreProvider {
     private cache;
     private sourceRoot;
     private graph;
     private vectorProvider;
     private ownsVectorProvider;
-    private watcher;
-    private debounceTimer;
-    private pendingChanges;
+    private fileWatcher;
     private onChangeCallback;
-    constructor(sourceRoot: string, cacheDir: string, vectorProvider?: VectorProvider);
+    constructor(sourceRoot: string, cacheDir: string, vectorProvider?: VectorProvider, fileWatcher?: FileWatcher);
     sync(): Promise<void>;
     createNode(node: Node): Promise<void>;
     updateNode(id: string, updates: Partial<Node>): Promise<void>;
@@ -266,7 +297,7 @@ declare class DocStore implements StoreProvider {
     getNode(id: string): Promise<Node | null>;
     getNodes(ids: string[]): Promise<Node[]>;
     getAllNodeIds(): Promise<string[]>;
-    searchByTags(tags: string[], mode: TagMode): Promise<Node[]>;
+    searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
     getRandomNode(tags?: string[]): Promise<Node | null>;
     resolveTitles(ids: string[]): Promise<Map<string, string>>;
     listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
@@ -282,24 +313,13 @@ declare class DocStore implements StoreProvider {
     startWatching(onChange?: (changedIds: string[]) => void): Promise<void>;
     stopWatching(): void;
     isWatching(): boolean;
-    private queueChange;
-    private processQueue;
-    private buildFilenameIndex;
-    private resolveOutgoingLinks;
+    private handleWatcherBatch;
+    private resolveAllLinks;
     private ensureGraph;
     private rebuildGraph;
-    private static readonly EXCLUDED_DIRS;
     private collectMarkdownFiles;
     private getFileMtime;
     private fileToNode;
-    /**
-     * Normalize a wiki-link target to an ID.
-     * - If it has a file extension, normalize as-is
-     * - If no extension, add .md
-     * - Lowercase, forward slashes
-     */
-    private normalizeWikiLink;
-    private hasFileExtension;
     private validatePathWithinSource;
 }
 

@@ -297,18 +297,30 @@ var Cache = class {
     const rows = this.db.prepare("SELECT * FROM nodes").all();
     return rows.map((row) => this.rowToNode(row));
   }
-  searchByTags(tags, mode) {
+  searchByTags(tags, mode, limit) {
     if (tags.length === 0) return [];
-    const allNodes = this.getAllNodes();
     const lowerTags = tags.map((t) => t.toLowerCase());
-    return allNodes.filter((node) => {
-      const nodeTags = node.tags.map((t) => t.toLowerCase());
-      if (mode === "any") {
-        return lowerTags.some((t) => nodeTags.includes(t));
-      } else {
-        return lowerTags.every((t) => nodeTags.includes(t));
-      }
-    });
+    let query;
+    const params = [];
+    if (mode === "any") {
+      const tagConditions = lowerTags.map(
+        () => "EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(json_each.value) = ?)"
+      ).join(" OR ");
+      query = `SELECT * FROM nodes WHERE ${tagConditions}`;
+      params.push(...lowerTags);
+    } else {
+      const tagConditions = lowerTags.map(
+        () => "EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(json_each.value) = ?)"
+      ).join(" AND ");
+      query = `SELECT * FROM nodes WHERE ${tagConditions}`;
+      params.push(...lowerTags);
+    }
+    if (limit !== void 0) {
+      query += " LIMIT ?";
+      params.push(limit);
+    }
+    const rows = this.db.prepare(query).all(...params);
+    return rows.map((row) => this.rowToNode(row));
   }
   getModifiedTime(sourcePath) {
     const row = this.db.prepare("SELECT source_modified FROM nodes WHERE source_path = ?").get(sourcePath);
@@ -655,8 +667,7 @@ import { parse as parseYaml } from "yaml";
 
 // src/providers/docstore/index.ts
 import { readFile as readFile2, writeFile as writeFile2, stat, readdir, mkdir as mkdir2, rm } from "fs/promises";
-import { join as join5, relative, dirname, resolve } from "path";
-import { watch } from "chokidar";
+import { join as join5, relative as relative2, dirname, resolve } from "path";
 
 // src/providers/docstore/parser.ts
 import matter from "gray-matter";
@@ -809,9 +820,6 @@ function getHubs(graph, metric, limit) {
       case "out_degree":
         score = graph.outDegree(id);
         break;
-      case "pagerank":
-        score = graph.inDegree(id);
-        break;
     }
     scores.push([id, score]);
   });
@@ -829,22 +837,190 @@ function computeCentrality(graph) {
   return result;
 }
 
+// src/providers/docstore/watcher.ts
+import { watch } from "chokidar";
+import { relative } from "path";
+var EXCLUDED_DIRS = /* @__PURE__ */ new Set([
+  ".roux",
+  "node_modules",
+  ".git",
+  ".obsidian"
+]);
+var DEFAULT_DEBOUNCE_MS = 1e3;
+var FileWatcher = class {
+  root;
+  debounceMs;
+  onBatch;
+  watcher = null;
+  debounceTimer = null;
+  pendingChanges = /* @__PURE__ */ new Map();
+  constructor(options) {
+    this.root = options.root;
+    this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
+    this.onBatch = options.onBatch;
+  }
+  start() {
+    if (this.watcher) {
+      return Promise.reject(new Error("Already watching. Call stop() first."));
+    }
+    return new Promise((resolve3, reject) => {
+      let isReady = false;
+      this.watcher = watch(this.root, {
+        ignoreInitial: true,
+        ignored: [...EXCLUDED_DIRS].map((dir) => `**/${dir}/**`),
+        awaitWriteFinish: {
+          stabilityThreshold: 100
+        },
+        followSymlinks: false
+      });
+      this.watcher.on("ready", () => {
+        isReady = true;
+        resolve3();
+      }).on("add", (path) => this.queueChange(path, "add")).on("change", (path) => this.queueChange(path, "change")).on("unlink", (path) => this.queueChange(path, "unlink")).on("error", (err) => {
+        if (err.code === "EMFILE") {
+          console.error(
+            "File watcher hit file descriptor limit. Try: ulimit -n 65536 or reduce watched files."
+          );
+        }
+        if (isReady) {
+          console.error("FileWatcher error:", err);
+        } else {
+          reject(err);
+        }
+      });
+    });
+  }
+  stop() {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.pendingChanges.clear();
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+  }
+  isWatching() {
+    return this.watcher !== null;
+  }
+  flush() {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    if (this.pendingChanges.size === 0) {
+      return;
+    }
+    const batch = new Map(this.pendingChanges);
+    this.pendingChanges.clear();
+    try {
+      const result = this.onBatch(batch);
+      if (result && typeof result.catch === "function") {
+        result.catch((err) => {
+          console.error("FileWatcher onBatch callback threw an error:", err);
+        });
+      }
+    } catch (err) {
+      console.error("FileWatcher onBatch callback threw an error:", err);
+    }
+  }
+  queueChange(filePath, event) {
+    const relativePath = relative(this.root, filePath);
+    if (!filePath.endsWith(".md")) {
+      return;
+    }
+    const pathParts = relativePath.split("/");
+    for (const part of pathParts) {
+      if (EXCLUDED_DIRS.has(part)) {
+        return;
+      }
+    }
+    const id = relativePath.toLowerCase().replace(/\\/g, "/");
+    const existing = this.pendingChanges.get(id);
+    if (existing) {
+      if (existing === "add" && event === "change") {
+        return;
+      } else if (existing === "add" && event === "unlink") {
+        this.pendingChanges.delete(id);
+      } else if (existing === "change" && event === "unlink") {
+        this.pendingChanges.set(id, "unlink");
+      } else if (existing === "change" && event === "add") {
+        this.pendingChanges.set(id, "add");
+      } else if (existing === "unlink" && event === "add") {
+        this.pendingChanges.set(id, "add");
+      } else if (existing === "unlink" && event === "change") {
+        return;
+      }
+    } else {
+      this.pendingChanges.set(id, event);
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+    this.debounceTimer = setTimeout(() => {
+      this.flush();
+    }, this.debounceMs);
+  }
+};
+
+// src/providers/docstore/links.ts
+function hasFileExtension(path) {
+  const match = path.match(/\.([a-z0-9]{1,4})$/i);
+  if (!match?.[1]) return false;
+  return /[a-z]/i.test(match[1]);
+}
+function normalizeWikiLink(target) {
+  let normalized = target.toLowerCase().replace(/\\/g, "/");
+  if (!hasFileExtension(normalized)) {
+    normalized += ".md";
+  }
+  return normalized;
+}
+function buildFilenameIndex(nodes) {
+  const index = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    const basename = node.id.split("/").pop();
+    const existing = index.get(basename) ?? [];
+    existing.push(node.id);
+    index.set(basename, existing);
+  }
+  for (const paths of index.values()) {
+    paths.sort();
+  }
+  return index;
+}
+function resolveLinks(outgoingLinks, filenameIndex, validNodeIds) {
+  return outgoingLinks.map((link) => {
+    if (validNodeIds.has(link)) {
+      return link;
+    }
+    if (link.includes("/")) {
+      return link;
+    }
+    const matches = filenameIndex.get(link);
+    if (matches && matches.length > 0) {
+      return matches[0];
+    }
+    return link;
+  });
+}
+
 // src/providers/docstore/index.ts
-var DocStore = class _DocStore {
+var DocStore = class {
   cache;
   sourceRoot;
   graph = null;
   vectorProvider;
   ownsVectorProvider;
-  watcher = null;
-  debounceTimer = null;
-  pendingChanges = /* @__PURE__ */ new Map();
+  fileWatcher = null;
   onChangeCallback;
-  constructor(sourceRoot, cacheDir, vectorProvider) {
+  constructor(sourceRoot, cacheDir, vectorProvider, fileWatcher) {
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
     this.ownsVectorProvider = !vectorProvider;
     this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
+    this.fileWatcher = fileWatcher ?? null;
   }
   async sync() {
     const currentPaths = await this.collectMarkdownFiles(this.sourceRoot);
@@ -873,8 +1049,7 @@ var DocStore = class _DocStore {
         }
       }
     }
-    const filenameIndex = this.buildFilenameIndex();
-    this.resolveOutgoingLinks(filenameIndex);
+    this.resolveAllLinks();
     this.rebuildGraph();
   }
   async createNode(node) {
@@ -909,7 +1084,7 @@ var DocStore = class _DocStore {
     let outgoingLinks = updates.outgoingLinks;
     if (updates.content !== void 0 && outgoingLinks === void 0) {
       const rawLinks = extractWikiLinks(updates.content);
-      outgoingLinks = rawLinks.map((link) => this.normalizeWikiLink(link));
+      outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     }
     const updated = {
       ...existing,
@@ -957,8 +1132,8 @@ var DocStore = class _DocStore {
     const nodes = this.cache.getAllNodes();
     return nodes.map((n) => n.id);
   }
-  async searchByTags(tags, mode) {
-    return this.cache.searchByTags(tags, mode);
+  async searchByTags(tags, mode, limit) {
+    return this.cache.searchByTags(tags, mode, limit);
   }
   async getRandomNode(tags) {
     let candidates;
@@ -1020,80 +1195,29 @@ var DocStore = class _DocStore {
     }
   }
   startWatching(onChange) {
-    if (this.watcher) {
+    if (this.fileWatcher?.isWatching()) {
       throw new Error("Already watching. Call stopWatching() first.");
     }
     this.onChangeCallback = onChange;
-    return new Promise((resolve3, reject) => {
-      this.watcher = watch(this.sourceRoot, {
-        ignoreInitial: true,
-        ignored: [..._DocStore.EXCLUDED_DIRS].map((dir) => `**/${dir}/**`),
-        awaitWriteFinish: {
-          stabilityThreshold: 100
-        },
-        followSymlinks: false
+    if (!this.fileWatcher) {
+      this.fileWatcher = new FileWatcher({
+        root: this.sourceRoot,
+        onBatch: (events) => this.handleWatcherBatch(events)
       });
-      this.watcher.on("ready", () => resolve3()).on("add", (path) => this.queueChange(path, "add")).on("change", (path) => this.queueChange(path, "change")).on("unlink", (path) => this.queueChange(path, "unlink")).on("error", (err) => {
-        if (err.code === "EMFILE") {
-          console.error(
-            "File watcher hit file descriptor limit. Try: ulimit -n 65536 or reduce watched files."
-          );
-        }
-        reject(err);
-      });
-    });
+    }
+    return this.fileWatcher.start();
   }
   stopWatching() {
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
-    this.pendingChanges.clear();
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
+    if (this.fileWatcher) {
+      this.fileWatcher.stop();
     }
   }
   isWatching() {
-    return this.watcher !== null;
+    return this.fileWatcher?.isWatching() ?? false;
   }
-  queueChange(filePath, event) {
-    const relativePath = relative(this.sourceRoot, filePath);
-    const id = normalizeId(relativePath);
-    if (!filePath.endsWith(".md")) {
-      return;
-    }
-    const pathParts = relativePath.split("/");
-    for (const part of pathParts) {
-      if (_DocStore.EXCLUDED_DIRS.has(part)) {
-        return;
-      }
-    }
-    const existing = this.pendingChanges.get(id);
-    if (existing) {
-      if (existing === "add" && event === "change") {
-        return;
-      } else if (existing === "add" && event === "unlink") {
-        this.pendingChanges.delete(id);
-      } else if (existing === "change" && event === "unlink") {
-        this.pendingChanges.set(id, "unlink");
-      }
-    } else {
-      this.pendingChanges.set(id, event);
-    }
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-    }
-    this.debounceTimer = setTimeout(() => {
-      this.processQueue();
-    }, 1e3);
-  }
-  async processQueue() {
-    const changes = new Map(this.pendingChanges);
-    this.pendingChanges.clear();
-    this.debounceTimer = null;
+  async handleWatcherBatch(events) {
     const processedIds = [];
-    for (const [id, event] of changes) {
+    for (const [id, event] of events) {
       try {
         if (event === "unlink") {
           const existing = this.cache.getNode(id);
@@ -1114,48 +1238,28 @@ var DocStore = class _DocStore {
       }
     }
     if (processedIds.length > 0) {
-      const filenameIndex = this.buildFilenameIndex();
-      this.resolveOutgoingLinks(filenameIndex);
+      this.resolveAllLinks();
       this.rebuildGraph();
     }
     if (this.onChangeCallback && processedIds.length > 0) {
       this.onChangeCallback(processedIds);
     }
   }
-  buildFilenameIndex() {
-    const index = /* @__PURE__ */ new Map();
-    for (const node of this.cache.getAllNodes()) {
-      const basename = node.id.split("/").pop();
-      const existing = index.get(basename) ?? [];
-      existing.push(node.id);
-      index.set(basename, existing);
-    }
-    for (const paths of index.values()) {
-      paths.sort();
-    }
-    return index;
-  }
-  resolveOutgoingLinks(filenameIndex) {
+  resolveAllLinks() {
+    const nodes = this.cache.getAllNodes();
+    const filenameIndex = buildFilenameIndex(nodes);
     const validNodeIds = /* @__PURE__ */ new Set();
     for (const paths of filenameIndex.values()) {
       for (const path of paths) {
         validNodeIds.add(path);
       }
     }
-    for (const node of this.cache.getAllNodes()) {
-      const resolved = node.outgoingLinks.map((link) => {
-        if (validNodeIds.has(link)) {
-          return link;
-        }
-        if (link.includes("/")) {
-          return link;
-        }
-        const matches = filenameIndex.get(link);
-        if (matches && matches.length > 0) {
-          return matches[0];
-        }
-        return link;
-      });
+    for (const node of nodes) {
+      const resolved = resolveLinks(
+        node.outgoingLinks,
+        filenameIndex,
+        validNodeIds
+      );
       if (resolved.some((r, i) => r !== node.outgoingLinks[i])) {
         this.cache.updateOutgoingLinks(node.id, resolved);
       }
@@ -1175,7 +1279,6 @@ var DocStore = class _DocStore {
       this.cache.storeCentrality(id, 0, metrics.inDegree, metrics.outDegree, now);
     }
   }
-  static EXCLUDED_DIRS = /* @__PURE__ */ new Set([".roux", "node_modules", ".git", ".obsidian"]);
   async collectMarkdownFiles(dir) {
     const results = [];
     let entries;
@@ -1187,7 +1290,7 @@ var DocStore = class _DocStore {
     for (const entry of entries) {
       const fullPath = join5(dir, entry.name);
       if (entry.isDirectory()) {
-        if (_DocStore.EXCLUDED_DIRS.has(entry.name)) {
+        if (EXCLUDED_DIRS.has(entry.name)) {
           continue;
         }
         const nested = await this.collectMarkdownFiles(fullPath);
@@ -1205,11 +1308,11 @@ var DocStore = class _DocStore {
   async fileToNode(filePath) {
     const raw = await readFile2(filePath, "utf-8");
     const parsed = parseMarkdown(raw);
-    const relativePath = relative(this.sourceRoot, filePath);
+    const relativePath = relative2(this.sourceRoot, filePath);
     const id = normalizeId(relativePath);
     const title = parsed.title ?? titleFromPath(id);
     const rawLinks = extractWikiLinks(parsed.content);
-    const outgoingLinks = rawLinks.map((link) => this.normalizeWikiLink(link));
+    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     return {
       id,
       title,
@@ -1223,24 +1326,6 @@ var DocStore = class _DocStore {
         lastModified: new Date(await this.getFileMtime(filePath))
       }
     };
-  }
-  /**
-   * Normalize a wiki-link target to an ID.
-   * - If it has a file extension, normalize as-is
-   * - If no extension, add .md
-   * - Lowercase, forward slashes
-   */
-  normalizeWikiLink(target) {
-    let normalized = target.toLowerCase().replace(/\\/g, "/");
-    if (!this.hasFileExtension(normalized)) {
-      normalized += ".md";
-    }
-    return normalized;
-  }
-  hasFileExtension(path) {
-    const match = path.match(/\.([a-z0-9]{1,4})$/i);
-    if (!match?.[1]) return false;
-    return /[a-z]/i.test(match[1]);
   }
   validatePathWithinSource(id) {
     const resolvedPath = resolve(this.sourceRoot, id);
@@ -1405,11 +1490,7 @@ var GraphCoreImpl = class _GraphCoreImpl {
   }
   async searchByTags(tags, mode, limit) {
     const store = this.requireStore();
-    const results = await store.searchByTags(tags, mode);
-    if (limit !== void 0) {
-      return results.slice(0, limit);
-    }
-    return results;
+    return store.searchByTags(tags, mode, limit);
   }
   async getRandomNode(tags) {
     const store = this.requireStore();
@@ -1580,7 +1661,7 @@ async function nodesToResponses(nodes, store, truncation, includeContent) {
   }
   const titles = await store.resolveTitles(Array.from(allLinkIds));
   return nodes.map((node) => {
-    const limitedLinks = nodeLinkLimits.get(node.id) ?? [];
+    const limitedLinks = nodeLinkLimits.get(node.id);
     const base = {
       id: node.id,
       title: node.title,
@@ -1748,7 +1829,7 @@ async function handleFindPath(ctx, args) {
   }
   return pathToResponse(path);
 }
-var VALID_METRICS = ["pagerank", "in_degree", "out_degree"];
+var VALID_METRICS = ["in_degree", "out_degree"];
 async function handleGetHubs(ctx, args) {
   const metricRaw = args.metric ?? "in_degree";
   const limit = coerceLimit(args.limit, 10);
@@ -1796,15 +1877,26 @@ async function handleRandomNode(ctx, args) {
   }
   return nodeToResponse(node, ctx.store, "primary");
 }
+function deriveTitle(id) {
+  const basename = id.split("/").pop() || "";
+  const rawTitle = basename.replace(/\.md$/i, "");
+  if (!rawTitle || !/[a-zA-Z0-9]/.test(rawTitle)) {
+    return "Untitled";
+  }
+  return rawTitle;
+}
 async function handleCreateNode(ctx, args) {
-  const title = args.title;
+  const idRaw = args.id;
+  const titleRaw = args.title;
   const content = args.content;
   const tagsRaw = args.tags;
-  const directory = args.directory;
-  if (!title || typeof title !== "string") {
-    throw new McpError("INVALID_PARAMS", "title is required and must be a string");
+  if (!idRaw || typeof idRaw !== "string") {
+    throw new McpError("INVALID_PARAMS", "id is required and must be a string");
   }
-  if (!content || typeof content !== "string") {
+  if (!idRaw.toLowerCase().endsWith(".md")) {
+    throw new McpError("INVALID_PARAMS", "id must end with .md extension");
+  }
+  if (content === void 0 || typeof content !== "string") {
     throw new McpError("INVALID_PARAMS", "content is required and must be a string");
   }
   let tags = [];
@@ -1814,8 +1906,8 @@ async function handleCreateNode(ctx, args) {
     }
     tags = tagsRaw;
   }
-  const filename = sanitizeFilename(title) + ".md";
-  const id = directory ? `${directory}/${filename}` : filename;
+  const id = idRaw.toLowerCase();
+  const title = titleRaw ?? deriveTitle(idRaw);
   const existing = await ctx.core.getNode(id);
   if (existing) {
     throw new McpError("NODE_EXISTS", `Node already exists: ${id}`);
@@ -1924,10 +2016,6 @@ async function handleNodesExist(ctx, args) {
     response[id] = exists;
   }
   return response;
-}
-function sanitizeFilename(title) {
-  const sanitized = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
-  return sanitized || "untitled";
 }
 async function dispatchTool(ctx, name, args) {
   switch (name) {
@@ -2101,9 +2189,13 @@ var TOOL_SCHEMAS = {
   create_node: {
     type: "object",
     properties: {
+      id: {
+        type: "string",
+        description: 'Full path for new node (must end in .md). Will be lowercased (spaces and special characters preserved). Example: "notes/My Note.md" creates "notes/my note.md"'
+      },
       title: {
         type: "string",
-        description: "Node title (becomes filename for DocStore). Returned ID will be normalized to lowercase."
+        description: "Optional display title. Defaults to filename without .md extension."
       },
       content: {
         type: "string",
@@ -2114,13 +2206,9 @@ var TOOL_SCHEMAS = {
         items: { type: "string" },
         default: [],
         description: "Classification tags"
-      },
-      directory: {
-        type: "string",
-        description: "Optional: subdirectory path (e.g., 'notes/drafts')"
       }
     },
-    required: ["title", "content"]
+    required: ["id", "content"]
   },
   update_node: {
     type: "object",
@@ -2297,6 +2385,35 @@ function getToolDefinitions(hasEmbedding) {
   }
   return tools;
 }
+function formatToolResponse(result) {
+  return {
+    content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+  };
+}
+function formatErrorResponse(error) {
+  if (error instanceof McpError) {
+    return {
+      content: [{ type: "text", text: JSON.stringify(error.toResponse()) }],
+      isError: true
+    };
+  }
+  const mcpError = new McpError(
+    "PROVIDER_ERROR",
+    error instanceof Error ? error.message : "Unknown error"
+  );
+  return {
+    content: [{ type: "text", text: JSON.stringify(mcpError.toResponse()) }],
+    isError: true
+  };
+}
+async function executeToolCall(ctx, name, args) {
+  try {
+    const result = await dispatchTool(ctx, name, args);
+    return formatToolResponse(result);
+  } catch (error) {
+    return formatErrorResponse(error);
+  }
+}
 var McpServer = class {
   server;
   ctx;
@@ -2312,41 +2429,15 @@ var McpServer = class {
     );
     this.setupHandlers();
   }
-  /* v8 ignore start - MCP SDK callbacks tested via integration in Phase 11 */
   setupHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: getToolDefinitions(this.ctx.hasEmbedding)
     }));
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      try {
-        const result = await dispatchTool(this.ctx, name, args ?? {});
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
-        };
-      } catch (error) {
-        if (error instanceof McpError) {
-          return {
-            content: [
-              { type: "text", text: JSON.stringify(error.toResponse()) }
-            ],
-            isError: true
-          };
-        }
-        const mcpError = new McpError(
-          "PROVIDER_ERROR",
-          error instanceof Error ? error.message : "Unknown error"
-        );
-        return {
-          content: [
-            { type: "text", text: JSON.stringify(mcpError.toResponse()) }
-          ],
-          isError: true
-        };
-      }
+      return executeToolCall(this.ctx, name, args ?? {});
     });
   }
-  /* v8 ignore stop */
   /**
    * Start the server with optional transport factory.
    * @param transportFactory Factory to create transport. Defaults to StdioServerTransport.

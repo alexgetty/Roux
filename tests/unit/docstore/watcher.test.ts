@@ -1,8 +1,19 @@
+/**
+ * DocStore watcher integration tests
+ *
+ * These tests verify DocStore's integration with FileWatcher:
+ * - Batch processing (handleWatcherBatch)
+ * - Cache and graph updates
+ * - onChange callback
+ * - Error handling during file processing
+ *
+ * FileWatcher unit tests (coalescing, debouncing, filtering) are in file-watcher.test.ts
+ */
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DocStore } from '../../../src/providers/docstore/index.js';
+import { DocStore, FileWatcher } from '../../../src/providers/docstore/index.js';
 
 // Mock chokidar
 vi.mock('chokidar', () => {
@@ -42,22 +53,7 @@ function triggerEvent(event: string, arg?: string | Error) {
   }
 }
 
-// Trigger 'ready' event to resolve startWatching promise
-function triggerReady() {
-  triggerEvent('ready');
-}
-
-// Helper to start watching and wait for ready in one step
-async function startWatchingAndReady(
-  store: DocStore,
-  onChange?: (changedIds: string[]) => void
-): Promise<void> {
-  const promise = store.startWatching(onChange);
-  triggerReady();
-  await promise;
-}
-
-describe('DocStore File Watcher', () => {
+describe('DocStore watcher integration', () => {
   let tempDir: string;
   let sourceDir: string;
   let cacheDir: string;
@@ -90,125 +86,8 @@ describe('DocStore File Watcher', () => {
     return fullPath;
   };
 
-  describe('isWatching', () => {
-    it('returns false when not watching', () => {
-      expect(store.isWatching()).toBe(false);
-    });
-
-    it('returns true after startWatching()', () => {
-      store.startWatching();
-      expect(store.isWatching()).toBe(true);
-    });
-
-    it('returns false after stopWatching()', () => {
-      store.startWatching();
-      store.stopWatching();
-      expect(store.isWatching()).toBe(false);
-    });
-  });
-
-  describe('startWatching', () => {
-    it('initializes chokidar watcher with correct config', () => {
-      store.startWatching();
-
-      expect(chokidar.watch).toHaveBeenCalledWith(
-        sourceDir,
-        expect.objectContaining({
-          ignoreInitial: true,
-          awaitWriteFinish: expect.objectContaining({
-            stabilityThreshold: 100,
-          }),
-        })
-      );
-    });
-
-    it('throws if already watching', () => {
-      store.startWatching();
-      expect(() => store.startWatching()).toThrow(/already watching/i);
-    });
-
-    it('registers handlers for ready, add, change, and unlink events', () => {
-      store.startWatching();
-      const mockWatcher = getMockWatcher();
-
-      const registeredEvents = mockWatcher.on.mock.calls.map(
-        (call: unknown[]) => call[0]
-      );
-      expect(registeredEvents).toContain('ready');
-      expect(registeredEvents).toContain('add');
-      expect(registeredEvents).toContain('change');
-      expect(registeredEvents).toContain('unlink');
-    });
-
-    it('returns promise that resolves when ready event fires', async () => {
-      const promise = store.startWatching();
-
-      // Promise should be pending until ready fires
-      let resolved = false;
-      promise.then(() => {
-        resolved = true;
-      });
-
-      // Not resolved yet
-      await Promise.resolve(); // Flush microtasks
-      expect(resolved).toBe(false);
-
-      // Trigger ready
-      triggerReady();
-
-      // Now it should resolve
-      await promise;
-      expect(resolved).toBe(true);
-    });
-
-    it('accepts optional onChange callback', async () => {
-      await writeMarkdownFile('test.md', '# Test');
-      await store.sync();
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      // Trigger change event
-      triggerEvent('change', join(sourceDir, 'test.md'));
-
-      // Wait for debounce (1s) + processing
-      await vi.waitFor(
-        () => {
-          expect(onChange).toHaveBeenCalled();
-        },
-        { timeout: 2000 }
-      );
-    });
-  });
-
-  describe('stopWatching', () => {
-    it('closes the chokidar watcher', async () => {
-      store.startWatching();
-      store.stopWatching();
-
-      const mockWatcher = getMockWatcher();
-      expect(mockWatcher.close).toHaveBeenCalled();
-    });
-
-    it('is safe to call when not watching', () => {
-      expect(() => store.stopWatching()).not.toThrow();
-    });
-
-    it('clears pending changes', () => {
-      store.startWatching();
-
-      // Queue a change but stop before debounce fires
-      triggerEvent('add', join(sourceDir, 'new.md'));
-
-      store.stopWatching();
-
-      // No crash, watcher stopped cleanly
-      expect(store.isWatching()).toBe(false);
-    });
-  });
-
-  describe('event handling', () => {
-    it('onChange called with correct IDs for add event', async () => {
+  describe('onChange callback', () => {
+    it('called with correct IDs for add event', async () => {
       await writeMarkdownFile('new-note.md', '# New Note');
 
       const onChange = vi.fn();
@@ -226,7 +105,7 @@ describe('DocStore File Watcher', () => {
       );
     });
 
-    it('onChange called with correct IDs for change event', async () => {
+    it('called with correct IDs for change event', async () => {
       await writeMarkdownFile('existing.md', '# Existing');
       await store.sync();
 
@@ -245,7 +124,7 @@ describe('DocStore File Watcher', () => {
       );
     });
 
-    it('onChange called with correct IDs for unlink event', async () => {
+    it('called with correct IDs for unlink event', async () => {
       await writeMarkdownFile('deleted.md', '# Deleted');
       await store.sync();
 
@@ -283,310 +162,7 @@ describe('DocStore File Watcher', () => {
     });
   });
 
-  describe('debouncing', () => {
-    it('waits 1 second before processing queue', async () => {
-      await writeMarkdownFile('test.md', '# Test');
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, 'test.md'));
-
-      // Not called immediately
-      expect(onChange).not.toHaveBeenCalled();
-
-      // Wait for debounce + processing
-      await vi.waitFor(
-        () => {
-          expect(onChange).toHaveBeenCalled();
-        },
-        { timeout: 2000 }
-      );
-    });
-
-    it('resets timer on each new event', async () => {
-      await writeMarkdownFile('first.md', '# First');
-      await writeMarkdownFile('second.md', '# Second');
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, 'first.md'));
-
-      // After short delay, add another event - should reset timer
-      await new Promise((r) => setTimeout(r, 100));
-      triggerEvent('add', join(sourceDir, 'second.md'));
-
-      // Wait for debounce + processing
-      await vi.waitFor(
-        () => {
-          // Both files should be batched into single callback
-          expect(onChange).toHaveBeenCalledTimes(1);
-          expect(onChange).toHaveBeenCalledWith(
-            expect.arrayContaining(['first.md', 'second.md'])
-          );
-        },
-        { timeout: 2000 }
-      );
-    });
-
-    it('batches multiple events within debounce window', async () => {
-      await writeMarkdownFile('a.md', '# A');
-      await writeMarkdownFile('b.md', '# B');
-      await writeMarkdownFile('c.md', '# C');
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, 'a.md'));
-      await new Promise((r) => setTimeout(r, 100));
-      triggerEvent('add', join(sourceDir, 'b.md'));
-      await new Promise((r) => setTimeout(r, 100));
-      triggerEvent('add', join(sourceDir, 'c.md'));
-
-      // Wait for debounce + processing
-      await vi.waitFor(
-        () => {
-          expect(onChange).toHaveBeenCalledTimes(1);
-          expect(onChange).toHaveBeenCalledWith(
-            expect.arrayContaining(['a.md', 'b.md', 'c.md'])
-          );
-        },
-        { timeout: 2000 }
-      );
-    });
-  });
-
-  describe('event coalescing', () => {
-    it('add + change = add', async () => {
-      await writeMarkdownFile('new.md', '# New');
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, 'new.md'));
-      await new Promise((r) => setTimeout(r, 100));
-      triggerEvent('change', join(sourceDir, 'new.md'));
-
-      await vi.waitFor(
-        () => {
-          // Coalesced: add + change = add
-          expect(onChange).toHaveBeenCalledTimes(1);
-        },
-        { timeout: 2000 }
-      );
-    });
-
-    it('add + unlink = removed from queue', async () => {
-      await writeMarkdownFile('persistent.md', '# Persistent');
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, 'transient.md'));
-      await new Promise((r) => setTimeout(r, 100));
-      triggerEvent('unlink', join(sourceDir, 'transient.md'));
-
-      // Also add a persistent file so we can verify the callback is called
-      triggerEvent('add', join(sourceDir, 'persistent.md'));
-
-      await vi.waitFor(
-        () => {
-          // Transient file should not be in the results
-          expect(onChange).toHaveBeenCalledTimes(1);
-          expect(onChange).toHaveBeenCalledWith(['persistent.md']);
-        },
-        { timeout: 2000 }
-      );
-    });
-
-    it('change + unlink = unlink', async () => {
-      await writeMarkdownFile('modified.md', '# Original');
-      await store.sync();
-
-      // Verify node exists before
-      expect(await store.getNode('modified.md')).not.toBeNull();
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('change', join(sourceDir, 'modified.md'));
-      await new Promise((r) => setTimeout(r, 100));
-      triggerEvent('unlink', join(sourceDir, 'modified.md'));
-
-      await vi.waitFor(
-        async () => {
-          // Should process as unlink - node should be deleted
-          expect(onChange).toHaveBeenCalledWith(
-            expect.arrayContaining(['modified.md'])
-          );
-          expect(await store.getNode('modified.md')).toBeNull();
-        },
-        { timeout: 2000 }
-      );
-    });
-
-    it('change + change = change', async () => {
-      await writeMarkdownFile('multi.md', '# Original');
-      await store.sync();
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('change', join(sourceDir, 'multi.md'));
-      await new Promise((r) => setTimeout(r, 100));
-      triggerEvent('change', join(sourceDir, 'multi.md'));
-      await new Promise((r) => setTimeout(r, 100));
-      triggerEvent('change', join(sourceDir, 'multi.md'));
-
-      await vi.waitFor(
-        () => {
-          // Should call once with the file
-          expect(onChange).toHaveBeenCalledTimes(1);
-          expect(onChange).toHaveBeenCalledWith(
-            expect.arrayContaining(['multi.md'])
-          );
-        },
-        { timeout: 2000 }
-      );
-    });
-  });
-
-  describe('exclusions', () => {
-    it('ignores .roux directory', async () => {
-      vi.useFakeTimers();
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, '.roux/cache.md'));
-
-      await vi.advanceTimersByTimeAsync(1500);
-
-      expect(onChange).not.toHaveBeenCalled();
-
-      vi.useRealTimers();
-    });
-
-    it('ignores .git directory', async () => {
-      vi.useFakeTimers();
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, '.git/objects/abc.md'));
-
-      await vi.advanceTimersByTimeAsync(1500);
-
-      expect(onChange).not.toHaveBeenCalled();
-
-      vi.useRealTimers();
-    });
-
-    it('ignores node_modules directory', async () => {
-      vi.useFakeTimers();
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, 'node_modules/pkg/README.md'));
-
-      await vi.advanceTimersByTimeAsync(1500);
-
-      expect(onChange).not.toHaveBeenCalled();
-
-      vi.useRealTimers();
-    });
-
-    it('ignores .obsidian directory', async () => {
-      vi.useFakeTimers();
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, '.obsidian/workspace.md'));
-
-      await vi.advanceTimersByTimeAsync(1500);
-
-      expect(onChange).not.toHaveBeenCalled();
-
-      vi.useRealTimers();
-    });
-
-    it('ignores non-.md files', async () => {
-      vi.useFakeTimers();
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, 'image.png'));
-      triggerEvent('add', join(sourceDir, 'data.json'));
-      triggerEvent('add', join(sourceDir, 'script.js'));
-
-      await vi.advanceTimersByTimeAsync(1500);
-
-      expect(onChange).not.toHaveBeenCalled();
-
-      vi.useRealTimers();
-    });
-
-    it('processes .md files outside excluded dirs', async () => {
-      await writeMarkdownFile('valid.md', '# Valid');
-
-      const onChange = vi.fn();
-      store.startWatching(onChange);
-
-      triggerEvent('add', join(sourceDir, 'valid.md'));
-
-      await vi.waitFor(
-        () => {
-          expect(onChange).toHaveBeenCalledWith(expect.arrayContaining(['valid.md']));
-        },
-        { timeout: 2000 }
-      );
-    });
-  });
-
-  describe('error handling', () => {
-    it('registers error event handler', () => {
-      store.startWatching();
-      const mockWatcher = getMockWatcher();
-
-      const registeredEvents = mockWatcher.on.mock.calls.map(
-        (call: unknown[]) => call[0]
-      );
-      expect(registeredEvents).toContain('error');
-    });
-
-    it('rejects startWatching promise on chokidar error', async () => {
-      const promise = store.startWatching();
-
-      // Trigger error before ready
-      const emfileError = new Error('EMFILE: too many open files') as NodeJS.ErrnoException;
-      emfileError.code = 'EMFILE';
-      triggerEvent('error', emfileError as unknown as string);
-
-      await expect(promise).rejects.toThrow('EMFILE');
-    });
-
-    it('logs helpful message for EMFILE errors', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      const promise = store.startWatching();
-
-      const emfileError = new Error('EMFILE: too many open files') as NodeJS.ErrnoException;
-      emfileError.code = 'EMFILE';
-      triggerEvent('error', emfileError as unknown as string);
-
-      await expect(promise).rejects.toThrow();
-
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('file descriptor limit')
-      );
-
-      consoleSpy.mockRestore();
-    });
-
+  describe('error handling during batch processing', () => {
     it('logs warning and skips file on parse failure', async () => {
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -650,7 +226,6 @@ describe('DocStore File Watcher', () => {
       store.startWatching();
       triggerEvent('add', join(sourceDir, 'new.md'));
 
-      // Wait for async processing to complete
       await vi.waitFor(
         async () => {
           const node = await store.getNode('new.md');
@@ -836,7 +411,7 @@ describe('DocStore File Watcher', () => {
     });
   });
 
-  describe('close() integration', () => {
+  describe('DocStore lifecycle integration', () => {
     it('stopWatching is called when close() is invoked', () => {
       store.startWatching();
       expect(store.isWatching()).toBe(true);
@@ -849,6 +424,97 @@ describe('DocStore File Watcher', () => {
 
     it('close() is safe when not watching', () => {
       expect(() => store.close()).not.toThrow();
+    });
+
+    it('isWatching delegates to FileWatcher', () => {
+      expect(store.isWatching()).toBe(false);
+
+      store.startWatching();
+      expect(store.isWatching()).toBe(true);
+
+      store.stopWatching();
+      expect(store.isWatching()).toBe(false);
+    });
+
+    it('stopWatching is safe to call when not watching', () => {
+      expect(() => store.stopWatching()).not.toThrow();
+    });
+
+    it('throws if startWatching called while already watching', () => {
+      store.startWatching();
+      expect(() => store.startWatching()).toThrow(/already watching/i);
+    });
+  });
+
+  describe('FileWatcher injection', () => {
+    it('uses injected FileWatcher instead of creating new one', async () => {
+      // Create and start a FileWatcher before injection
+      const onBatch = vi.fn();
+      const injectedWatcher = new FileWatcher({
+        root: sourceDir,
+        onBatch,
+      });
+
+      // Start the watcher (this calls chokidar.watch)
+      const startPromise = injectedWatcher.start();
+      triggerEvent('ready');
+      await startPromise;
+
+      // Record call count after watcher is started
+      const chokidarMock = chokidar as unknown as { watch: Mock };
+      const callCountAfterStart = chokidarMock.watch.mock.calls.length;
+
+      // Create DocStore with pre-started FileWatcher
+      const storeWithInjected = new DocStore(
+        sourceDir,
+        cacheDir,
+        undefined, // vectorProvider
+        injectedWatcher
+      );
+
+      // isWatching should return true (using injected watcher's state)
+      expect(storeWithInjected.isWatching()).toBe(true);
+
+      // chokidar.watch should NOT have been called again
+      expect(chokidarMock.watch.mock.calls.length).toBe(callCountAfterStart);
+
+      storeWithInjected.stopWatching();
+      storeWithInjected.close();
+    });
+
+    it('starts injected FileWatcher when startWatching called', async () => {
+      // Create FileWatcher but don't start it
+      const onBatch = vi.fn();
+      const injectedWatcher = new FileWatcher({
+        root: sourceDir,
+        onBatch,
+      });
+
+      const chokidarMock = chokidar as unknown as { watch: Mock };
+      const callCountBefore = chokidarMock.watch.mock.calls.length;
+
+      // Inject unstarted watcher
+      const storeWithInjected = new DocStore(
+        sourceDir,
+        cacheDir,
+        undefined,
+        injectedWatcher
+      );
+
+      // Not watching yet
+      expect(storeWithInjected.isWatching()).toBe(false);
+
+      // Start watching - should use injected watcher (which will call chokidar.watch once)
+      const startPromise = storeWithInjected.startWatching();
+      triggerEvent('ready');
+      await startPromise;
+
+      // chokidar.watch called exactly once (for the injected watcher)
+      expect(chokidarMock.watch.mock.calls.length).toBe(callCountBefore + 1);
+      expect(storeWithInjected.isWatching()).toBe(true);
+
+      storeWithInjected.stopWatching();
+      storeWithInjected.close();
     });
   });
 });
