@@ -11,7 +11,235 @@ Modular extension system for Roux. Plugins extend graph capabilities, add MCP to
 
 ## Open Questions
 
-Red team review surfaced these gaps. **All MVP blockers resolved.**
+Red team review surfaced these gaps. **Design questions resolved. Implementation blockers remain.**
+
+### Implementation Blockers
+
+Code-level gaps between this plan and the existing codebase. Must be resolved before plugin system can ship.
+
+**IB1: Node type missing `plugins` field**
+
+The plan specifies `plugins?: Record<string, Record<string, unknown>>` on Node (Q13). Current `src/types/node.ts` has no such field.
+
+**Location:** `src/types/node.ts:8-18`
+
+**Required changes:**
+1. Add `plugins?: Record<string, Record<string, unknown>>` to Node interface
+2. Update `isNode()` type guard to validate plugins field structure
+3. Update DocStore serializer to handle `plugins` → frontmatter mapping
+4. Update parser to extract `plugins` from frontmatter
+
+**Verification:** Unit test: create node with plugins data, serialize to markdown, parse back, assert plugins preserved.
+
+---
+
+**IB2: GraphCore has no plugin registration API**
+
+Plan specifies GraphCore as orchestration hub with three-phase lifecycle (Register → Resolve → Activate). Current GraphCore only has `registerStore()` and `registerEmbedding()`. No plugin registration, dependency resolution, or PluginContext creation.
+
+**Location:** `src/core/graphcore.ts`, `src/types/graphcore.ts`
+
+**Required changes:**
+1. Add `RouxPlugin` interface to types
+2. Add `PluginContext` interface to types
+3. Add `registerPlugin(plugin: RouxPlugin): void` to GraphCore
+4. Add internal plugin registry, resolution logic, activation lifecycle
+5. Add `query()` method per Q14 resolution
+
+**Verification:** Integration test: register two plugins with requires/wants, verify resolution and wiring.
+
+---
+
+**IB3: No `query()` API as specified**
+
+Q14 specifies unified `query()` with `text`, `where`, `not`, `or`, `and`, `sort`, `limit`. Current API only has `search(query: string, options?)`. Plan says query() "replaces current `search()`" but migration path undefined.
+
+**Location:** `src/types/graphcore.ts:30`
+
+**Required changes:**
+1. Define `QueryOptions` interface with all specified fields
+2. Implement `query()` on GraphCore
+3. Decision: deprecate `search()` or keep as convenience alias?
+
+**Verification:** Test composing semantic + structured: `{ text: 'bug', where: { priority: 'high' }, limit: 5 }`
+
+---
+
+**IB4: Event system — interface exists, implementation missing (Q20)**
+
+Plugin interface specifies `wants.events` for subscriptions, but no event system exists. Can't ship interface that references non-existent functionality.
+
+**Location:** Plan lines 217-220, `wants.events` in RouxPlugin interface
+
+**Resolution options:**
+- **Option A:** Remove `wants.events` from MVP interface. Add back when event system lands.
+- **Option B:** Implement minimal event emitter in GraphCore (`on`, `emit`, `off`). Events: `node.created`, `node.updated`, `node.deleted`.
+
+**Verification:** If Option B: test plugin subscribes to `node.created`, receives callback on createNode.
+
+---
+
+**IB5: Error boundaries undefined (Q23)**
+
+Q23 asks what happens when `plugin.register()` throws but marks it post-MVP. This is fundamental runtime behavior — undefined = arbitrary implementation choices.
+
+**Location:** Plugin lifecycle in GraphCore
+
+**Resolution:** Define contract explicitly:
+- `register()` throws → plugin skipped, error logged, other plugins continue
+- `unregister()` throws → error logged, continue cleanup (best effort)
+- Add try/catch around all plugin lifecycle calls
+
+**Verification:** Test: plugin that throws on register, verify skipped and other plugins activate.
+
+---
+
+### Design Resolved (MVP Blockers)
+
+**Q13: Namespace storage format** — RESOLVED
+
+**Resolution:** New optional `plugins` field on Node, separate from `properties`.
+
+```typescript
+interface Node {
+  // existing fields...
+  properties: Record<string, unknown>;  // user properties only
+  plugins?: Record<string, Record<string, unknown>>;  // plugin namespaces
+}
+```
+
+**Storage mapping:**
+- `plugins` is optional — created when first plugin writes to a node
+- Each plugin's namespace: `node.plugins[pluginId]`
+- User properties remain in `node.properties` — no collision risk
+- Query for plugin-touched nodes: `nodes where plugins['plugin-pm'] exists`
+
+**DocStore frontmatter format:**
+```yaml
+---
+title: Fix the bug
+tags: [bug]
+plugins:
+  plugin-pm:
+    status: open
+    priority: high
+  plugin-time:
+    estimate: 2h
+---
+```
+
+**Key benefits:**
+- Clean separation between user data and plugin data
+- Type system enforces the boundary
+- Optional field = lightweight for non-plugin nodes
+- Easy cleanup: remove `plugins[pluginId]` on uninstall
+- Easy traversal: query nodes by plugin presence
+
+---
+
+**Q14: PluginContext.query() contract** — RESOLVED
+
+**Resolution:** Unified `query()` method that composes semantic and structured queries.
+
+**GraphCore gains `query()`** — replaces current `search()`. One method, composable capabilities:
+- `text` — semantic ranking (vector similarity)
+- `where` — field conditions with operators (eq, gt, lt, contains, etc.)
+- `not` — exclusion conditions
+- `or` / `and` — logical composition
+- `sort` — ordering
+- `limit` — pagination
+
+Semantic and structured compose — use either or both in the same query.
+
+**PluginContext wraps `query()`** — adds automatic namespace scoping and permission checks. Context captures plugin ID at construction; all queries auto-scope to `node.plugins[pluginId]` unless explicitly global.
+
+**Scoping:**
+- Default: queries target plugin's own namespace
+- `scope: 'global'` — queries across all namespaces (requires global permission)
+- Permission violation throws at query time
+
+---
+
+**Q15: Registration order algorithm** — RESOLVED
+
+**Resolution:** No ordering. Register all, then resolve in one pass.
+
+**Phases:**
+1. **Register** — collect all plugin manifests. No execution, no ordering.
+2. **Resolve** — single pass once all manifests collected:
+   - `requires` — check required plugins exist in registry (existence only, not initialization order)
+   - `needs` — validate against available system capabilities
+   - `wants`/`provides` — match across all plugins
+3. **Activate** — call `register()` on all plugins that passed resolution. Order irrelevant. Parallel activation possible.
+
+**Error handling:**
+- Missing `requires` — plugin fails resolution, logged, skipped
+- Circular `requires` — impossible to detect as a cycle since it's just existence checks; both load fine
+- Unmet `needs` — plugin fails resolution, logged, skipped
+- Unmet `wants` — plugin activates with reduced functionality, warning logged
+
+No topological sort needed. `requires` means "must exist," not "must initialize first."
+
+---
+
+**Q16: Tool name collision handling** — RESOLVED
+
+**Resolution:** Tools are namespaced by plugin ID. No collisions possible.
+
+Plugin `plugin-pm` providing `create_issue` → tool exposed as `pm_create_issue`.
+
+- Namespace prefix derived from plugin ID (strip `plugin-` prefix if present)
+- Collisions impossible by design
+- No detection or resolution logic needed
+- Users see namespaced tool names in MCP
+
+**Normalization rules:** Lowercase, strip `plugin-` prefix, replace non-alphanumeric with `_`, dedupe consecutive underscores. Examples:
+- `plugin-pm` → `pm_create_issue`
+- `@roux/tasks` → `roux_tasks_create_issue`
+- `my-awesome-plugin` → `my_awesome_create_issue`
+
+---
+
+**Q17: Permission enforcement mechanism** — RESOLVED
+
+**Resolution:** PluginContext enforces at runtime.
+
+- PluginContext constructed with plugin's declared permissions
+- Every `query()` call validates requested scope against declared scope
+- Violation throws `PermissionError`
+- Plugins can't lie — they don't construct their own context; GraphCore does during activation
+
+---
+
+**Q18: Schema version semantics** — RESOLVED
+
+**Resolution:** Informational only for MVP.
+
+- `schema.version` stored and exposed but not enforced
+- No validation behavior tied to version
+- Plugin authors bump version as documentation of schema evolution
+- Future migration system will use version to determine upgrade paths
+- Keeping the field now avoids breaking change when migrations land
+
+---
+
+### Medium Priority (Post-MVP)
+
+**Q19: MCP module extraction** — Plan says MCP becomes separate module but no extraction strategy documented.
+
+**Q20: Event system** — `wants.events` in interface but no event system exists. Either implement basic events or remove from MVP interface. (See IB4 for MVP decision.)
+
+**Q21: Plugin test contract** — How do plugin authors write tests? **Resolution:** Plugin tests instantiate real GraphCoreImpl with in-memory DocStore (sourceRoot = temp dir). No mocks. Test actual graph behavior.
+
+**Q22: FormatReader relationship** — `FormatReader` exists in `src/providers/docstore/reader-registry.ts`. **Resolution:** FormatReader is an internal DocStore extension point, not a plugin. Plugins operate at GraphCore level; FormatReader operates at store level. No relationship.
+
+**Q23: Error boundaries** — What happens when `plugin.register()` throws? (See IB5 for resolution.)
+
+**Q24: Schema field types missing `array`** — Current schema supports `string | enum | number | date | boolean | reference`. Missing: `array` type for `assignees: string[]` or `labels: string[]`. Add `array` type with `items: FieldDefinition`.
+
+**Q25: Singleton conflict detection timing** — Plan says singleton capabilities (MCP, REST) error on duplicate. When? **Resolution:** Error at resolution phase. All manifests collected, then validated. Clear error: "Multiple plugins provide 'mcp' exposure: plugin-a, plugin-b. Configure one."
+
+---
 
 ### Resolved
 
@@ -21,17 +249,17 @@ Red team review surfaced these gaps. **All MVP blockers resolved.**
 
 ```typescript
 // Default: scoped to own namespace (safe)
-context.search({ where: { status: 'open' } })
-// → Only searches plugin-pm.status
+context.query({ where: { status: 'open' } })
+// → Only searches plugin's namespace in node.plugins
 // → Returns nodes this plugin has touched
 
 // Explicit: global namespace (wide net)
-context.search({ where: { status: 'open' }, scope: 'global' })
-// → Searches *.status across all namespaces
+context.query({ where: { status: 'open' }, scope: 'global' })
+// → Searches across all plugin namespaces
 // → Plugin handles potentially mixed results
 
 // Core properties always global:
-context.search({ where: { tags: ['urgent'] } })
+context.query({ where: { tags: ['urgent'] } })
 // → No namespace, searches store-level data
 ```
 
@@ -46,8 +274,8 @@ Key decisions:
 
 **Resolution:** Drop `createdBy` entirely. Namespace presence is the ownership signal.
 
-- If `node['plugin-pm']` exists, plugin-pm has data there
-- Query: `nodes where 'plugin-pm' namespace exists`
+- If `node.plugins?.['plugin-pm']` exists, plugin-pm has data there
+- Query: `nodes where plugins['plugin-pm'] exists`
 - No conflation between "who made the node" vs "who has data on it"
 
 **Uninstall behavior (MVP):** Uninstall = unregister only. Namespace data persists as orphaned properties. User can reinstall to recover functionality.
@@ -182,32 +410,35 @@ Plugins don't "own" nodes or types. The store provider owns ALL data in the grap
 
 ### Plugin Namespacing
 
-Each plugin's data lives in a namespaced object within the node, keyed by plugin ID. This prevents conflicts and enables composition.
+Each plugin's data lives in the `plugins` field, keyed by plugin ID. This prevents conflicts and enables composition.
 
 ```typescript
-// Node structure (storage-agnostic)
+// Node structure
 {
   id: 'some-issue.md',
   title: 'Fix the bug',
   content: '...',
-  
-  'plugin-pm': {                     // PM plugin's namespace
-    status: 'open',
-    priority: 'high',
-    assignee: 'alex'
-  },
-  
-  'plugin-time': {                   // Time plugin's namespace (same node!)
-    estimate: '2h',
-    logged: '30m'
+  properties: { customField: 'user data' },  // user properties
+
+  plugins: {                                  // plugin namespaces (optional)
+    'plugin-pm': {
+      status: 'open',
+      priority: 'high',
+      assignee: 'alex'
+    },
+    'plugin-time': {
+      estimate: '2h',
+      logged: '30m'
+    }
   }
 }
 ```
 
-- Each plugin's schema validates only its namespace (`node[pluginId]`)
-- No conflicts — plugins can't step on each other's fields
+- `plugins` field is optional — created when first plugin writes to a node
+- Each plugin's schema validates only its namespace (`node.plugins[pluginId]`)
+- No conflicts — plugins isolated from each other and from user `properties`
 - Multiple plugins can annotate the same node
-- Store provider handles mapping to storage format (frontmatter, properties, etc.)
+- Query plugin-touched nodes: `where plugins['plugin-pm'] exists`
 - **Namespace = query scope = permission boundary** (see Q1, Q12)
 
 ### Additive Schema Changes Only
@@ -341,7 +572,7 @@ interface RouxPlugin {
 
 interface PluginContext {
   core: GraphCore;
-  search(query: SearchQuery): Promise<Node[]>;  // auto-scoped
+  query(options: QueryOptions): Promise<Node[]>;  // auto-scoped to plugin namespace
   permissions: { scope: 'local' | 'global'; mode: 'read' | 'readwrite' };
   providers: ProviderType[];            // which providers are available
   wiring: {
@@ -352,9 +583,9 @@ interface PluginContext {
 ```
 
 **Query methods:**
-- `context.search()` — auto-scoped to plugin's namespace (safe default)
-- `context.search({ ..., scope: 'global' })` — explicit global (requires global permission)
-- `context.core.search()` — core properties only (title, tags, content)
+- `context.query()` — auto-scoped to plugin's namespace (safe default)
+- `context.query({ ..., scope: 'global' })` — explicit global (requires global permission)
+- `context.core.query()` — unscoped, full graph access
 
 **Write restrictions:**
 - `mode: 'read'` — all write operations throw
@@ -373,10 +604,11 @@ interface PluginSchema {
 
 interface FieldDefinition {
   name: string;
-  type: 'string' | 'enum' | 'number' | 'date' | 'boolean' | 'reference';
+  type: 'string' | 'enum' | 'number' | 'date' | 'boolean' | 'reference' | 'array';
   required?: boolean;
   values?: string[];         // for enums
   targetTypes?: string[];    // for references
+  items?: FieldDefinition;   // for arrays
   constraints?: Record<string, unknown>;
 }
 

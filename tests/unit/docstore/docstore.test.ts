@@ -540,15 +540,12 @@ Original content`
     });
 
     describe('getNeighbors', () => {
-      it('builds graph lazily if not synced', async () => {
-        // Create a fresh store without calling sync
-        const lazyStore = new DocStore(sourceDir, join(tempDir, 'lazy-cache'));
-        // Should not throw - builds graph on demand (empty graph)
-        const neighbors = await lazyStore.getNeighbors('missing.md', {
-          direction: 'out',
-        });
+      it('returns empty array when graph not ready (graceful degradation)', async () => {
+        // Create new store without syncing
+        const unsyncedStore = new DocStore(sourceDir, join(tempDir, 'unsynced-cache'));
+        const neighbors = await unsyncedStore.getNeighbors('any.md', { direction: 'out' });
         expect(neighbors).toEqual([]);
-        lazyStore.close();
+        unsyncedStore.close();
       });
 
       it('returns outgoing neighbors', async () => {
@@ -590,6 +587,13 @@ Original content`
     });
 
     describe('findPath', () => {
+      it('returns null when graph not ready (graceful degradation)', async () => {
+        const unsyncedStore = new DocStore(sourceDir, join(tempDir, 'unsynced-cache-path'));
+        const path = await unsyncedStore.findPath('a.md', 'b.md');
+        expect(path).toBeNull();
+        unsyncedStore.close();
+      });
+
       it('returns path between connected nodes', async () => {
         const path = await store.findPath('a.md', 'c.md');
         expect(path).not.toBeNull();
@@ -625,6 +629,13 @@ Original content`
     });
 
     describe('getHubs', () => {
+      it('returns empty array when graph not ready (graceful degradation)', async () => {
+        const unsyncedStore = new DocStore(sourceDir, join(tempDir, 'unsynced-cache-hubs'));
+        const hubs = await unsyncedStore.getHubs('in_degree', 10);
+        expect(hubs).toEqual([]);
+        unsyncedStore.close();
+      });
+
       it('returns top nodes by in_degree', async () => {
         const hubs = await store.getHubs('in_degree', 2);
         expect(hubs[0]).toEqual(['c.md', 2]);

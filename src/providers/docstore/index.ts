@@ -1,6 +1,5 @@
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join, relative, dirname, extname } from 'node:path';
-import type { DirectedGraph } from 'graphology';
 import type { Node } from '../../types/node.js';
 import type {
   StoreProvider,
@@ -14,6 +13,7 @@ import type {
   ListNodesResult,
   ResolveOptions,
   ResolveResult,
+  CentralityMetrics,
 } from '../../types/provider.js';
 import { Cache } from './cache.js';
 import { SqliteVectorProvider } from '../vector/sqlite.js';
@@ -22,13 +22,7 @@ import {
   normalizeId,
   serializeToMarkdown,
 } from './parser.js';
-import { buildGraph } from '../../graph/builder.js';
-import {
-  getNeighborIds,
-  findPath as graphFindPath,
-  getHubs as graphGetHubs,
-  computeCentrality,
-} from '../../graph/operations.js';
+import { GraphManager } from '../../graph/manager.js';
 import { FileWatcher, type FileEventType } from './watcher.js';
 import {
   normalizeWikiLink,
@@ -58,7 +52,7 @@ function createDefaultRegistry(): ReaderRegistry {
 export class DocStore implements StoreProvider {
   private cache: Cache;
   private sourceRoot: string;
-  private graph: DirectedGraph | null = null;
+  private graphManager: GraphManager = new GraphManager();
   private vectorProvider: VectorProvider;
   private ownsVectorProvider: boolean;
   private registry: ReaderRegistry;
@@ -121,7 +115,8 @@ export class DocStore implements StoreProvider {
     this.resolveAllLinks();
 
     // Rebuild graph from all nodes
-    this.rebuildGraph();
+    const centrality = this.graphManager.build(this.cache.getAllNodes());
+    this.storeCentrality(centrality);
   }
 
   async createNode(node: Node): Promise<void> {
@@ -151,7 +146,8 @@ export class DocStore implements StoreProvider {
     this.cache.upsertNode(normalizedNode, 'file', filePath, mtime);
 
     // Rebuild graph to include new node
-    this.rebuildGraph();
+    const centrality = this.graphManager.build(this.cache.getAllNodes());
+    this.storeCentrality(centrality);
   }
 
   async updateNode(id: string, updates: Partial<Node>): Promise<void> {
@@ -190,7 +186,8 @@ export class DocStore implements StoreProvider {
 
     // Rebuild graph if links changed
     if (outgoingLinks !== undefined || updates.outgoingLinks !== undefined) {
-      this.rebuildGraph();
+      const centrality = this.graphManager.build(this.cache.getAllNodes());
+      this.storeCentrality(centrality);
     }
   }
 
@@ -207,7 +204,8 @@ export class DocStore implements StoreProvider {
     await this.vectorProvider.delete(existing.id);
 
     // Rebuild graph without deleted node
-    this.rebuildGraph();
+    const centrality = this.graphManager.build(this.cache.getAllNodes());
+    this.storeCentrality(centrality);
   }
 
   async getNode(id: string): Promise<Node | null> {
@@ -281,19 +279,25 @@ export class DocStore implements StoreProvider {
   }
 
   async getNeighbors(id: string, options: NeighborOptions): Promise<Node[]> {
-    this.ensureGraph();
-    const neighborIds = getNeighborIds(this.graph!, id, options);
+    if (!this.graphManager.isReady()) {
+      return [];
+    }
+    const neighborIds = this.graphManager.getNeighborIds(id, options);
     return this.cache.getNodes(neighborIds);
   }
 
   async findPath(source: string, target: string): Promise<string[] | null> {
-    this.ensureGraph();
-    return graphFindPath(this.graph!, source, target);
+    if (!this.graphManager.isReady()) {
+      return null;
+    }
+    return this.graphManager.findPath(source, target);
   }
 
   async getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>> {
-    this.ensureGraph();
-    return graphGetHubs(this.graph!, metric, limit);
+    if (!this.graphManager.isReady()) {
+      return [];
+    }
+    return this.graphManager.getHubs(metric, limit);
   }
 
   async storeEmbedding(
@@ -379,7 +383,8 @@ export class DocStore implements StoreProvider {
     // Resolve wiki-links and rebuild graph after processing all changes
     if (processedIds.length > 0) {
       this.resolveAllLinks();
-      this.rebuildGraph();
+      const centrality = this.graphManager.build(this.cache.getAllNodes());
+      this.storeCentrality(centrality);
     }
 
     // Call callback if provided
@@ -414,18 +419,7 @@ export class DocStore implements StoreProvider {
     }
   }
 
-  private ensureGraph(): void {
-    if (!this.graph) {
-      this.rebuildGraph();
-    }
-  }
-
-  private rebuildGraph(): void {
-    const nodes = this.cache.getAllNodes();
-    this.graph = buildGraph(nodes);
-
-    // Cache centrality metrics
-    const centrality = computeCentrality(this.graph);
+  private storeCentrality(centrality: Map<string, CentralityMetrics>): void {
     const now = Date.now();
     for (const [id, metrics] of centrality) {
       this.cache.storeCentrality(id, 0, metrics.inDegree, metrics.outDegree, now);

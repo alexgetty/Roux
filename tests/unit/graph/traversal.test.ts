@@ -4,34 +4,15 @@ import {
   getNeighborIds,
   findPath,
   getHubs,
-  computeCentrality,
-} from '../../../src/graph/operations.js';
+} from '../../../src/graph/traversal.js';
+import { createTestGraph } from './fixtures.js';
 
-describe('graph operations', () => {
+describe('graph traversal', () => {
   let graph: DirectedGraph;
 
-  /**
-   * Test graph structure:
-   *   a -> b -> c
-   *   |    |
-   *   v    v
-   *   d -> e
-   *
-   * In-degrees: a=0, b=1, c=1, d=1, e=2
-   * Out-degrees: a=2, b=2, c=0, d=1, e=0
-   */
+  // Uses standard 5-node test graph from fixtures.ts
   beforeEach(() => {
-    graph = new DirectedGraph();
-    graph.addNode('a');
-    graph.addNode('b');
-    graph.addNode('c');
-    graph.addNode('d');
-    graph.addNode('e');
-    graph.addDirectedEdge('a', 'b');
-    graph.addDirectedEdge('a', 'd');
-    graph.addDirectedEdge('b', 'c');
-    graph.addDirectedEdge('b', 'e');
-    graph.addDirectedEdge('d', 'e');
+    graph = createTestGraph();
   });
 
   describe('getNeighborIds', () => {
@@ -173,24 +154,6 @@ describe('graph operations', () => {
     it('returns empty array for large negative limit', () => {
       const hubs = getHubs(graph, 'out_degree', -10);
       expect(hubs).toEqual([]);
-    });
-  });
-
-  describe('computeCentrality', () => {
-    it('computes in_degree for all nodes', () => {
-      const centrality = computeCentrality(graph);
-
-      expect(centrality.get('a')).toEqual({ inDegree: 0, outDegree: 2 });
-      expect(centrality.get('b')).toEqual({ inDegree: 1, outDegree: 2 });
-      expect(centrality.get('c')).toEqual({ inDegree: 1, outDegree: 0 });
-      expect(centrality.get('d')).toEqual({ inDegree: 1, outDegree: 1 });
-      expect(centrality.get('e')).toEqual({ inDegree: 2, outDegree: 0 });
-    });
-
-    it('returns empty map for empty graph', () => {
-      const emptyGraph = new DirectedGraph();
-      const centrality = computeCentrality(emptyGraph);
-      expect(centrality.size).toBe(0);
     });
   });
 });

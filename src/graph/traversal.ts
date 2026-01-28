@@ -1,10 +1,6 @@
 import type { DirectedGraph } from 'graphology';
 import { bidirectional } from 'graphology-shortest-path';
-import type {
-  NeighborOptions,
-  Metric,
-  CentralityMetrics,
-} from '../types/provider.js';
+import type { NeighborOptions, Metric } from '../types/provider.js';
 import { MinHeap } from '../utils/heap.js';
 
 /**
@@ -95,23 +91,4 @@ export function getHubs(
   });
 
   return heap.toArray().sort((a, b) => b[1] - a[1]);
-}
-
-/**
- * Compute centrality metrics for all nodes.
- * For MVP, computes in_degree and out_degree only.
- */
-export function computeCentrality(
-  graph: DirectedGraph
-): Map<string, CentralityMetrics> {
-  const result = new Map<string, CentralityMetrics>();
-
-  graph.forEachNode((id) => {
-    result.set(id, {
-      inDegree: graph.inDegree(id),
-      outDegree: graph.outDegree(id),
-    });
-  });
-
-  return result;
 }
