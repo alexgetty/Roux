@@ -8,18 +8,16 @@ tags:
 ---
 # StoreProvider Refactor Plan
 
-**Status:** Draft — open questions resolved, pending red team  
-**Ships with:** [[Provider Interface Naming Convention]] (same PR — avoids intermediate state where `StoreProvider` doesn't exist)
+**Status:** In Progress  
+**Prerequisite:** [[Provider Interface Naming Convention]] — COMPLETED
 
-## Naming Convention (prerequisite rename)
-
-Three-tier pattern established by naming convention:
+## Naming Convention (landed)
 
 | Layer | Pattern | Examples |
 |-------|---------|----------|
-| Contract (interface) | `[Capability]` | `Store`, `Vector`, `Embedding` |
-| Abstract class | `[Capability]Provider` | `StoreProvider`, `VectorProvider` |
-| Concrete class | `[Qualifier][Capability]` | `DocStore`, `SqliteVector` |
+| Contract (interface) | `[Capability]` | `Store`, `VectorIndex`, `Embedding` |
+| Abstract class | `[Capability]Provider` | `StoreProvider` |
+| Concrete class | `[Qualifier][Capability]` | `DocStore`, `SqliteVectorIndex`, `TransformersEmbedding` |
 
 ## Goal
 
@@ -30,7 +28,7 @@ Extract all shared store logic into an abstract `StoreProvider` class. DocStore 
 ```
 Store (interface — 15 methods)
        ↑ implements
-StoreProvider (abstract class — owns GraphManager + Vector)
+StoreProvider (abstract class — owns GraphManager + VectorIndex)
   ├── 6 concrete methods (graph ops, vector ops, getRandomNode)
   ├── 5 default implementations, overridable (searchByTags, listNodes, etc.)
   ├── 2 abstract primitives (loadAllNodes, getNodesByIds)
@@ -66,8 +64,8 @@ src/providers/
 | `getNeighbors` | **Concrete** (GraphManager) | Inherited |
 | `findPath` | **Concrete** (GraphManager) | Inherited |
 | `getHubs` | **Concrete** (GraphManager) | Inherited |
-| `storeEmbedding` | **Concrete** (Vector) | Inherited |
-| `searchByVector` | **Concrete** (Vector) | Inherited |
+| `storeEmbedding` | **Concrete** (VectorIndex) | Inherited |
+| `searchByVector` | **Concrete** (VectorIndex) | Inherited |
 | `getRandomNode` | **Concrete** (generic algorithm) | Inherited |
 | `searchByTags` | **Default** (in-memory filter) | **Override** (SQLite query) |
 | `listNodes` | **Default** (in-memory filter) | **Override** (SQLite query) |
@@ -100,15 +98,15 @@ src/providers/
 
 ```typescript
 export interface StoreProviderOptions {
-  vector?: Vector;
+  vectorIndex?: VectorIndex;
 }
 
 export abstract class StoreProvider implements Store {
   protected readonly graphManager = new GraphManager();
-  protected readonly vector: Vector | null;
+  protected readonly vectorIndex: VectorIndex | null;
 
   constructor(options?: StoreProviderOptions) {
-    this.vector = options?.vector ?? null;
+    this.vectorIndex = options?.vectorIndex ?? null;
   }
 
   // --- Abstract: 8 methods subclasses MUST implement ---
@@ -125,8 +123,8 @@ export abstract class StoreProvider implements Store {
   async getNeighbors(id, options)    // → graphManager
   async findPath(source, target)     // → graphManager
   async getHubs(metric, limit)       // → graphManager
-  async storeEmbedding(id, vec, m)   // → vector
-  async searchByVector(vec, limit)   // → vector
+  async storeEmbedding(id, vec, m)   // → vectorIndex
+  async searchByVector(vec, limit)   // → vectorIndex
   async getRandomNode(tags?)         // → searchByTags + loadAllNodes
 
   // --- Default: 5 methods with naive implementations ---
@@ -148,7 +146,7 @@ export abstract class StoreProvider implements Store {
 
 1. `class DocStore extends StoreProvider` (not `implements Store`)
 2. Remove `private graphManager` field (inherited)
-3. Constructor calls `super({ vector })` before own init
+3. Constructor calls `super({ vectorIndex })` before own init
 4. Implement abstract methods:
    - `loadAllNodes()` → `this.cache.getAllNodes()`
    - `getNodesByIds()` → `this.cache.getNodes(ids)`
@@ -206,7 +204,7 @@ export { DocStore } from './docstore/index.js';
 
 ```bash
 npm run typecheck        # No type errors
-npm test                 # All tests pass (1021+ existing + new base class tests)
+npm test                 # All tests pass (1027+ existing + new base class tests)
 ```
 
 Post-refactor checks:

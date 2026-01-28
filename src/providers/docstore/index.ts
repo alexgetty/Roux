@@ -1,12 +1,9 @@
 import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
 import type { Node } from '../../types/node.js';
 import type {
-  Store,
-  NeighborOptions,
-  Metric,
   TagMode,
-  VectorSearchResult,
   VectorIndex,
   ListFilter,
   ListOptions,
@@ -15,6 +12,7 @@ import type {
   ResolveResult,
   CentralityMetrics,
 } from '../../types/provider.js';
+import { StoreProvider } from '../store/index.js';
 import { Cache } from './cache.js';
 import { SqliteVectorIndex } from '../vector/sqlite.js';
 import {
@@ -22,7 +20,6 @@ import {
   normalizeId,
   serializeToMarkdown,
 } from './parser.js';
-import { GraphManager } from '../../graph/manager.js';
 import { FileWatcher, type FileEventType } from './watcher.js';
 import {
   normalizeWikiLink,
@@ -49,11 +46,9 @@ function createDefaultRegistry(): ReaderRegistry {
   return registry;
 }
 
-export class DocStore implements Store {
+export class DocStore extends StoreProvider {
   private cache: Cache;
   private sourceRoot: string;
-  private graphManager: GraphManager = new GraphManager();
-  private vectorIndex: VectorIndex;
   private ownsVectorIndex: boolean;
   private registry: ReaderRegistry;
 
@@ -66,10 +61,15 @@ export class DocStore implements Store {
     vectorIndex?: VectorIndex,
     registry?: ReaderRegistry
   ) {
+    const ownsVector = !vectorIndex;
+    // Ensure cacheDir exists before SqliteVectorIndex tries to open a DB inside it
+    if (!vectorIndex) mkdirSync(cacheDir, { recursive: true });
+    const vi = vectorIndex ?? new SqliteVectorIndex(cacheDir);
+    super({ vectorIndex: vi });
+
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
-    this.ownsVectorIndex = !vectorIndex;
-    this.vectorIndex = vectorIndex ?? new SqliteVectorIndex(cacheDir);
+    this.ownsVectorIndex = ownsVector;
     this.registry = registry ?? createDefaultRegistry();
   }
 
@@ -115,8 +115,7 @@ export class DocStore implements Store {
     this.resolveAllLinks();
 
     // Rebuild graph from all nodes
-    const centrality = this.graphManager.build(this.cache.getAllNodes());
-    this.storeCentrality(centrality);
+    await this.syncGraph();
   }
 
   async createNode(node: Node): Promise<void> {
@@ -141,13 +140,20 @@ export class DocStore implements Store {
     const markdown = serializeToMarkdown(parsed);
     await writeFile(filePath, markdown, 'utf-8');
 
+    // Extract wikilinks from content
+    let outgoingLinks = node.outgoingLinks;
+    if (node.content && (!outgoingLinks || outgoingLinks.length === 0)) {
+      const rawLinks = extractWikiLinks(node.content);
+      outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
+    }
+
     const mtime = await getFileMtime(filePath);
-    const normalizedNode = { ...node, id: normalizedId };
+    const normalizedNode = { ...node, id: normalizedId, outgoingLinks: outgoingLinks ?? [] };
     this.cache.upsertNode(normalizedNode, 'file', filePath, mtime);
 
-    // Rebuild graph to include new node
-    const centrality = this.graphManager.build(this.cache.getAllNodes());
-    this.storeCentrality(centrality);
+    // Resolve wikilinks and rebuild graph
+    this.resolveAllLinks();
+    await this.syncGraph();
   }
 
   async updateNode(id: string, updates: Partial<Node>): Promise<void> {
@@ -184,10 +190,10 @@ export class DocStore implements Store {
     const mtime = await getFileMtime(filePath);
     this.cache.upsertNode(updated, 'file', filePath, mtime);
 
-    // Rebuild graph if links changed
+    // Resolve wikilinks and rebuild graph if links changed
     if (outgoingLinks !== undefined || updates.outgoingLinks !== undefined) {
-      const centrality = this.graphManager.build(this.cache.getAllNodes());
-      this.storeCentrality(centrality);
+      this.resolveAllLinks();
+      await this.syncGraph();
     }
   }
 
@@ -201,11 +207,10 @@ export class DocStore implements Store {
     const filePath = join(this.sourceRoot, existing.id);
     await rm(filePath);
     this.cache.deleteNode(existing.id);
-    await this.vectorIndex.delete(existing.id);
+    if (this.vectorIndex) await this.vectorIndex.delete(existing.id);
 
     // Rebuild graph without deleted node
-    const centrality = this.graphManager.build(this.cache.getAllNodes());
-    this.storeCentrality(centrality);
+    await this.syncGraph();
   }
 
   async getNode(id: string): Promise<Node | null> {
@@ -226,24 +231,6 @@ export class DocStore implements Store {
 
   async searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]> {
     return this.cache.searchByTags(tags, mode, limit);
-  }
-
-  async getRandomNode(tags?: string[]): Promise<Node | null> {
-    let candidates: Node[];
-
-    if (tags && tags.length > 0) {
-      candidates = await this.searchByTags(tags, 'any');
-    } else {
-      candidates = this.cache.getAllNodes();
-    }
-
-    if (candidates.length === 0) {
-      return null;
-    }
-
-    const randomIndex = Math.floor(Math.random() * candidates.length);
-    // Safe: randomIndex is always 0 to length-1 when length > 0
-    return candidates[randomIndex]!;
   }
 
   async resolveTitles(ids: string[]): Promise<Map<string, string>> {
@@ -278,51 +265,15 @@ export class DocStore implements Store {
     return this.cache.nodesExist(normalizedIds);
   }
 
-  async getNeighbors(id: string, options: NeighborOptions): Promise<Node[]> {
-    if (!this.graphManager.isReady()) {
-      return [];
-    }
-    const neighborIds = this.graphManager.getNeighborIds(id, options);
-    return this.cache.getNodes(neighborIds);
-  }
-
-  async findPath(source: string, target: string): Promise<string[] | null> {
-    if (!this.graphManager.isReady()) {
-      return null;
-    }
-    return this.graphManager.findPath(source, target);
-  }
-
-  async getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>> {
-    if (!this.graphManager.isReady()) {
-      return [];
-    }
-    return this.graphManager.getHubs(metric, limit);
-  }
-
-  async storeEmbedding(
-    id: string,
-    vector: number[],
-    model: string
-  ): Promise<void> {
-    return this.vectorIndex.store(id, vector, model);
-  }
-
-  async searchByVector(
-    vector: number[],
-    limit: number
-  ): Promise<VectorSearchResult[]> {
-    return this.vectorIndex.search(vector, limit);
-  }
-
   hasEmbedding(id: string): boolean {
+    if (!this.vectorIndex) return false;
     return this.vectorIndex.hasEmbedding(id);
   }
 
   close(): void {
     this.stopWatching();
     this.cache.close();
-    if (this.ownsVectorIndex && 'close' in this.vectorIndex) {
+    if (this.ownsVectorIndex && this.vectorIndex && 'close' in this.vectorIndex) {
       (this.vectorIndex as { close: () => void }).close();
     }
   }
@@ -364,7 +315,7 @@ export class DocStore implements Store {
           const existing = this.cache.getNode(id);
           if (existing) {
             this.cache.deleteNode(id);
-            await this.vectorIndex.delete(id);
+            if (this.vectorIndex) await this.vectorIndex.delete(id);
             processedIds.push(id);
           }
         } else {
@@ -383,8 +334,7 @@ export class DocStore implements Store {
     // Resolve wiki-links and rebuild graph after processing all changes
     if (processedIds.length > 0) {
       this.resolveAllLinks();
-      const centrality = this.graphManager.build(this.cache.getAllNodes());
-      this.storeCentrality(centrality);
+      await this.syncGraph();
     }
 
     // Call callback if provided
@@ -419,7 +369,17 @@ export class DocStore implements Store {
     }
   }
 
-  private storeCentrality(centrality: Map<string, CentralityMetrics>): void {
+  // ── StoreProvider abstract method implementations ─────────
+
+  protected async loadAllNodes(): Promise<Node[]> {
+    return this.cache.getAllNodes();
+  }
+
+  protected async getNodesByIds(ids: string[]): Promise<Node[]> {
+    return this.cache.getNodes(ids);
+  }
+
+  protected onCentralityComputed(centrality: Map<string, CentralityMetrics>): void {
     const now = Date.now();
     for (const [id, metrics] of centrality) {
       this.cache.storeCentrality(id, 0, metrics.inDegree, metrics.outDegree, now);

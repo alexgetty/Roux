@@ -100,7 +100,7 @@ function isSourceRef(value) {
 }
 
 // src/types/provider.ts
-function isVectorProvider(value) {
+function isVectorIndex(value) {
   if (value === null || typeof value !== "object") {
     return false;
   }
@@ -130,7 +130,348 @@ var DEFAULT_CONFIG = {
 
 // src/providers/docstore/index.ts
 import { writeFile, mkdir, rm } from "fs/promises";
+import { mkdirSync as mkdirSync2 } from "fs";
 import { join as join4, relative as relative2, dirname, extname as extname3 } from "path";
+
+// src/graph/builder.ts
+import { DirectedGraph } from "graphology";
+function buildGraph(nodes) {
+  const graph = new DirectedGraph();
+  const nodeIds = /* @__PURE__ */ new Set();
+  for (const node of nodes) {
+    graph.addNode(node.id);
+    nodeIds.add(node.id);
+  }
+  for (const node of nodes) {
+    const seen = /* @__PURE__ */ new Set();
+    for (const target of node.outgoingLinks) {
+      if (!nodeIds.has(target) || seen.has(target)) {
+        continue;
+      }
+      seen.add(target);
+      graph.addDirectedEdge(node.id, target);
+    }
+  }
+  return graph;
+}
+
+// src/graph/traversal.ts
+import { bidirectional } from "graphology-shortest-path";
+
+// src/utils/heap.ts
+var MinHeap = class {
+  data = [];
+  compare;
+  constructor(comparator) {
+    this.compare = comparator;
+  }
+  size() {
+    return this.data.length;
+  }
+  peek() {
+    return this.data[0];
+  }
+  push(value) {
+    this.data.push(value);
+    this.bubbleUp(this.data.length - 1);
+  }
+  pop() {
+    if (this.data.length === 0) return void 0;
+    if (this.data.length === 1) return this.data.pop();
+    const min = this.data[0];
+    this.data[0] = this.data.pop();
+    this.bubbleDown(0);
+    return min;
+  }
+  toArray() {
+    return [...this.data];
+  }
+  bubbleUp(index) {
+    while (index > 0) {
+      const parentIndex = Math.floor((index - 1) / 2);
+      if (this.compare(this.data[index], this.data[parentIndex]) >= 0) {
+        break;
+      }
+      this.swap(index, parentIndex);
+      index = parentIndex;
+    }
+  }
+  bubbleDown(index) {
+    const length = this.data.length;
+    while (true) {
+      const leftChild = 2 * index + 1;
+      const rightChild = 2 * index + 2;
+      let smallest = index;
+      if (leftChild < length && this.compare(this.data[leftChild], this.data[smallest]) < 0) {
+        smallest = leftChild;
+      }
+      if (rightChild < length && this.compare(this.data[rightChild], this.data[smallest]) < 0) {
+        smallest = rightChild;
+      }
+      if (smallest === index) break;
+      this.swap(index, smallest);
+      index = smallest;
+    }
+  }
+  swap(i, j) {
+    const temp = this.data[i];
+    this.data[i] = this.data[j];
+    this.data[j] = temp;
+  }
+};
+
+// src/graph/traversal.ts
+function getNeighborIds(graph, id, options) {
+  if (!graph.hasNode(id)) {
+    return [];
+  }
+  let neighbors;
+  switch (options.direction) {
+    case "in":
+      neighbors = graph.inNeighbors(id);
+      break;
+    case "out":
+      neighbors = graph.outNeighbors(id);
+      break;
+    case "both":
+      neighbors = graph.neighbors(id);
+      break;
+  }
+  if (options.limit !== void 0) {
+    if (options.limit <= 0) {
+      return [];
+    }
+    if (options.limit < neighbors.length) {
+      return neighbors.slice(0, options.limit);
+    }
+  }
+  return neighbors;
+}
+function findPath(graph, source, target) {
+  if (!graph.hasNode(source) || !graph.hasNode(target)) {
+    return null;
+  }
+  if (source === target) {
+    return [source];
+  }
+  const path = bidirectional(graph, source, target);
+  return path;
+}
+function getHubs(graph, metric, limit) {
+  if (limit <= 0) {
+    return [];
+  }
+  const heap = new MinHeap((a, b) => a[1] - b[1]);
+  graph.forEachNode((id) => {
+    const score = metric === "in_degree" ? graph.inDegree(id) : graph.outDegree(id);
+    if (heap.size() < limit) {
+      heap.push([id, score]);
+    } else if (score > heap.peek()[1]) {
+      heap.pop();
+      heap.push([id, score]);
+    }
+  });
+  return heap.toArray().sort((a, b) => b[1] - a[1]);
+}
+
+// src/graph/analysis.ts
+function computeCentrality(graph) {
+  const result = /* @__PURE__ */ new Map();
+  graph.forEachNode((id) => {
+    result.set(id, {
+      inDegree: graph.inDegree(id),
+      outDegree: graph.outDegree(id)
+    });
+  });
+  return result;
+}
+
+// src/graph/manager.ts
+var GraphNotReadyError = class extends Error {
+  constructor() {
+    super("Graph not built. Call build() before querying.");
+    this.name = "GraphNotReadyError";
+  }
+};
+var GraphManager = class {
+  graph = null;
+  /** Build graph and return centrality metrics. Caller stores as needed. */
+  build(nodes) {
+    this.graph = buildGraph(nodes);
+    return computeCentrality(this.graph);
+  }
+  /** Throws GraphNotReadyError if not built. Returns graph for query use. */
+  assertReady() {
+    if (!this.graph) throw new GraphNotReadyError();
+    return this.graph;
+  }
+  isReady() {
+    return this.graph !== null;
+  }
+  getNeighborIds(id, options) {
+    return getNeighborIds(this.assertReady(), id, options);
+  }
+  findPath(source, target) {
+    return findPath(this.assertReady(), source, target);
+  }
+  getHubs(metric, limit) {
+    return getHubs(this.assertReady(), metric, limit);
+  }
+};
+
+// src/providers/store/resolve.ts
+var import_string_similarity = __toESM(require_src(), 1);
+function resolveNames(names, candidates, options) {
+  if (names.length === 0) return [];
+  const { strategy, threshold } = options;
+  if (candidates.length === 0) {
+    return names.map((query) => ({ query, match: null, score: 0 }));
+  }
+  const candidateTitles = candidates.map((c) => c.title.toLowerCase());
+  const titleToId = /* @__PURE__ */ new Map();
+  for (const c of candidates) {
+    titleToId.set(c.title.toLowerCase(), c.id);
+  }
+  return names.map((query) => {
+    const queryLower = query.toLowerCase();
+    if (strategy === "exact") {
+      const matchedId = titleToId.get(queryLower);
+      if (matchedId) {
+        return { query, match: matchedId, score: 1 };
+      }
+      return { query, match: null, score: 0 };
+    }
+    if (strategy === "fuzzy") {
+      const result = import_string_similarity.default.findBestMatch(queryLower, candidateTitles);
+      const bestMatch = result.bestMatch;
+      if (bestMatch.rating >= threshold) {
+        const matchedId = titleToId.get(bestMatch.target);
+        return { query, match: matchedId, score: bestMatch.rating };
+      }
+      return { query, match: null, score: 0 };
+    }
+    return { query, match: null, score: 0 };
+  });
+}
+
+// src/providers/store/index.ts
+var StoreProvider = class {
+  graphManager = new GraphManager();
+  vectorIndex;
+  constructor(options) {
+    this.vectorIndex = options?.vectorIndex ?? null;
+  }
+  // ── Graph operations (delegate to GraphManager) ────────────
+  async getNeighbors(id, options) {
+    if (!this.graphManager.isReady()) return [];
+    const neighborIds = this.graphManager.getNeighborIds(id, options);
+    return this.getNodesByIds(neighborIds);
+  }
+  async findPath(source, target) {
+    if (!this.graphManager.isReady()) return null;
+    return this.graphManager.findPath(source, target);
+  }
+  async getHubs(metric, limit) {
+    if (!this.graphManager.isReady()) return [];
+    return this.graphManager.getHubs(metric, limit);
+  }
+  // ── Vector operations (delegate to VectorIndex) ────────────
+  async storeEmbedding(id, vector, model) {
+    if (!this.vectorIndex) throw new Error("No VectorIndex configured");
+    return this.vectorIndex.store(id, vector, model);
+  }
+  async searchByVector(vector, limit) {
+    if (!this.vectorIndex) throw new Error("No VectorIndex configured");
+    return this.vectorIndex.search(vector, limit);
+  }
+  // ── Discovery ──────────────────────────────────────────────
+  async getRandomNode(tags) {
+    let candidates;
+    if (tags && tags.length > 0) {
+      candidates = await this.searchByTags(tags, "any");
+    } else {
+      candidates = await this.loadAllNodes();
+    }
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+  // ── Default implementations (overridable) ──────────────────
+  async searchByTags(tags, mode, limit) {
+    const allNodes = await this.loadAllNodes();
+    const lowerTags = tags.map((t) => t.toLowerCase());
+    let results = allNodes.filter((node) => {
+      const nodeTags = node.tags.map((t) => t.toLowerCase());
+      return mode === "any" ? lowerTags.some((t) => nodeTags.includes(t)) : lowerTags.every((t) => nodeTags.includes(t));
+    });
+    if (limit !== void 0) results = results.slice(0, limit);
+    return results;
+  }
+  async listNodes(filter, options) {
+    let nodes = await this.loadAllNodes();
+    if (filter.tag) {
+      const lower = filter.tag.toLowerCase();
+      nodes = nodes.filter((n) => n.tags.some((t) => t.toLowerCase() === lower));
+    }
+    if (filter.path) {
+      nodes = nodes.filter((n) => n.id.startsWith(filter.path));
+    }
+    const total = nodes.length;
+    const offset = options?.offset ?? 0;
+    const limit = Math.min(options?.limit ?? 100, 1e3);
+    const sliced = nodes.slice(offset, offset + limit);
+    return {
+      nodes: sliced.map((n) => ({ id: n.id, title: n.title })),
+      total
+    };
+  }
+  async nodesExist(ids) {
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const found = await this.getNodesByIds(ids);
+    const foundIds = new Set(found.map((n) => n.id));
+    const result = /* @__PURE__ */ new Map();
+    for (const id of ids) {
+      result.set(id, foundIds.has(id));
+    }
+    return result;
+  }
+  async resolveTitles(ids) {
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const nodes = await this.getNodesByIds(ids);
+    const result = /* @__PURE__ */ new Map();
+    for (const node of nodes) {
+      result.set(node.id, node.title);
+    }
+    return result;
+  }
+  async resolveNodes(names, options) {
+    const strategy = options?.strategy ?? "fuzzy";
+    if (strategy === "semantic") {
+      return names.map((query) => ({ query, match: null, score: 0 }));
+    }
+    const allNodes = await this.loadAllNodes();
+    let candidates = allNodes.map((n) => ({ id: n.id, title: n.title }));
+    if (options?.tag) {
+      const lower = options.tag.toLowerCase();
+      const filtered = allNodes.filter((n) => n.tags.some((t) => t.toLowerCase() === lower));
+      candidates = filtered.map((n) => ({ id: n.id, title: n.title }));
+    }
+    if (options?.path) {
+      candidates = candidates.filter((c) => c.id.startsWith(options.path));
+    }
+    return resolveNames(names, candidates, {
+      strategy,
+      threshold: options?.threshold ?? 0.7
+    });
+  }
+  // ── Graph lifecycle ────────────────────────────────────────
+  async syncGraph() {
+    const nodes = await this.loadAllNodes();
+    const centrality = this.graphManager.build(nodes);
+    this.onCentralityComputed(centrality);
+  }
+  onCentralityComputed(_centrality) {
+  }
+};
 
 // src/providers/docstore/cache.ts
 import Database from "better-sqlite3";
@@ -187,41 +528,6 @@ function getCentrality(db, nodeId) {
     outDegree: row.out_degree,
     computedAt: row.computed_at
   };
-}
-
-// src/providers/docstore/cache/resolve.ts
-var import_string_similarity = __toESM(require_src(), 1);
-function resolveNames(names, candidates, options) {
-  if (names.length === 0) return [];
-  const { strategy, threshold } = options;
-  if (candidates.length === 0) {
-    return names.map((query) => ({ query, match: null, score: 0 }));
-  }
-  const candidateTitles = candidates.map((c) => c.title.toLowerCase());
-  const titleToId = /* @__PURE__ */ new Map();
-  for (const c of candidates) {
-    titleToId.set(c.title.toLowerCase(), c.id);
-  }
-  return names.map((query) => {
-    const queryLower = query.toLowerCase();
-    if (strategy === "exact") {
-      const matchedId = titleToId.get(queryLower);
-      if (matchedId) {
-        return { query, match: matchedId, score: 1 };
-      }
-      return { query, match: null, score: 0 };
-    }
-    if (strategy === "fuzzy") {
-      const result = import_string_similarity.default.findBestMatch(queryLower, candidateTitles);
-      const bestMatch = result.bestMatch;
-      if (bestMatch.rating >= threshold) {
-        const matchedId = titleToId.get(bestMatch.target);
-        return { query, match: matchedId, score: bestMatch.rating };
-      }
-      return { query, match: null, score: 0 };
-    }
-    return { query, match: null, score: 0 };
-  });
 }
 
 // src/providers/docstore/cache.ts
@@ -499,7 +805,7 @@ function isZeroVector(v) {
 }
 
 // src/providers/vector/sqlite.ts
-var SqliteVectorProvider = class {
+var SqliteVectorIndex = class {
   db;
   ownsDb;
   constructor(pathOrDb) {
@@ -685,157 +991,6 @@ function serializeToMarkdown(parsed) {
     frontmatter[key] = value;
   }
   return matter.stringify(parsed.content, frontmatter);
-}
-
-// src/graph/builder.ts
-import { DirectedGraph } from "graphology";
-function buildGraph(nodes) {
-  const graph = new DirectedGraph();
-  const nodeIds = /* @__PURE__ */ new Set();
-  for (const node of nodes) {
-    graph.addNode(node.id);
-    nodeIds.add(node.id);
-  }
-  for (const node of nodes) {
-    const seen = /* @__PURE__ */ new Set();
-    for (const target of node.outgoingLinks) {
-      if (!nodeIds.has(target) || seen.has(target)) {
-        continue;
-      }
-      seen.add(target);
-      graph.addDirectedEdge(node.id, target);
-    }
-  }
-  return graph;
-}
-
-// src/graph/operations.ts
-import { bidirectional } from "graphology-shortest-path";
-
-// src/utils/heap.ts
-var MinHeap = class {
-  data = [];
-  compare;
-  constructor(comparator) {
-    this.compare = comparator;
-  }
-  size() {
-    return this.data.length;
-  }
-  peek() {
-    return this.data[0];
-  }
-  push(value) {
-    this.data.push(value);
-    this.bubbleUp(this.data.length - 1);
-  }
-  pop() {
-    if (this.data.length === 0) return void 0;
-    if (this.data.length === 1) return this.data.pop();
-    const min = this.data[0];
-    this.data[0] = this.data.pop();
-    this.bubbleDown(0);
-    return min;
-  }
-  toArray() {
-    return [...this.data];
-  }
-  bubbleUp(index) {
-    while (index > 0) {
-      const parentIndex = Math.floor((index - 1) / 2);
-      if (this.compare(this.data[index], this.data[parentIndex]) >= 0) {
-        break;
-      }
-      this.swap(index, parentIndex);
-      index = parentIndex;
-    }
-  }
-  bubbleDown(index) {
-    const length = this.data.length;
-    while (true) {
-      const leftChild = 2 * index + 1;
-      const rightChild = 2 * index + 2;
-      let smallest = index;
-      if (leftChild < length && this.compare(this.data[leftChild], this.data[smallest]) < 0) {
-        smallest = leftChild;
-      }
-      if (rightChild < length && this.compare(this.data[rightChild], this.data[smallest]) < 0) {
-        smallest = rightChild;
-      }
-      if (smallest === index) break;
-      this.swap(index, smallest);
-      index = smallest;
-    }
-  }
-  swap(i, j) {
-    const temp = this.data[i];
-    this.data[i] = this.data[j];
-    this.data[j] = temp;
-  }
-};
-
-// src/graph/operations.ts
-function getNeighborIds(graph, id, options) {
-  if (!graph.hasNode(id)) {
-    return [];
-  }
-  let neighbors;
-  switch (options.direction) {
-    case "in":
-      neighbors = graph.inNeighbors(id);
-      break;
-    case "out":
-      neighbors = graph.outNeighbors(id);
-      break;
-    case "both":
-      neighbors = graph.neighbors(id);
-      break;
-  }
-  if (options.limit !== void 0) {
-    if (options.limit <= 0) {
-      return [];
-    }
-    if (options.limit < neighbors.length) {
-      return neighbors.slice(0, options.limit);
-    }
-  }
-  return neighbors;
-}
-function findPath(graph, source, target) {
-  if (!graph.hasNode(source) || !graph.hasNode(target)) {
-    return null;
-  }
-  if (source === target) {
-    return [source];
-  }
-  const path = bidirectional(graph, source, target);
-  return path;
-}
-function getHubs(graph, metric, limit) {
-  if (limit <= 0) {
-    return [];
-  }
-  const heap = new MinHeap((a, b) => a[1] - b[1]);
-  graph.forEachNode((id) => {
-    const score = metric === "in_degree" ? graph.inDegree(id) : graph.outDegree(id);
-    if (heap.size() < limit) {
-      heap.push([id, score]);
-    } else if (score > heap.peek()[1]) {
-      heap.pop();
-      heap.push([id, score]);
-    }
-  });
-  return heap.toArray().sort((a, b) => b[1] - a[1]);
-}
-function computeCentrality(graph) {
-  const result = /* @__PURE__ */ new Map();
-  graph.forEachNode((id) => {
-    result.set(id, {
-      inDegree: graph.inDegree(id),
-      outDegree: graph.outDegree(id)
-    });
-  });
-  return result;
 }
 
 // src/providers/docstore/watcher.ts
@@ -1139,20 +1294,21 @@ function createDefaultRegistry() {
   registry.register(new MarkdownReader());
   return registry;
 }
-var DocStore = class {
+var DocStore = class extends StoreProvider {
   cache;
   sourceRoot;
-  graph = null;
-  vectorProvider;
-  ownsVectorProvider;
+  ownsVectorIndex;
   registry;
   fileWatcher = null;
   onChangeCallback;
-  constructor(sourceRoot, cacheDir, vectorProvider, registry) {
+  constructor(sourceRoot, cacheDir, vectorIndex, registry) {
+    const ownsVector = !vectorIndex;
+    if (!vectorIndex) mkdirSync2(cacheDir, { recursive: true });
+    const vi = vectorIndex ?? new SqliteVectorIndex(cacheDir);
+    super({ vectorIndex: vi });
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
-    this.ownsVectorProvider = !vectorProvider;
-    this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
+    this.ownsVectorIndex = ownsVector;
     this.registry = registry ?? createDefaultRegistry();
   }
   async sync() {
@@ -1185,7 +1341,7 @@ var DocStore = class {
       }
     }
     this.resolveAllLinks();
-    this.rebuildGraph();
+    await this.syncGraph();
   }
   async createNode(node) {
     const normalizedId = normalizeId(node.id);
@@ -1205,10 +1361,16 @@ var DocStore = class {
     };
     const markdown = serializeToMarkdown(parsed);
     await writeFile(filePath, markdown, "utf-8");
+    let outgoingLinks = node.outgoingLinks;
+    if (node.content && (!outgoingLinks || outgoingLinks.length === 0)) {
+      const rawLinks = extractWikiLinks(node.content);
+      outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
+    }
     const mtime = await getFileMtime(filePath);
-    const normalizedNode = { ...node, id: normalizedId };
+    const normalizedNode = { ...node, id: normalizedId, outgoingLinks: outgoingLinks ?? [] };
     this.cache.upsertNode(normalizedNode, "file", filePath, mtime);
-    this.rebuildGraph();
+    this.resolveAllLinks();
+    await this.syncGraph();
   }
   async updateNode(id, updates) {
     const normalizedId = normalizeId(id);
@@ -1240,7 +1402,8 @@ var DocStore = class {
     const mtime = await getFileMtime(filePath);
     this.cache.upsertNode(updated, "file", filePath, mtime);
     if (outgoingLinks !== void 0 || updates.outgoingLinks !== void 0) {
-      this.rebuildGraph();
+      this.resolveAllLinks();
+      await this.syncGraph();
     }
   }
   async deleteNode(id) {
@@ -1252,8 +1415,8 @@ var DocStore = class {
     const filePath = join4(this.sourceRoot, existing.id);
     await rm(filePath);
     this.cache.deleteNode(existing.id);
-    await this.vectorProvider.delete(existing.id);
-    this.rebuildGraph();
+    if (this.vectorIndex) await this.vectorIndex.delete(existing.id);
+    await this.syncGraph();
   }
   async getNode(id) {
     const normalizedId = normalizeId(id);
@@ -1269,19 +1432,6 @@ var DocStore = class {
   }
   async searchByTags(tags, mode, limit) {
     return this.cache.searchByTags(tags, mode, limit);
-  }
-  async getRandomNode(tags) {
-    let candidates;
-    if (tags && tags.length > 0) {
-      candidates = await this.searchByTags(tags, "any");
-    } else {
-      candidates = this.cache.getAllNodes();
-    }
-    if (candidates.length === 0) {
-      return null;
-    }
-    const randomIndex = Math.floor(Math.random() * candidates.length);
-    return candidates[randomIndex];
   }
   async resolveTitles(ids) {
     return this.cache.resolveTitles(ids);
@@ -1300,33 +1450,15 @@ var DocStore = class {
     const normalizedIds = ids.map(normalizeId);
     return this.cache.nodesExist(normalizedIds);
   }
-  async getNeighbors(id, options) {
-    this.ensureGraph();
-    const neighborIds = getNeighborIds(this.graph, id, options);
-    return this.cache.getNodes(neighborIds);
-  }
-  async findPath(source, target) {
-    this.ensureGraph();
-    return findPath(this.graph, source, target);
-  }
-  async getHubs(metric, limit) {
-    this.ensureGraph();
-    return getHubs(this.graph, metric, limit);
-  }
-  async storeEmbedding(id, vector, model) {
-    return this.vectorProvider.store(id, vector, model);
-  }
-  async searchByVector(vector, limit) {
-    return this.vectorProvider.search(vector, limit);
-  }
   hasEmbedding(id) {
-    return this.vectorProvider.hasEmbedding(id);
+    if (!this.vectorIndex) return false;
+    return this.vectorIndex.hasEmbedding(id);
   }
   close() {
     this.stopWatching();
     this.cache.close();
-    if (this.ownsVectorProvider && "close" in this.vectorProvider) {
-      this.vectorProvider.close();
+    if (this.ownsVectorIndex && this.vectorIndex && "close" in this.vectorIndex) {
+      this.vectorIndex.close();
     }
   }
   startWatching(onChange) {
@@ -1359,7 +1491,7 @@ var DocStore = class {
           const existing = this.cache.getNode(id);
           if (existing) {
             this.cache.deleteNode(id);
-            await this.vectorProvider.delete(id);
+            if (this.vectorIndex) await this.vectorIndex.delete(id);
             processedIds.push(id);
           }
         } else {
@@ -1375,7 +1507,7 @@ var DocStore = class {
     }
     if (processedIds.length > 0) {
       this.resolveAllLinks();
-      this.rebuildGraph();
+      await this.syncGraph();
     }
     if (this.onChangeCallback && processedIds.length > 0) {
       this.onChangeCallback(processedIds);
@@ -1401,15 +1533,14 @@ var DocStore = class {
       }
     }
   }
-  ensureGraph() {
-    if (!this.graph) {
-      this.rebuildGraph();
-    }
+  // ── StoreProvider abstract method implementations ─────────
+  async loadAllNodes() {
+    return this.cache.getAllNodes();
   }
-  rebuildGraph() {
-    const nodes = this.cache.getAllNodes();
-    this.graph = buildGraph(nodes);
-    const centrality = computeCentrality(this.graph);
+  async getNodesByIds(ids) {
+    return this.cache.getNodes(ids);
+  }
+  onCentralityComputed(centrality) {
     const now = Date.now();
     for (const [id, metrics] of centrality) {
       this.cache.storeCentrality(id, 0, metrics.inDegree, metrics.outDegree, now);
@@ -1437,7 +1568,7 @@ var DocStore = class {
 import { pipeline } from "@xenova/transformers";
 var DEFAULT_MODEL = "Xenova/all-MiniLM-L6-v2";
 var DEFAULT_DIMENSIONS = 384;
-var TransformersEmbeddingProvider = class {
+var TransformersEmbedding = class {
   model;
   dims;
   pipe = null;
@@ -1488,13 +1619,13 @@ var GraphCoreImpl = class _GraphCoreImpl {
   }
   requireStore() {
     if (!this.store) {
-      throw new Error("StoreProvider not registered");
+      throw new Error("Store not registered");
     }
     return this.store;
   }
   requireEmbedding() {
     if (!this.embedding) {
-      throw new Error("EmbeddingProvider not registered");
+      throw new Error("Embedding not registered");
     }
     return this.embedding;
   }
@@ -1601,7 +1732,7 @@ var GraphCoreImpl = class _GraphCoreImpl {
     const strategy = options?.strategy ?? "fuzzy";
     if (strategy === "semantic") {
       if (!this.embedding) {
-        throw new Error("Semantic resolution requires EmbeddingProvider");
+        throw new Error("Semantic resolution requires Embedding");
       }
       const filter = {};
       if (options?.tag) filter.tag = options.tag;
@@ -1644,7 +1775,7 @@ var GraphCoreImpl = class _GraphCoreImpl {
   }
   static fromConfig(config) {
     if (!config.providers?.store) {
-      throw new Error("StoreProvider configuration is required");
+      throw new Error("Store configuration is required");
     }
     const core = new _GraphCoreImpl();
     if (config.providers.store.type === "docstore") {
@@ -1660,7 +1791,7 @@ var GraphCoreImpl = class _GraphCoreImpl {
     const embeddingConfig = config.providers.embedding;
     if (!embeddingConfig || embeddingConfig.type === "local") {
       const model = embeddingConfig?.model;
-      const embedding = new TransformersEmbeddingProvider(model);
+      const embedding = new TransformersEmbedding(model);
       core.registerEmbedding(embedding);
     } else {
       throw new Error(
@@ -1677,11 +1808,12 @@ export {
   DEFAULT_CONFIG,
   DocStore,
   GraphCoreImpl,
-  SqliteVectorProvider,
-  TransformersEmbeddingProvider,
+  SqliteVectorIndex,
+  StoreProvider,
+  TransformersEmbedding,
   VERSION,
   isNode,
   isSourceRef,
-  isVectorProvider
+  isVectorIndex
 };
 //# sourceMappingURL=index.js.map

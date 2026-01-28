@@ -288,6 +288,37 @@ Content`
 
         await expect(store.createNode(node)).rejects.toThrow(/exists/i);
       });
+
+      it('extracts wikilinks from content and resolves to graph edges', async () => {
+        // Set up a target node in a subdirectory
+        await writeMarkdownFile(
+          'recipes/soup.md',
+          '---\ntitle: Soup\n---\nA warm bowl.'
+        );
+        await store.sync();
+
+        // Create a new node with wikilink to the target
+        const node: Node = {
+          id: 'notes/meal-plan.md',
+          title: 'Meal Plan',
+          content: 'Tonight: [[soup]]',
+          tags: [],
+          outgoingLinks: [],
+          properties: {},
+        };
+
+        await store.createNode(node);
+
+        // The created node should have resolved outgoing links
+        const created = await store.getNode('notes/meal-plan.md');
+        expect(created?.outgoingLinks).toContain('recipes/soup.md');
+
+        // The graph should have the edge
+        const neighbors = await store.getNeighbors('notes/meal-plan.md', {
+          direction: 'out',
+        });
+        expect(neighbors.map((n) => n.id)).toContain('recipes/soup.md');
+      });
     });
 
     describe('updateNode', () => {
@@ -356,6 +387,30 @@ Original content`
           direction: 'out',
         });
         expect(neighbors.map((n) => n.id)).toContain('linked.md');
+      });
+
+      it('resolves wikilinks in updated content to full paths', async () => {
+        // Add a node in a subdirectory
+        await writeMarkdownFile(
+          'recipes/pasta.md',
+          '---\ntitle: Pasta\n---\nBoil water.'
+        );
+        await store.sync();
+
+        // Update target's content with a bare wikilink
+        await store.updateNode('target.md', {
+          content: 'Make some [[pasta]] tonight.',
+        });
+
+        // The link should resolve from "pasta.md" to "recipes/pasta.md"
+        const node = await store.getNode('target.md');
+        expect(node?.outgoingLinks).toContain('recipes/pasta.md');
+
+        // Graph should reflect the resolved edge
+        const neighbors = await store.getNeighbors('target.md', {
+          direction: 'out',
+        });
+        expect(neighbors.map((n) => n.id)).toContain('recipes/pasta.md');
       });
     });
 

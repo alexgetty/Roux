@@ -8,10 +8,10 @@ describe('roux', () => {
 });
 
 describe('naming convention exports', () => {
-  it('exports Store interface (renamed from StoreProvider)', async () => {
+  it('exports StoreProvider abstract class', async () => {
     const mod = await import('../../src/index.js');
-    // Store is a type-only export — verify it doesn't export under the old name
-    expect(mod).not.toHaveProperty('StoreProvider');
+    expect(mod).toHaveProperty('StoreProvider');
+    expect(typeof mod.StoreProvider).toBe('function');
   });
 
   it('exports Embedding interface (renamed from EmbeddingProvider)', async () => {
