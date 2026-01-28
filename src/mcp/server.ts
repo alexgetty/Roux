@@ -9,6 +9,7 @@ import {
 
 import type { GraphCore } from '../types/graphcore.js';
 import type { Store } from '../types/provider.js';
+import { DEFAULT_NAMING, type NamingConventions } from '../types/config.js';
 import { VERSION } from '../index.js';
 import { McpError } from './types.js';
 import { dispatchTool, type HandlerContext } from './handlers.js';
@@ -20,6 +21,8 @@ export interface McpServerOptions {
   store: Store;
   /** Whether embedding provider is available (enables search tool) */
   hasEmbedding: boolean;
+  /** Naming conventions for file creation */
+  naming?: NamingConventions;
 }
 
 /** MCP Transport interface for server connection. */
@@ -466,6 +469,7 @@ export class McpServer {
       core: options.core,
       store: options.store,
       hasEmbedding: options.hasEmbedding,
+      naming: options.naming ?? DEFAULT_NAMING,
     };
 
     this.server = new Server(

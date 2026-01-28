@@ -1,25 +1,21 @@
-# EmbeddingProvider
+---
+title: Embeddingprovider
+---
+# Embedding
 
 Vector generation for semantic search.
 
 ## Overview
 
-EmbeddingProvider transforms text into vectors that capture meaning. This enables similarity search: find nodes that are semantically related even if they share no keywords.
+The Embedding interface transforms text into vectors that capture meaning. This enables similarity search: find nodes that are semantically related even if they share no keywords.
 
 ## Interface
 
-See [[decisions/Search Ownership]] and [[decisions/Vector Storage]] for rationale.
+See `src/types/provider.ts` for the current `Embedding` interface definition. See [[decisions/Search Ownership]] and [[decisions/Vector Storage]] for rationale.
 
-```typescript
-interface EmbeddingProvider {
-  embed(text: string): Promise<number[]>;
-  embedBatch(texts: string[]): Promise<number[][]>;
-  dimensions(): number;   // Vector dimensions for storage allocation
-  modelId(): string;      // For tracking which model generated vectors
-}
-```
+Key methods: `embed()`, `embedBatch()`, `dimensions()`, `modelId()`.
 
-**Note:** EmbeddingProvider is **stateless**. It generates vectors only. Storage and search are handled by [[StoreProvider]].
+**Note:** Embedding is **stateless**. It generates vectors only. Storage and search are handled by [[StoreProvider]].
 
 ## Implementations
 
@@ -48,17 +44,17 @@ providers:
 
 ## Role in Search
 
-EmbeddingProvider's only job is converting text to vectors. Search orchestration (query → embed → search → rank) is handled by [[GraphCore]].
+Embedding's only job is converting text to vectors. Search orchestration (query → embed → search → rank) is handled by [[GraphCore]].
 
 ## Storage
 
-Embeddings are persisted by [[StoreProvider]], not EmbeddingProvider. See [[decisions/Vector Storage]].
+Embeddings are persisted by [[StoreProvider]], not Embedding. See [[decisions/Vector Storage]].
 
-- EmbeddingProvider generates vectors (stateless)
-- StoreProvider stores vectors alongside node data
-- StoreProvider handles similarity search via `searchByVector()`
+- Embedding generates vectors (stateless)
+- Store persists vectors alongside node data
+- Store handles similarity search via `searchByVector()`
 
-This keeps EmbeddingProvider trivial to implement and swap. Vector storage is the Store's responsibility.
+This keeps Embedding trivial to implement and swap. Vector storage is the Store's responsibility.
 
 **Provider swap behavior** (system-level `on_model_change` setting):
 - `lazy` (default): New/updated nodes use new provider. Old embeddings untouched.

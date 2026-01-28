@@ -87,6 +87,32 @@ export function resolveLinks(
       return matches[0]!;
     }
 
+    // Fallback: try space↔dash variant
+    const variant = spaceDashVariant(link);
+    if (variant) {
+      const variantMatches = filenameIndex.get(variant);
+      if (variantMatches && variantMatches.length > 0) {
+        return variantMatches[0]!;
+      }
+    }
+
     return link;
   });
+}
+
+/**
+ * Generate the space↔dash variant of a filename.
+ * Returns null if the filename has both or neither spaces and dashes.
+ */
+export function spaceDashVariant(filename: string): string | null {
+  const hasSpace = filename.includes(' ');
+  const hasDash = filename.includes('-');
+
+  if (hasSpace && !hasDash) {
+    return filename.replace(/ /g, '-');
+  }
+  if (hasDash && !hasSpace) {
+    return filename.replace(/-/g, ' ');
+  }
+  return null;
 }

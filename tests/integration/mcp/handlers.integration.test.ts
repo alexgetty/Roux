@@ -52,6 +52,7 @@ describe('MCP Handlers Integration', () => {
       core,
       store,
       hasEmbedding: true,
+      naming: { filename: 'space', title: 'title' },
     };
   });
 
@@ -336,6 +337,7 @@ describe('MCP Handlers Integration', () => {
         core: emptyCore,
         store: emptyStore,
         hasEmbedding: false,
+        naming: { filename: 'space', title: 'title' },
       };
 
       const result = await handleRandomNode(emptyCtx, {});

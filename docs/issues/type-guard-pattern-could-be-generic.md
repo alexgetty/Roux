@@ -9,12 +9,12 @@ tags:
 
 ## Problem
 
-`isNode` and `isVectorProvider` follow identical structural patterns that could potentially use a generic helper.
+`isNode` and `isVectorIndex` follow identical structural patterns that could potentially use a generic helper.
 
 ## Locations
 
-- `src/types/node.ts:27-57` - `isNode()`
-- `src/types/provider.ts:126-138` - `isVectorProvider()`
+- `src/types/node.ts` - `isNode()`
+- `src/types/provider.ts` - `isVectorIndex()` (renamed from `isVectorProvider` in naming refactor)
 
 ## Evidence
 

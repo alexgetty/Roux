@@ -1,3 +1,6 @@
+---
+title: Graphcore
+---
 # GraphCore
 
 The orchestration hub of Roux. Defines provider interfaces, routes requests, coordinates responses. Has zero functionality without providers.
@@ -17,62 +20,21 @@ Think of it as a switchboard: external interfaces call GraphCore, GraphCore rout
 
 ## Interface
 
-```typescript
-// Supporting types
-interface SearchOptions {
-  limit?: number;           // Max results (default: 10)
-  threshold?: number;       // Min similarity score (0-1)
-  tags?: string[];          // Filter by tags
-}
+See `src/types/graphcore.ts` for the current interface definition. Key operations:
 
-interface NodeWithContext extends Node {
-  neighbors?: Node[];       // Adjacent nodes (when depth > 0)
-  incomingCount?: number;   // Number of nodes linking TO this node
-  outgoingCount?: number;   // Number of nodes this links TO
-}
+- **Provider registration** — `registerStore()`, `registerEmbedding()`
+- **CRUD** — `search()`, `getNode()`, `createNode()`, `updateNode()`, `deleteNode()`
+- **Graph** — `getNeighbors()`, `findPath()`, `getHubs()`
+- **Discovery** — `searchByTags()`, `getRandomNode()`
+- **Batch** — `listNodes()`, `resolveNodes()`
 
-// Core interface
-interface GraphCore {
-  // Provider registration
-  registerStore(provider: StoreProvider): void;
-  registerEmbedding(provider: EmbeddingProvider): void;
-  registerLLM(provider: LLMProvider): void;
-  // ... other providers
-
-  // Unified operations (delegates to providers)
-  search(query: string, options?: SearchOptions): Promise<Node[]>;
-  getNode(id: string, depth?: number): Promise<NodeWithContext | null>;
-  createNode(node: Partial<Node>): Promise<Node>;
-  updateNode(id: string, updates: Partial<Node>): Promise<Node>;
-  deleteNode(id: string): Promise<boolean>;
-
-  // Graph operations
-  getNeighbors(id: string, options: NeighborOptions): Promise<Node[]>;
-  findPath(source: string, target: string): Promise<string[] | null>;
-  getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
-}
-```
-
-**GraphCore vs StoreProvider return types:** GraphCore returns enriched types (`Node`, `NodeWithContext`) while StoreProvider mutations return `void`. GraphCore hydrates responses by calling StoreProvider getters after mutations. This keeps StoreProvider simple (storage-focused) while GraphCore provides a richer API for external interfaces.
+**GraphCore vs Store return types:** GraphCore returns enriched types (`Node`, `NodeWithContext`) while Store mutations return `void`. GraphCore hydrates responses by calling Store getters after mutations. This keeps Store simple (storage-focused) while GraphCore provides a richer API for external interfaces.
 
 ## Search Orchestration
 
 See [[decisions/Search Ownership]].
 
-GraphCore orchestrates semantic search by coordinating stateless providers:
-
-```typescript
-async search(query: string, limit: number): Promise<Node[]> {
-  // 1. Generate query vector (stateless EmbeddingProvider)
-  const vector = await this.embedding.embed(query);
-
-  // 2. Find nearest neighbors (StoreProvider owns vector index)
-  const results = await this.store.searchByVector(vector, limit);
-
-  // 3. Hydrate full nodes
-  return this.store.getNodes(results.map(r => r.id));
-}
-```
+GraphCore orchestrates semantic search by coordinating stateless providers: embed the query via [[EmbeddingProvider]], find nearest neighbors via Store's vector index, then hydrate full nodes.
 
 ## Configuration Spectrum
 
@@ -105,6 +67,5 @@ These are internal to GraphCore—not architectural components, but the language
 - [[GPI]] — What GraphCore serves
 - [[StoreProvider]] — Data persistence
 - [[EmbeddingProvider]] — Vector generation
-- [[LLMProvider]] — Text generation
 - [[MCP Server]] — Primary external interface
 - [[decisions/Graphology Lifecycle]] — Graph construction and sync timing

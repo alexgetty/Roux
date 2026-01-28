@@ -1,6 +1,9 @@
+---
+title: Mcp Tools Schema
+---
 # MCP Tools Schema
 
-Exact specifications for all MCP tools. Phase 9 implements these verbatim.
+Exact specifications for all MCP tools.
 
 ## Design Principles
 
@@ -40,11 +43,11 @@ interface NodeResponse {
 
 **Why `links` with titles instead of just IDs?**
 
-Link titles provide semantic context for LLM reasoning. The StoreProvider resolves IDs to titles:
+Link titles provide semantic context for LLM reasoning. The Store resolves IDs to titles:
 - **DocStore**: Derives title from file path (zero IO)
 - **Neo4jStore**: Batch queries for title property (one round-trip)
 
-This abstraction keeps MCP store-agnostic while enabling rich context. See `StoreProvider.resolveTitles()`.
+This abstraction keeps MCP store-agnostic while enabling rich context. See `Store.resolveTitles()`.
 
 ### NodeWithContextResponse
 
@@ -79,7 +82,7 @@ Hub results pair ID with metric value.
 interface HubResponse {
   id: string;
   title: string;
-  score: number;  // Metric value (in_degree count, pagerank, etc.)
+  score: number;  // Metric value (in_degree count, out_degree count)
 }
 ```
 
@@ -116,7 +119,7 @@ Truncation appends `... [truncated]` to indicate partial content.
 
 Semantic similarity search.
 
-**Required provider:** EmbeddingProvider (tool hidden if not configured)
+**Required provider:** Embedding (tool hidden if not configured)
 
 **Input Schema:**
 ```json
@@ -133,6 +136,11 @@ Semantic similarity search.
       "maximum": 50,
       "default": 10,
       "description": "Maximum results to return"
+    },
+    "include_content": {
+      "type": "boolean",
+      "default": false,
+      "description": "Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content."
     }
   },
   "required": ["query"]
@@ -140,8 +148,6 @@ Semantic similarity search.
 ```
 
 **Response:** `SearchResultResponse[]`
-
-**Future:** `threshold` parameter (0-1 min similarity) deferred. See Post-MVP in [[MVP Implementation Plan]].
 
 **Example:**
 ```json
@@ -181,7 +187,7 @@ Retrieve single node with optional neighbor context.
   "properties": {
     "id": {
       "type": "string",
-      "description": "Node ID (file path for DocStore)"
+      "description": "Node ID (file path for DocStore). ID is normalized to lowercase."
     },
     "depth": {
       "type": "integer",
@@ -277,7 +283,7 @@ Get nodes linked to/from a node.
   "properties": {
     "id": {
       "type": "string",
-      "description": "Source node ID"
+      "description": "Source node ID. ID is normalized to lowercase."
     },
     "direction": {
       "type": "string",
@@ -291,6 +297,11 @@ Get nodes linked to/from a node.
       "maximum": 50,
       "default": 20,
       "description": "Maximum neighbors to return"
+    },
+    "include_content": {
+      "type": "boolean",
+      "default": false,
+      "description": "Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content."
     }
   },
   "required": ["id"]
@@ -317,11 +328,11 @@ Find shortest path between two nodes.
   "properties": {
     "source": {
       "type": "string",
-      "description": "Start node ID"
+      "description": "Start node ID. ID is normalized to lowercase."
     },
     "target": {
       "type": "string",
-      "description": "End node ID"
+      "description": "End node ID. ID is normalized to lowercase."
     }
   },
   "required": ["source", "target"]
@@ -388,7 +399,7 @@ Get most central nodes by graph metric.
 ]
 ```
 
-**Future:** `pagerank` metric deferred. See Post-MVP in [[MVP Implementation Plan]].
+**Future:** `pagerank` metric planned but not yet implemented.
 
 ---
 
@@ -472,26 +483,26 @@ Create a new node (writes file for DocStore).
 {
   "type": "object",
   "properties": {
-    "title": {
+    "id": {
       "type": "string",
-      "description": "Node title (becomes filename for DocStore)"
+      "description": "Full path for new node (must end in .md). Will be lowercased (spaces and special characters preserved). Example: \"notes/My Note.md\" creates \"notes/my note.md\""
     },
     "content": {
       "type": "string",
       "description": "Full text content (markdown)"
+    },
+    "title": {
+      "type": "string",
+      "description": "Optional display title. Defaults to filename without .md extension."
     },
     "tags": {
       "type": "array",
       "items": { "type": "string" },
       "default": [],
       "description": "Classification tags"
-    },
-    "directory": {
-      "type": "string",
-      "description": "Optional: subdirectory path (e.g., 'notes/drafts')"
     }
   },
-  "required": ["title", "content"]
+  "required": ["id", "content"]
 }
 ```
 
@@ -500,18 +511,16 @@ Create a new node (writes file for DocStore).
 **Example:**
 ```json
 {
-  "title": "Meeting Notes 2024-01-15",
+  "id": "meetings/meeting-notes-2024-01-15.md",
   "content": "# Meeting Notes\n\nDiscussed project timeline...",
-  "tags": ["meeting", "project-x"],
-  "directory": "meetings"
+  "tags": ["meeting", "project-x"]
 }
 ```
 
 **Behavior:**
-- Creates file at `{directory}/{title}.md` (or `{title}.md` if no directory)
-- If directory doesn't exist, create it
-- Title sanitized for filesystem (spaces → hyphens, lowercase)
-- Fails if file already exists
+- ID is lowercased automatically
+- Parent directories created if needed
+- Fails if node already exists
 
 **Error:** Returns error if node already exists.
 
@@ -528,7 +537,7 @@ Update an existing node.
   "properties": {
     "id": {
       "type": "string",
-      "description": "Node ID to update"
+      "description": "Node ID to update. ID is normalized to lowercase."
     },
     "title": {
       "type": "string",
@@ -552,7 +561,7 @@ Update an existing node.
 
 **Note:** At least one of `title`, `content`, or `tags` must be provided.
 
-**⚠️ Link Integrity (MVP Behavior):** Renaming `title` changes the file path (ID), which would break incoming `[[wikilinks]]`. For MVP safety:
+**Link Integrity (MVP Behavior):** Renaming `title` changes the file path (ID), which would break incoming `[[wikilinks]]`. For MVP safety:
 - If node has incoming links, title changes are **rejected** with `LINK_INTEGRITY` error
 - Content and tag updates are always allowed
 - See [[roadmap/Link Integrity]] for post-MVP scan-and-update approach
@@ -572,7 +581,7 @@ Delete a node.
   "properties": {
     "id": {
       "type": "string",
-      "description": "Node ID to delete"
+      "description": "Node ID to delete. ID is normalized to lowercase."
     }
   },
   "required": ["id"]
@@ -592,6 +601,153 @@ Delete a node.
 ```
 
 Returns `{ deleted: false }` if node not found (not an error).
+
+---
+
+### list_nodes
+
+List nodes with optional filters and pagination.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "tag": {
+      "type": "string",
+      "description": "Filter by tag from the \"tags\" frontmatter array (case-insensitive). Does NOT search other frontmatter fields like \"type\" or \"category\"."
+    },
+    "path": {
+      "type": "string",
+      "description": "Filter by path prefix (startsWith, case-insensitive)"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 100,
+      "description": "Maximum results to return"
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Skip this many results (for pagination)"
+    }
+  }
+}
+```
+
+**Response:** `{ nodes: NodeSummary[], total: number }`
+
+**Example:**
+```json
+{ "tag": "recipe", "limit": 20 }
+```
+
+**Returns:**
+```json
+{
+  "nodes": [
+    { "id": "recipes/bulgogi.md", "title": "Bulgogi" },
+    { "id": "recipes/kimchi.md", "title": "Kimchi" }
+  ],
+  "total": 42
+}
+```
+
+---
+
+### resolve_nodes
+
+Batch resolve names to existing node IDs.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "names": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Names to resolve to existing nodes"
+    },
+    "strategy": {
+      "type": "string",
+      "enum": ["exact", "fuzzy", "semantic"],
+      "default": "fuzzy",
+      "description": "How to match. \"exact\": case-insensitive title equality. \"fuzzy\": string similarity (Dice coefficient) for typos. \"semantic\": embedding cosine similarity for synonyms (NOT typos)."
+    },
+    "threshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.7,
+      "description": "Minimum similarity score (0-1). Ignored for exact strategy."
+    },
+    "tag": {
+      "type": "string",
+      "description": "Filter candidates by tag from \"tags\" frontmatter array (case-insensitive)"
+    },
+    "path": {
+      "type": "string",
+      "description": "Filter candidates by path prefix (case-insensitive)"
+    }
+  },
+  "required": ["names"]
+}
+```
+
+**Response:** `ResolveResult[]`
+
+**Example:**
+```json
+{ "names": ["bulgogi", "chikken"], "strategy": "fuzzy", "threshold": 0.5 }
+```
+
+**Returns:**
+```json
+[
+  { "query": "bulgogi", "match": "recipes/bulgogi.md", "score": 1.0 },
+  { "query": "chikken", "match": "recipes/chicken.md", "score": 0.67 }
+]
+```
+
+---
+
+### nodes_exist
+
+Batch check if node IDs exist.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Node IDs to check existence. IDs are normalized to lowercase."
+    }
+  },
+  "required": ["ids"]
+}
+```
+
+**Response:** `Map<string, boolean>`
+
+**Example:**
+```json
+{ "ids": ["recipes/bulgogi.md", "recipes/nonexistent.md"] }
+```
+
+**Returns:**
+```json
+{
+  "recipes/bulgogi.md": true,
+  "recipes/nonexistent.md": false
+}
+```
 
 ---
 
@@ -634,7 +790,7 @@ These return successful responses, not errors:
 
 ## Warnings (Post-MVP)
 
-> **Deferred to post-MVP.** No `_warnings` field in Phase 9 responses.
+> **Deferred to post-MVP.** No `_warnings` field in responses currently.
 
 Future: Non-fatal issues (broken links, parse warnings) will be included in a `_warnings` array. See [[roadmap/Warning System]].
 

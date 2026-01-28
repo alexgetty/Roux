@@ -1,22 +1,23 @@
 ---
-type: '[[Test Gap]]'
-priority: Low
-component: '[[Vector]]'
-status: open
 title: Vector Provider Edge Cases
 tags:
   - issue
   - vector
   - testing
+type: '[[Test Gap]]'
+priority: Low
+component: '[[Vector]]'
+status: open
 ---
+# SqliteVectorIndex Edge Cases
 
-# Vector Provider Edge Cases
+> **Note:** This file was originally titled "Vector Provider Edge Cases." The class is now `SqliteVectorIndex` (renamed from `SqliteVectorProvider` in naming refactor). File not renamed due to incoming links.
 
-Collection of untested edge cases in SqliteVectorProvider.
+Collection of untested edge cases in SqliteVectorIndex.
 
 ## 1. Zero Vector Accepted Without Warning
 
-**Location:** `src/providers/vector/sqlite.ts:31-39`
+**Location:** `src/providers/vector/sqlite.ts`
 
 Zero vectors `[0,0,0]` are accepted and return distance 1. Semantically meaningless for embeddings but stored silently.
 
@@ -24,7 +25,7 @@ Zero vectors `[0,0,0]` are accepted and return distance 1. Semantically meaningl
 
 ## 2. getEmbeddingCount() Untested
 
-**Location:** `src/providers/vector/sqlite.ts:141-146`
+**Location:** `src/providers/vector/sqlite.ts`
 
 Method exists but no test coverage.
 
@@ -34,13 +35,13 @@ Method exists but no test coverage.
 
 **Location:** `tests/unit/vector/sqlite.test.ts`
 
-No test for double-close on provider.
+No test for double-close.
 
 **Fix:** Add test verifying doesn't throw.
 
 ## 4. Search Boundary: Exactly Limit Vectors
 
-**Location:** `tests/unit/vector/sqlite.test.ts:118-127`
+**Location:** `tests/unit/vector/sqlite.test.ts`
 
 Tests `limit 2` with 4 vectors. No test for `limit 10` with exactly 10 or fewer vectors.
 
@@ -48,9 +49,9 @@ Tests `limit 2` with 4 vectors. No test for `limit 10` with exactly 10 or fewer 
 
 ## 5. Passed DB Remains Usable After Close
 
-**Location:** `tests/unit/vector/sqlite.test.ts:361-373`
+**Location:** `tests/unit/vector/sqlite.test.ts`
 
-When `ownsDb = false`, test doesn't verify `db.open` is still true after `provider.close()`.
+When `ownsDb = false`, test doesn't verify `db.open` is still true after close.
 
 **Fix:** Add assertion.
 

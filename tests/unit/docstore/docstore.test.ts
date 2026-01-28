@@ -824,6 +824,28 @@ Original content`
       customStore.close();
     });
 
+    it('hasEmbedding delegates to VectorIndex', async () => {
+      const mockVectorIndex: VectorIndex = {
+        store: vi.fn().mockResolvedValue(undefined),
+        search: vi.fn().mockResolvedValue([]),
+        delete: vi.fn().mockResolvedValue(undefined),
+        getModel: vi.fn().mockResolvedValue(null),
+        hasEmbedding: vi.fn().mockReturnValue(true),
+      };
+
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
+      expect(customStore.hasEmbedding('doc.md')).toBe(true);
+      expect(mockVectorIndex.hasEmbedding).toHaveBeenCalledWith('doc.md');
+      customStore.close();
+    });
+
+    it('hasEmbedding returns false when vectorIndex is null', async () => {
+      const customStore = new DocStore(sourceDir, cacheDir);
+      // Force vectorIndex to null to cover the guard branch
+      Object.defineProperty(customStore, 'vectorIndex', { value: null });
+      expect(customStore.hasEmbedding('doc.md')).toBe(false);
+    });
+
     it('close() does NOT close injected VectorIndex (caller owns lifecycle)', async () => {
       const closeMock = vi.fn();
       const mockVectorIndex: VectorIndex & { close: () => void } = {
@@ -1217,6 +1239,26 @@ No links yet`
         direction: 'out',
       });
       expect(neighbors.map((n) => n.id)).toContain('graph/ingredients/lemon.md');
+    });
+
+    it('resolves spaced wiki-link to dashed filename', async () => {
+      await writeMarkdownFile('ingredients/sesame-oil.md', '---\ntitle: Sesame Oil\n---\nFragrant oil');
+      await writeMarkdownFile('recipe.md', 'Add [[Sesame Oil]]');
+
+      await store.sync();
+      const node = await store.getNode('recipe.md');
+
+      expect(node?.outgoingLinks).toContain('ingredients/sesame-oil.md');
+    });
+
+    it('resolves dashed wiki-link to spaced filename', async () => {
+      await writeMarkdownFile('ingredients/sesame oil.md', '---\ntitle: Sesame Oil\n---\nFragrant oil');
+      await writeMarkdownFile('recipe.md', 'Add [[sesame-oil]]');
+
+      await store.sync();
+      const node = await store.getNode('recipe.md');
+
+      expect(node?.outgoingLinks).toContain('ingredients/sesame oil.md');
     });
   });
 

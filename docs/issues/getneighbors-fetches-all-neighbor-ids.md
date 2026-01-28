@@ -14,11 +14,13 @@ tags:
 ## Location
 - `src/mcp/handlers.ts:167` — Handler accepts limit
 - `src/core/graphcore.ts:149-152` — Passes limit in options
-- `src/providers/docstore/index.ts:257-261` — Passes to graph operations
-- `src/graph/operations.ts:13-46` — **Bug location**
+- `src/providers/store/index.ts` — StoreProvider.getNeighbors() delegates to GraphManager
+- `src/graph/traversal.ts` — **Bug location** (getNeighborIds)
+
+**Note:** As of the StoreProvider refactor, `getNeighbors` lives on `StoreProvider` (inherited by DocStore), not on DocStore directly.
 
 ## Problem
-The `getNeighbors` operation fetches all neighbor IDs from the graph, then slices to limit.
+The `getNeighborIds` operation fetches all neighbor IDs from the graph, then slices to limit.
 
 ```typescript
 export function getNeighborIds(

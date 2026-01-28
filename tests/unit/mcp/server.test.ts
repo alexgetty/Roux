@@ -383,12 +383,12 @@ describe('formatErrorResponse', () => {
 describe('executeToolCall', () => {
   let mockCore: GraphCore;
   let mockStore: Store;
-  let ctx: { core: GraphCore; store: Store; hasEmbedding: boolean };
+  let ctx: { core: GraphCore; store: Store; hasEmbedding: boolean; naming: { filename: string; title: string } };
 
   beforeEach(() => {
     mockCore = createMockCore();
     mockStore = createMockStore();
-    ctx = { core: mockCore, store: mockStore, hasEmbedding: true };
+    ctx = { core: mockCore, store: mockStore, hasEmbedding: true, naming: { filename: 'space', title: 'title' } };
   });
 
   it('dispatches tool and formats successful result', async () => {

@@ -148,7 +148,7 @@ export class DocStore extends StoreProvider {
     }
 
     const mtime = await getFileMtime(filePath);
-    const normalizedNode = { ...node, id: normalizedId, outgoingLinks: outgoingLinks ?? [] };
+    const normalizedNode = { ...node, id: normalizedId, outgoingLinks };
     this.cache.upsertNode(normalizedNode, 'file', filePath, mtime);
 
     // Resolve wikilinks and rebuild graph

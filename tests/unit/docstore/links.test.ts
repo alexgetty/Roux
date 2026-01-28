@@ -4,6 +4,7 @@ import {
   hasFileExtension,
   buildFilenameIndex,
   resolveLinks,
+  spaceDashVariant,
 } from '../../../src/providers/docstore/links.js';
 
 describe('links', () => {
@@ -190,6 +191,81 @@ describe('links', () => {
     it('returns empty array for empty input', () => {
       const resolved = resolveLinks([], filenameIndex, validNodeIds);
       expect(resolved).toEqual([]);
+    });
+
+    it('resolves space link to dashed file via fallback', () => {
+      const index = new Map([
+        ['sesame-oil.md', ['ingredients/sesame-oil.md']],
+      ]);
+      const ids = new Set(['ingredients/sesame-oil.md']);
+
+      const resolved = resolveLinks(['sesame oil.md'], index, ids);
+      expect(resolved).toEqual(['ingredients/sesame-oil.md']);
+    });
+
+    it('resolves dashed link to spaced file via fallback', () => {
+      const index = new Map([
+        ['sesame oil.md', ['ingredients/sesame oil.md']],
+      ]);
+      const ids = new Set(['ingredients/sesame oil.md']);
+
+      const resolved = resolveLinks(['sesame-oil.md'], index, ids);
+      expect(resolved).toEqual(['ingredients/sesame oil.md']);
+    });
+
+    it('prefers exact match over variant', () => {
+      const index = new Map([
+        ['sesame oil.md', ['ingredients/sesame oil.md']],
+        ['sesame-oil.md', ['other/sesame-oil.md']],
+      ]);
+      const ids = new Set(['ingredients/sesame oil.md', 'other/sesame-oil.md']);
+
+      const resolved = resolveLinks(['sesame oil.md'], index, ids);
+      expect(resolved).toEqual(['ingredients/sesame oil.md']);
+    });
+
+    it('skips variant when filename has both spaces and dashes', () => {
+      const index = new Map<string, string[]>();
+      const ids = new Set<string>();
+
+      const resolved = resolveLinks(['sesame oil-blend.md'], index, ids);
+      expect(resolved).toEqual(['sesame oil-blend.md']);
+    });
+
+    it('resolves multi-word space-dash variants', () => {
+      const index = new Map([
+        ['cast-iron-pan.md', ['equipment/cast-iron-pan.md']],
+      ]);
+      const ids = new Set(['equipment/cast-iron-pan.md']);
+
+      const resolved = resolveLinks(['cast iron pan.md'], index, ids);
+      expect(resolved).toEqual(['equipment/cast-iron-pan.md']);
+    });
+  });
+
+  describe('spaceDashVariant', () => {
+    it('converts spaces to dashes', () => {
+      expect(spaceDashVariant('sesame oil.md')).toBe('sesame-oil.md');
+    });
+
+    it('converts dashes to spaces', () => {
+      expect(spaceDashVariant('sesame-oil.md')).toBe('sesame oil.md');
+    });
+
+    it('returns null when both spaces and dashes present', () => {
+      expect(spaceDashVariant('sesame oil-blend.md')).toBeNull();
+    });
+
+    it('returns null when neither spaces nor dashes present', () => {
+      expect(spaceDashVariant('sesameoil.md')).toBeNull();
+    });
+
+    it('handles multiple word boundaries', () => {
+      expect(spaceDashVariant('cast iron pan.md')).toBe('cast-iron-pan.md');
+    });
+
+    it('handles multiple dashes', () => {
+      expect(spaceDashVariant('cast-iron-pan.md')).toBe('cast iron pan.md');
     });
   });
 });

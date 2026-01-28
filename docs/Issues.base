@@ -16,3 +16,8 @@ views:
         direction: DESC
     columnSize:
       file.name: 318
+  - type: cards
+    name: View
+    order:
+      - file.name
+      - priority

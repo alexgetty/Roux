@@ -13,7 +13,7 @@ import {
   handleCreateNode,
   handleUpdateNode,
   handleDeleteNode,
-  sanitizeFilename,
+  normalizeCreateId,
   deriveTitle,
   dispatchTool,
   coerceInt,
@@ -80,6 +80,7 @@ function createContext(overrides: Partial<HandlerContext> = {}): HandlerContext 
     core: createMockCore(),
     store: createMockStore(),
     hasEmbedding: true,
+    naming: { filename: 'space', title: 'title' },
     ...overrides,
   };
 }
@@ -843,7 +844,7 @@ describe('handleCreateNode', () => {
   it('passes valid tags to core.createNode', async () => {
     const created = createNode({
       id: 'tagged.md',
-      title: 'tagged',
+      title: 'Tagged',
       tags: ['idea', 'important'],
     });
     const ctx = createContext();
@@ -858,7 +859,7 @@ describe('handleCreateNode', () => {
     expect(result.tags).toEqual(['idea', 'important']);
     expect(ctx.core.createNode).toHaveBeenCalledWith({
       id: 'tagged.md',
-      title: 'tagged',
+      title: 'Tagged',
       content: 'Content',
       tags: ['idea', 'important'],
     });
@@ -1178,43 +1179,57 @@ describe('handleDeleteNode', () => {
   });
 });
 
-describe('sanitizeFilename', () => {
-  it('converts to lowercase', () => {
-    expect(sanitizeFilename('Hello World')).toBe('hello-world');
+describe('normalizeCreateId', () => {
+  it('converts dashes to spaces when filename convention is space', () => {
+    expect(normalizeCreateId('recipes/sesame-oil.md', { filename: 'space', title: 'title' }))
+      .toBe('recipes/sesame oil.md');
   });
 
-  it('replaces spaces with hyphens', () => {
-    expect(sanitizeFilename('one two three')).toBe('one-two-three');
+  it('converts spaces to dashes when filename convention is dash', () => {
+    expect(normalizeCreateId('recipes/sesame oil.md', { filename: 'dash', title: 'title' }))
+      .toBe('recipes/sesame-oil.md');
   });
 
-  it('removes special characters', () => {
-    expect(sanitizeFilename('Hello! World?')).toBe('hello-world');
+  it('lowercases the entire path', () => {
+    expect(normalizeCreateId('Recipes/Sesame-Oil.md', { filename: 'space', title: 'title' }))
+      .toBe('recipes/sesame oil.md');
   });
 
-  it('collapses multiple hyphens', () => {
-    expect(sanitizeFilename('hello   world')).toBe('hello-world');
+  it('preserves path separators', () => {
+    expect(normalizeCreateId('a/b/c/my-file.md', { filename: 'space', title: 'title' }))
+      .toBe('a/b/c/my file.md');
   });
 
-  it('handles numbers', () => {
-    expect(sanitizeFilename('Note 123')).toBe('note-123');
+  it('handles multiple word boundaries', () => {
+    expect(normalizeCreateId('equipment/cast-iron-pan.md', { filename: 'space', title: 'title' }))
+      .toBe('equipment/cast iron pan.md');
   });
 
-  it('returns untitled when only special characters', () => {
-    expect(sanitizeFilename('!!!')).toBe('untitled');
-    expect(sanitizeFilename('@#$%')).toBe('untitled');
+  it('normalizes backslashes to forward slashes', () => {
+    expect(normalizeCreateId('recipes\\sesame-oil.md', { filename: 'space', title: 'title' }))
+      .toBe('recipes/sesame oil.md');
   });
 
-  it('returns untitled for empty string', () => {
-    expect(sanitizeFilename('')).toBe('untitled');
+  it('handles root-level files', () => {
+    expect(normalizeCreateId('My-Note.md', { filename: 'space', title: 'title' }))
+      .toBe('my note.md');
   });
 
-  it('returns untitled for whitespace-only input', () => {
-    expect(sanitizeFilename('   ')).toBe('untitled');
+  it('defaults to space separator', () => {
+    expect(normalizeCreateId('recipes/sesame-oil.md'))
+      .toBe('recipes/sesame oil.md');
   });
 
-  it('returns untitled for unicode-only input', () => {
-    expect(sanitizeFilename('\u4e2d\u6587')).toBe('untitled');
-    expect(sanitizeFilename('\u{1F600}')).toBe('untitled');
+  it('leaves correct separators untouched', () => {
+    expect(normalizeCreateId('recipes/sesame oil.md', { filename: 'space', title: 'title' }))
+      .toBe('recipes/sesame oil.md');
+    expect(normalizeCreateId('recipes/sesame-oil.md', { filename: 'dash', title: 'title' }))
+      .toBe('recipes/sesame-oil.md');
+  });
+
+  it('normalizes directory names too', () => {
+    expect(normalizeCreateId('my-recipes/sesame-oil.md', { filename: 'space', title: 'title' }))
+      .toBe('my recipes/sesame oil.md');
   });
 });
 
@@ -1258,6 +1273,41 @@ describe('deriveTitle', () => {
 
   it('returns Untitled for empty filename', () => {
     expect(deriveTitle('notes/.md')).toBe('Untitled');
+  });
+
+  it('applies title casing when convention is title', () => {
+    expect(deriveTitle('recipes/sesame oil.md', { filename: 'space', title: 'title' }))
+      .toBe('Sesame Oil');
+  });
+
+  it('applies sentence casing when convention is sentence', () => {
+    expect(deriveTitle('recipes/sesame oil.md', { filename: 'space', title: 'sentence' }))
+      .toBe('Sesame oil');
+  });
+
+  it('returns raw basename when convention is as-is', () => {
+    expect(deriveTitle('recipes/sesame oil.md', { filename: 'space', title: 'as-is' }))
+      .toBe('sesame oil');
+  });
+
+  it('converts dashes to spaces in title when filename convention is dash', () => {
+    expect(deriveTitle('recipes/sesame-oil.md', { filename: 'dash', title: 'title' }))
+      .toBe('Sesame Oil');
+  });
+
+  it('handles multi-word title casing', () => {
+    expect(deriveTitle('equipment/cast iron pan.md', { filename: 'space', title: 'title' }))
+      .toBe('Cast Iron Pan');
+  });
+
+  it('handles multi-word sentence casing', () => {
+    expect(deriveTitle('equipment/cast iron pan.md', { filename: 'space', title: 'sentence' }))
+      .toBe('Cast iron pan');
+  });
+
+  it('still returns Untitled for invalid filenames with conventions', () => {
+    expect(deriveTitle('notes/.md', { filename: 'space', title: 'title' }))
+      .toBe('Untitled');
   });
 });
 

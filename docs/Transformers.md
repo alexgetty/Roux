@@ -1,3 +1,6 @@
+---
+title: Transformers
+---
 # Transformers.js
 
 Local embedding provider using ONNX models via transformers.js. Zero external dependencies. Default fallback when no embedding provider is configured.
@@ -21,16 +24,9 @@ For MVP scale (hundreds to low thousands of docs), Transformers.js is fast enoug
 
 ## Interface
 
-Implements [[EmbeddingProvider]]:
+Implements the `Embedding` interface (see `src/types/provider.ts`). The implementation class is `TransformersEmbedding` in `src/providers/embedding/transformers.ts`.
 
-```typescript
-class TransformersEmbeddingProvider implements EmbeddingProvider {
-  async embed(text: string): Promise<number[]>;
-  async embedBatch(texts: string[]): Promise<number[][]>;
-  dimensions(): number;   // 384 for default model
-  modelId(): string;      // "Xenova/all-MiniLM-L6-v2"
-}
-```
+Key methods: `embed()`, `embedBatch()`, `dimensions()`, `modelId()`.
 
 ## Default Model
 
@@ -72,23 +68,6 @@ Consider switching to [[Ollama]] or [[OpenAI]] when:
 - You're already running Ollama for LLM features
 
 The switch is config-only. No code changes.
-
-## Implementation Notes
-
-```typescript
-import { pipeline } from '@xenova/transformers';
-
-const embedder = await pipeline(
-  'feature-extraction',
-  'Xenova/all-MiniLM-L6-v2'
-);
-
-const output = await embedder(text, {
-  pooling: 'mean',
-  normalize: true
-});
-// output.data is Float32Array of 384 dimensions
-```
 
 ## Related
 

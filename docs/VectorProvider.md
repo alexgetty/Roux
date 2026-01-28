@@ -1,62 +1,33 @@
-# VectorProvider
+---
+title: Vectorprovider
+---
+# VectorIndex
 
 Vector storage and similarity search.
 
 ## Overview
 
-VectorProvider handles persistence and retrieval of embedding vectors. It's the storage counterpart to [[EmbeddingProvider]] (which generates vectors).
+VectorIndex handles persistence and retrieval of embedding vectors. It's the storage counterpart to [[EmbeddingProvider]] (which generates vectors).
 
 ```
-text → [EmbeddingProvider] → vector → [VectorProvider] → storage/search
+text → [EmbeddingProvider] → vector → [VectorIndex] → storage/search
 ```
 
 ## Interface
 
-```typescript
-interface VectorProvider {
-  store(id: string, vector: number[], model: string): Promise<void>;
-  search(vector: number[], limit: number): Promise<VectorSearchResult[]>;
-  delete(id: string): Promise<void>;
-  getModel(id: string): Promise<string | null>;
-}
+See `src/types/provider.ts` for the current `VectorIndex` interface definition. Methods:
 
-interface VectorSearchResult {
-  id: string;
-  distance: number;  // Lower = more similar (cosine distance)
-}
-```
-
-## Methods
-
-### store(id, vector, model)
-
-Persist a vector with its associated node ID and model identifier.
-
-- `id`: Node identifier
-- `vector`: Float32 array from EmbeddingProvider
-- `model`: Model that generated this vector (for cache invalidation)
+- `store(id, vector, model)` — Persist a vector with its associated node ID and model identifier
+- `search(vector, limit)` — Find the most similar vectors to a query vector
+- `delete(id)` — Remove a vector from storage
+- `getModel(id)` — Get the model identifier for a stored vector (for cache invalidation)
+- `hasEmbedding(id)` — Check if a vector exists for a given node ID
 
 **Design note:** `store()` does not validate that the node ID exists in the store. This is intentional—GraphCore calls `store()` after creating the node and generating the embedding. Adding existence checks would require a cache lookup on every embed operation. Orphan embeddings (vectors without corresponding nodes) are cleaned up when `delete()` is called or during full re-sync.
 
-### search(vector, limit)
-
-Find the most similar vectors to a query vector.
-
-- `vector`: Query vector (same dimensions as stored vectors)
-- `limit`: Maximum results to return
-- Returns: Array of `{ id, distance }` sorted by distance ascending
-
-### delete(id)
-
-Remove a vector from storage. Called when a node is deleted.
-
-### getModel(id)
-
-Get the model identifier for a stored vector. Used to detect when embeddings need regeneration after model changes.
-
 ## Implementations
 
-### SqliteVectorProvider (MVP Default)
+### SqliteVectorIndex (MVP Default)
 
 Brute-force cosine similarity in SQLite. No external dependencies.
 
@@ -68,14 +39,14 @@ Brute-force cosine similarity in SQLite. No external dependencies.
 
 | Provider | Use Case |
 |----------|----------|
-| PineconeVectorProvider | Cloud-scale, millions of vectors |
-| QdrantVectorProvider | Self-hosted, high performance |
+| PineconeVectorIndex | Cloud-scale, millions of vectors |
+| QdrantVectorIndex | Self-hosted, high performance |
 | Native store providers | Neo4j/SurrealDB with built-in vector indexes |
 
 ## Configuration
 
 ```yaml
-# Implicit: uses SqliteVectorProvider
+# Implicit: uses SqliteVectorIndex
 providers:
   store:
     type: docstore
@@ -99,29 +70,25 @@ Vectors stored as Float32Array (not Float64):
 
 ## Relationship to StoreProvider
 
-StoreProvider exposes convenience methods that delegate to VectorProvider:
+The `StoreProvider` abstract class delegates vector operations to a `VectorIndex` instance:
 
-```typescript
-interface StoreProvider {
-  storeEmbedding(id: string, vector: number[], model: string): Promise<void>;
-  searchByVector(vector: number[], limit: number): Promise<VectorSearchResult[]>;
-}
-```
+- `storeEmbedding()` → `VectorIndex.store()`
+- `searchByVector()` → `VectorIndex.search()`
 
-DocStore injects a VectorProvider and delegates these calls. This keeps the StoreProvider interface simple while allowing vector implementation to vary.
+DocStore injects a VectorIndex and delegates these calls. This keeps the Store interface simple while allowing vector implementation to vary.
 
 ## Validation
 
-SqliteVectorProvider enforces:
+SqliteVectorIndex enforces:
 - **Non-empty vectors**: `store()` and `search()` reject empty arrays
 - **Finite values**: `store()` rejects NaN or Infinity in vectors
 - **Dimension consistency**: `search()` throws if query dimensions don't match stored vectors
 
-## Known Limitations (SqliteVectorProvider)
+## Known Limitations (SqliteVectorIndex)
 
 ### Performance Cliff at Scale
 
-SqliteVectorProvider uses brute-force search: every `search()` call loads all vectors into memory and computes cosine distance against each one.
+SqliteVectorIndex uses brute-force search: every `search()` call loads all vectors into memory and computes cosine distance against each one.
 
 | Vector Count | Memory per Search | Suitability |
 |--------------|-------------------|-------------|
@@ -130,11 +97,11 @@ SqliteVectorProvider uses brute-force search: every `search()` call loads all ve
 | 10,000 | ~15MB | Marginal |
 | 100,000 | ~150MB | Unacceptable |
 
-**MVP target is <200 nodes.** For larger vaults, switch to PineconeVectorProvider or a native store with vector indexes.
+**MVP target is <200 nodes.** For larger vaults, switch to PineconeVectorIndex or a native store with vector indexes.
 
 ### No Approximate Nearest Neighbor
 
-Brute-force is O(n) per query. No indexing, no HNSW, no IVF. This is intentional for MVP simplicity. Future VectorProvider implementations will use proper ANN algorithms.
+Brute-force is O(n) per query. No indexing, no HNSW, no IVF. This is intentional for MVP simplicity. Future VectorIndex implementations will use proper ANN algorithms.
 
 ### Single-Dimension Assumption
 
@@ -144,6 +111,6 @@ All vectors in a store must have the same dimensions. Mixing 384-dim and 768-dim
 
 - [[decisions/Vector Storage]] — Design decision
 - [[EmbeddingProvider]] — Vector generation (upstream)
-- [[StoreProvider]] — Data persistence (delegates to VectorProvider)
+- [[StoreProvider]] — Data persistence (delegates to VectorIndex)
 - [[DocStore]] — MVP store implementation
 - [[Transformers]] — Default EmbeddingProvider

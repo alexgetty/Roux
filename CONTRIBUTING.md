@@ -47,19 +47,22 @@ tests/
 
 Files excluded from coverage:
 - `src/**/*.d.ts` - Type declarations (no runtime code)
-- `src/cli/**/*.ts` - Stub until Phase 10
 
 ## Directory Structure
 
 ```
 src/
 ├── types/          # Interfaces and type guards
-├── cli/            # CLI commands (Phase 10)
-├── core/           # GraphCore orchestration (Phase 7)
-├── providers/      # Store, Embedding implementations (Phases 4-6)
-├── graph/          # Graphology integration (Phase 5)
-├── mcp/            # MCP server and tools (Phase 9)
-└── watcher/        # File watcher (Phase 8)
+├── cli/            # CLI commands
+├── core/           # GraphCore orchestration
+├── graph/          # GraphManager + graphology integration
+├── mcp/            # MCP server and tools
+├── providers/      # Store, Embedding, Vector implementations
+│   ├── docstore/   # DocStore (file-based Store)
+│   ├── embedding/  # TransformersEmbedding
+│   ├── store/      # StoreProvider abstract class
+│   └── vector/     # SqliteVectorIndex
+└── utils/          # Shared utilities (heap, math)
 ```
 
 ## Component Usage
@@ -68,8 +71,12 @@ High-level pointers to detailed docs.
 
 | Component | What it does | Docs |
 |-----------|--------------|------|
-| DocStore | File-based StoreProvider with SQLite cache | [[DocStore#Usage]] |
-| Parser | Markdown/frontmatter parsing, wiki-link extraction | [[DocStore#Usage]] |
-| Cache | SQLite layer for nodes, embeddings, centrality | [[Decision - SQLite Schema]] |
-
-More components added as phases complete.
+| Store interface | Contract for all storage backends | [[StoreProvider]] |
+| StoreProvider | Abstract class with shared store logic (graph, vector, batch) | [[StoreProvider]] |
+| DocStore | File-based Store with SQLite cache | [[DocStore]] |
+| GraphManager | Graph construction, traversal, centrality | [[GraphCore]] |
+| VectorIndex | Pluggable vector storage and similarity search | [[VectorProvider]] |
+| Embedding | Stateless vector generation | [[EmbeddingProvider]] |
+| TransformersEmbedding | Local ONNX embedding (default) | [[Transformers]] |
+| MCP Server | Model Context Protocol interface | [[MCP Server]] |
+| CLI | `roux init`, `roux serve`, `roux sync` | [[Config]] |

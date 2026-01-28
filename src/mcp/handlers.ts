@@ -1,4 +1,5 @@
 import type { GraphCore } from '../types/graphcore.js';
+import { DEFAULT_NAMING, type NamingConventions } from '../types/config.js';
 import type {
   Store,
   Metric,
@@ -33,6 +34,7 @@ export interface HandlerContext {
   core: GraphCore;
   store: Store;
   hasEmbedding: boolean;
+  naming: NamingConventions;
 }
 
 export function coerceInt(
@@ -277,20 +279,54 @@ export async function handleRandomNode(
 }
 
 /**
+ * Normalize a raw ID for node creation.
+ * Applies filename separator convention (space↔dash), then lowercases.
+ */
+export function normalizeCreateId(
+  rawId: string,
+  naming: NamingConventions = DEFAULT_NAMING
+): string {
+  let normalized = rawId.replace(/\\/g, '/').toLowerCase();
+
+  if (naming.filename === 'space') {
+    normalized = normalized.replace(/-/g, ' ');
+  } else {
+    normalized = normalized.replace(/ /g, '-');
+  }
+
+  return normalized;
+}
+
+/**
  * Derive display title from node ID.
- * Extracts filename without extension.
+ * Extracts filename without extension, applies naming conventions.
  * Returns 'Untitled' for empty or all-special-char filenames.
  */
-export function deriveTitle(id: string): string {
+export function deriveTitle(id: string, naming?: NamingConventions): string {
   const basename = id.split('/').pop() || '';
   const rawTitle = basename.replace(/\.md$/i, '');
 
-  // If title is empty or contains no alphanumeric characters, fall back to Untitled
   if (!rawTitle || !/[a-zA-Z0-9]/.test(rawTitle)) {
     return 'Untitled';
   }
 
-  return rawTitle;
+  if (!naming) {
+    return rawTitle;
+  }
+
+  // Replace separators with spaces for display
+  const spaced = naming.filename === 'dash'
+    ? rawTitle.replace(/-/g, ' ')
+    : rawTitle.replace(/-/g, ' ');
+
+  switch (naming.title) {
+    case 'title':
+      return spaced.replace(/\b\w/g, (c) => c.toUpperCase());
+    case 'sentence':
+      return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+    case 'as-is':
+      return rawTitle;
+  }
 }
 
 export async function handleCreateNode(
@@ -326,11 +362,11 @@ export async function handleCreateNode(
     tags = tagsRaw;
   }
 
-  // Normalize ID to lowercase
-  const id = idRaw.toLowerCase();
+  // Normalize ID per naming conventions
+  const id = normalizeCreateId(idRaw, ctx.naming);
 
-  // Derive or use explicit title
-  const title = titleRaw ?? deriveTitle(idRaw);
+  // Derive title per conventions, or use explicit title as-is
+  const title = titleRaw ?? deriveTitle(id, ctx.naming);
 
   const existing = await ctx.core.getNode(id);
   if (existing) {
@@ -483,17 +519,6 @@ export async function handleNodesExist(
     response[id] = exists;
   }
   return response;
-}
-
-export function sanitizeFilename(title: string): string {
-  const sanitized = title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  return sanitized || 'untitled';
 }
 
 export async function dispatchTool(

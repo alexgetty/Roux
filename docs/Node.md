@@ -1,3 +1,6 @@
+---
+title: Node
+---
 # Node
 
 The canonical data model. All modules speak Node.
@@ -10,23 +13,15 @@ Format conversion happens at store boundaries only. Internally, everything is a 
 
 ## Interface
 
-```typescript
-interface Node {
-  id: string;                        // Canonical identifier (store-specific format)
-  title: string;                     // Display name
-  content: string;                   // Full text content
-  tags: string[];                    // Classification
-  outgoingLinks: string[];           // Edges to other nodes (by id)
-  properties: Record<string, any>;   // Extensible metadata
-  sourceRef?: SourceRef;             // Origin tracking
-}
+See `src/types/node.ts` for the current interface definition. Key fields:
 
-interface SourceRef {
-  type: 'file' | 'api' | 'manual';   // Where it came from
-  path?: string;                     // File path if applicable
-  lastModified?: Date;               // Last known modification
-}
-```
+- `id` — Canonical identifier (store-specific format)
+- `title` — Display name
+- `content` — Full text content
+- `tags` — Classification array
+- `outgoingLinks` — Edges to other nodes (by id)
+- `properties` — Extensible metadata (`Record<string, unknown>`)
+- `sourceRef` — Optional origin tracking (file path, last modified, etc.)
 
 ## Node Identity
 
@@ -40,9 +35,9 @@ IDs are not portable across stores. Migration tooling handles ID translation and
 ## Design Decisions
 
 **Why `outgoingLinks` not `edges`?**
-Edges are directional. A Node knows what it links *to*, not what links to it. Bidirectional queries are the StoreProvider's job.
+Edges are directional. A Node knows what it links *to*, not what links to it. Bidirectional queries are the Store's job.
 
-**Note on MCP responses:** When nodes are returned via MCP, `outgoingLinks` (IDs) are enriched to `links` (ID + title pairs) using `StoreProvider.resolveTitles()`. This provides semantic context for LLM reasoning. See [[MCP Tools Schema]] for response formats.
+**Note on MCP responses:** When nodes are returned via MCP, `outgoingLinks` (IDs) are enriched to `links` (ID + title pairs) using `Store.resolveTitles()`. This provides semantic context for LLM reasoning. See [[MCP Tools Schema]] for response formats.
 
 **Why `properties` as a bag?**
 Different use cases need different metadata. A document node might have `wordCount`, a person node might have `birthDate`. The bag allows extension without schema changes.

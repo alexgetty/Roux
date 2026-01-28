@@ -49,7 +49,7 @@ export {
   handleCreateNode,
   handleUpdateNode,
   handleDeleteNode,
-  sanitizeFilename,
+  normalizeCreateId,
   deriveTitle,
   dispatchTool,
   type HandlerContext,

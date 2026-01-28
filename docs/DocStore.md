@@ -1,3 +1,6 @@
+---
+title: Docstore
+---
 # DocStore
 
 File-based [[StoreProvider]] implementation. Graph projected from linked documents. MVP storage backend.
@@ -36,7 +39,7 @@ DocStore treats a directory of text files as a graph. Documents become [[Node|No
 5. **Extract edges** from [[Wiki-links|wiki-links]] and other link syntaxes
 6. **Build graph** using graphology
 7. **Generate embeddings** via [[EmbeddingProvider]]
-8. **Compute centrality** (PageRank, degree)
+8. **Compute centrality** (degree — PageRank planned but not yet implemented)
 9. **Cache everything** in SQLite
 
 ## ID Generation
@@ -72,18 +75,14 @@ A title is effectively a path, not just a display name.
 
 ## Supported Formats
 
-**MVP:** Markdown only (`.md`) with YAML frontmatter.
+DocStore uses a **FormatReader** plugin architecture via `ReaderRegistry`. Each format has a reader that extracts title, content, tags, and links from source files.
+
+**MVP:** Markdown only (`.md`) via `MarkdownReader`, with YAML frontmatter.
 
 **Future:**
 - Plain text (`.txt`)
 - HTML (`.html`, `.htm`)
 - RTF (`.rtf`)
-
-Each format has a parser. Parsers extract:
-- Title (filename, H1, or frontmatter)
-- Content (full text)
-- Tags (see Tag Format below)
-- Links (wiki-links, HTML links, etc.)
 
 ## Tag Format
 
@@ -175,21 +174,8 @@ If a file is mid-write when processed (truncated frontmatter, incomplete content
 Target latency: <2 seconds for changes to reflect in queries (debounce + sync).
 
 **Watcher API:**
-```typescript
-// Start watching for file changes
-store.startWatching((changedIds: string[]) => {
-  // Called after each debounced sync with IDs of changed nodes
-  // Use this to trigger re-embedding at the serve layer
-});
 
-// Stop watching
-store.stopWatching();
-
-// Check if watching
-store.isWatching(); // boolean
-```
-
-The `onChange` callback enables the serve layer (CLI) to coordinate re-embedding. DocStore handles cache/graph updates internally; the callback notifies which nodes need new embeddings.
+DocStore exposes `startWatching()`, `stopWatching()`, and `isWatching()` methods. The `onChange` callback enables the serve layer (CLI) to coordinate re-embedding. DocStore handles cache/graph updates internally; the callback notifies which nodes need new embeddings.
 
 ## Write Operations
 
@@ -204,7 +190,7 @@ Writes are immediately queryable—no waiting for file watcher.
 
 ## Vector Search
 
-DocStore implements `searchByVector()` (part of [[StoreProvider]] interface) using its SQLite cache.
+DocStore implements `searchByVector()` (part of the [[StoreProvider]] Store interface) using its SQLite cache.
 
 **MVP:** Brute-force cosine similarity. Load vectors from SQLite, compute similarity in application code, return top results. O(n) per query, but fast enough for hundreds to low thousands of nodes.
 
@@ -214,89 +200,11 @@ See [[decisions/Vector Storage]] for the full rationale on vector search archite
 
 ## Design Decisions
 
-**Parser Architecture:** Chain of parsers. File type detection routes to format-specific parser. Start with markdown only—other formats added as needed. No complex multi-format parsers.
+**Parser Architecture:** FormatReader plugin system via ReaderRegistry. File type detection routes to format-specific readers. Start with MarkdownReader only—other formats added as needed.
 
 **Link Resolution:** Match Obsidian behavior. Full path used as ID when disambiguation is needed. Error on true duplicates (same full path after Obsidian's disambiguation) for manual resolution.
 
 **Vector Search:** Brute-force for MVP. The interface (`searchByVector()`) allows swapping to sqlite-vec later without changing callers. See [[decisions/Vector Storage]].
-
-## Usage
-
-### Initialization
-
-```typescript
-import { DocStore } from './providers/docstore/index.js';
-
-const store = new DocStore({
-  sourcePath: '/path/to/markdown/files',
-  cachePath: '/path/to/markdown/files/.roux/cache.db'
-});
-
-// Sync files to cache (scans directory, parses files, updates SQLite)
-await store.sync();
-```
-
-### CRUD Operations
-
-```typescript
-// Create a node (writes markdown file + updates cache)
-await store.createNode({
-  id: 'notes/new-note.md',
-  title: 'New Note',
-  content: 'Content with [[wiki-links]]',
-  tags: ['example', 'demo'],
-  outgoingLinks: [], // Auto-populated from wiki-links
-  properties: { custom: 'value' }
-});
-
-// Read a node
-const node = await store.getNode('notes/new-note.md');
-
-// Update a node (partial updates supported)
-await store.updateNode('notes/new-note.md', {
-  content: 'Updated content'
-});
-
-// Delete a node
-await store.deleteNode('notes/new-note.md');
-```
-
-### Search
-
-```typescript
-// Search by tags (mode: 'any' = OR, 'all' = AND)
-const results = await store.searchByTags(['machine-learning', 'research'], 'any');
-```
-
-### Title Resolution
-
-```typescript
-// Resolve IDs to human-readable titles (zero IO)
-const titles = await store.resolveTitles(['notes/ml.md', 'concepts/neural-networks.md']);
-// Map { 'notes/ml.md' => 'Ml', 'concepts/neural-networks.md' => 'Neural Networks' }
-```
-
-### Parser Utilities
-
-```typescript
-import { parseMarkdown, extractWikiLinks, normalizeId, titleFromPath, serializeToMarkdown } from './providers/docstore/parser.js';
-
-// Parse markdown with frontmatter
-const { title, content, tags, properties } = parseMarkdown(markdownString);
-
-// Extract wiki-links from content
-const links = extractWikiLinks('See [[Target]] and [[Other|alias]]');
-// ['target.md', 'other.md']
-
-// Normalize file path to ID
-const id = normalizeId('Notes/Research.md'); // 'notes/research.md'
-
-// Derive title from path
-const title = titleFromPath('notes/machine-learning.md'); // 'Machine Learning'
-
-// Serialize node back to markdown
-const markdown = serializeToMarkdown(node);
-```
 
 ## Open Questions (Deferred)
 
@@ -312,10 +220,7 @@ See [[Config]] for full schema. DocStore uses `source.path`, `source.include`, `
 
 - [[StoreProvider]] — Interface DocStore implements
 - [[Node]] — What DocStore produces
-- [[Wiki-links]] — How edges are extracted
-- [[Graph Projection]] — The transformation concept
-- [[EmbeddingProvider]] — Generates vectors for semantic search
-- [[decisions/SQLite Schema]] — Cache schema (hybrid: nodes, embeddings, centrality tables)
-- [[decisions/Vector Storage]] — Vector search architecture
-- [[decisions/Graphology Lifecycle]] — Graph construction, file sync, centrality timing
-- [[decisions/Error Output]] — Warning handling during file sync
+- [[Wiki-links]] — Link syntax
+- [[Graph Projection]] — How files become a graph
+- [[decisions/SQLite Schema]] — Cache structure
+- [[decisions/Error Output]] — Warning handling

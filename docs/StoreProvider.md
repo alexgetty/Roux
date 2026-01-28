@@ -1,53 +1,67 @@
+---
+title: Storeprovider
+---
 # StoreProvider
 
-Data persistence and graph operations. The most critical provider interface.
+Data persistence and graph operations. The most critical provider layer.
 
 ## Overview
 
-StoreProvider defines how Roux stores and retrieves [[Node|Nodes]]. Every storage backend—from markdown files to Neo4j—implements this interface.
+The Store layer has two parts:
+
+- **`Store` interface** (`src/types/provider.ts`) — The contract that all storage backends must fulfill. [[GraphCore]] programs against this interface.
+- **`StoreProvider` abstract class** (`src/providers/store/index.ts`) — Shared implementation that provides default graph operations, vector delegation, discovery, tag search, batch operations, and graph lifecycle management. Concrete stores (like [[DocStore]]) extend this class.
 
 The interface abstracts away storage details. [[GraphCore]] doesn't know if it's talking to files or a graph database. Same queries, same results.
 
-## Interface
+## Architecture
 
-```typescript
-interface StoreProvider {
-  // CRUD
-  createNode(node: Node): Promise<void>;
-  updateNode(id: string, updates: Partial<Node>): Promise<void>;
-  deleteNode(id: string): Promise<void>;
-  getNode(id: string): Promise<Node | null>;
-  getNodes(ids: string[]): Promise<Node[]>;
-
-  // Graph operations (see Decision - Edge Futureproofing for options pattern)
-  getNeighbors(id: string, options: NeighborOptions): Promise<Node[]>;
-  findPath(source: string, target: string): Promise<string[] | null>;
-  getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
-
-  // Vector storage (see Decision - Vector Storage)
-  storeEmbedding(id: string, vector: number[], model: string): Promise<void>;
-  searchByVector(vector: number[], limit: number): Promise<Array<{ id: string; distance: number }>>;
-
-  // Search
-  searchByTags(tags: string[], mode: TagMode): Promise<Node[]>;
-
-  // Link resolution (for MCP response formatting)
-  resolveTitles(ids: string[]): Promise<Map<string, string>>;
-}
-
-interface NeighborOptions {
-  direction: Direction;
-  type?: string;       // Future: filter by edge type
-  minWeight?: number;  // Future: filter by edge weight
-  limit?: number;      // Future: cap results
-}
-
-type Direction = 'in' | 'out' | 'both';
-type Metric = 'pagerank' | 'in_degree' | 'out_degree';
-type TagMode = 'any' | 'all';
+```
+┌─────────────────┐
+│  Store interface │  ← GraphCore programs against this
+└────────┬────────┘
+         │ implements
+┌────────▼────────┐
+│  StoreProvider   │  ← Abstract class with shared logic
+│  (abstract)      │     GraphManager, VectorIndex delegation,
+│                  │     tag search, batch ops, discovery
+└────────┬────────┘
+         │ extends
+┌────────▼────────┐
+│  DocStore        │  ← Concrete implementation
+│  (and future     │     Adds file I/O, parsing, caching
+│   stores)        │
+└─────────────────┘
 ```
 
-**Note:** The old `search(query, limit)` method is removed. Semantic search is orchestrated by [[GraphCore]]: embed query via [[EmbeddingProvider]], then call `searchByVector()` on Store.
+## Store Interface
+
+See `src/types/provider.ts` for the current `Store` interface definition. Key method groups:
+
+- **CRUD** — `createNode()`, `updateNode()`, `deleteNode()`, `getNode()`, `getNodes()`
+- **Graph** — `getNeighbors()`, `findPath()`, `getHubs()`
+- **Vector** — `storeEmbedding()`, `searchByVector()`
+- **Search** — `searchByTags()`
+- **Discovery** — `getRandomNode()`
+- **Resolution** — `resolveTitles()`
+- **Batch** — `listNodes()`, `resolveNodes()`, `nodesExist()`
+
+## StoreProvider Abstract Class
+
+The abstract class provides default implementations so concrete stores only need to implement storage-specific operations:
+
+**Abstract (must implement):**
+- `loadAllNodes()` — Return all nodes from storage
+- `getNodesByIds(ids)` — Return specific nodes by ID
+- `createNode()`, `updateNode()`, `deleteNode()`, `getNode()`, `getNodes()`, `close()`
+
+**Provided by StoreProvider:**
+- Graph operations via `GraphManager` — `getNeighbors()`, `findPath()`, `getHubs()`
+- Vector operations via `VectorIndex` — `storeEmbedding()`, `searchByVector()`
+- Discovery — `getRandomNode()`
+- Search — `searchByTags()`
+- Batch — `listNodes()`, `resolveNodes()`, `nodesExist()`, `resolveTitles()`
+- Graph lifecycle — `syncGraph()`, `onCentralityComputed()`
 
 ## Implementations
 
@@ -79,7 +93,7 @@ Storage and vector generation are orthogonal. You might want OpenAI embeddings w
 Graph traversal is inherently tied to how data is stored. A graph database handles `findPath` natively; a file store needs to build an in-memory graph. The implementation differs, the interface doesn't.
 
 **Why include vector search in Store?**
-`searchByVector()` is part of StoreProvider because each backend implements it differently using native capabilities:
+`searchByVector()` is part of Store because each backend implements it differently using native capabilities:
 
 | Store | Vector Search Implementation |
 |-------|------------------------------|
@@ -90,11 +104,11 @@ Graph traversal is inherently tied to how data is stored. A graph database handl
 
 The interface is standardized. The implementation is backend-specific.
 
-**Future: VectorProvider Override**
-Post-MVP, stores may support delegating `searchByVector()` to an external VectorProvider (e.g., Pinecone). This enables scenarios like DocStore for documents + Pinecone for industrial-scale vector search. See [[decisions/Vector Storage]] for details.
+**Future: VectorIndex Override**
+Post-MVP, stores may support delegating `searchByVector()` to an external VectorIndex (e.g., Pinecone). This enables scenarios like DocStore for documents + Pinecone for industrial-scale vector search. See [[decisions/Vector Storage]] for details.
 
 **Canonical IDs vs Internal Storage**
-`Node.id` is the canonical, portable identifier defined by Roux. Each StoreProvider maps it to native storage:
+`Node.id` is the canonical, portable identifier defined by Roux. Each store maps it to native storage:
 
 | Store | Canonical ID | Internal Storage |
 |-------|--------------|------------------|
@@ -115,14 +129,19 @@ MCP responses include outgoing links with human-readable titles for LLM context.
 
 This keeps the MCP layer store-agnostic while enabling rich context in responses. See [[MCP Tools Schema]] for response format details.
 
+## Centrality
+
+Currently implemented: `in_degree`, `out_degree`. PageRank is planned but not yet implemented.
+
+See [[decisions/Graphology Lifecycle]] for graph construction and centrality recomputation timing.
+
 ## Open Questions (Deferred)
 
 - **Scale Boundaries**: At what node count does SQLite + in-memory graph become inadequate? Empirical—learn from usage.
-- ~~**Centrality Caching**: PageRank recomputation frequency.~~ Decided: recompute during file sync (piggybacked). See [[decisions/Graphology Lifecycle]].
 
 ## Related
 
-- [[GraphCore]] — Consumes StoreProvider
+- [[GraphCore]] — Consumes Store interface
 - [[Node]] — What gets stored
 - [[DocStore]] — MVP implementation
 - [[EmbeddingProvider]] — Often used alongside for semantic search

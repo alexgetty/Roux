@@ -5,7 +5,7 @@ import { DocStore } from '../../providers/docstore/index.js';
 import { TransformersEmbedding } from '../../providers/embedding/transformers.js';
 import { GraphCoreImpl } from '../../core/graphcore.js';
 import { McpServer, type TransportFactory } from '../../mcp/server.js';
-import type { RouxConfig } from '../../types/config.js';
+import { DEFAULT_NAMING, type RouxConfig } from '../../types/config.js';
 
 export interface ServeOptions {
   watch?: boolean;
@@ -79,11 +79,15 @@ export async function serveCommand(
   core.registerStore(store);
   core.registerEmbedding(embedding);
 
+  // Resolve naming conventions
+  const naming = { ...DEFAULT_NAMING, ...config.naming };
+
   // Start MCP server
   const mcpServer = new McpServer({
     core,
     store,
     hasEmbedding: true,
+    naming,
   });
 
   await mcpServer.start(transportFactory);

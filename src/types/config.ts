@@ -18,6 +18,21 @@ export interface SystemConfig {
   onModelChange: ModelChangeBehavior;
 }
 
+export type FilenameSeparator = 'space' | 'dash';
+export type TitleCasing = 'title' | 'sentence' | 'as-is';
+
+export interface NamingConventions {
+  /** Word separator in filenames: 'space' (default) or 'dash' */
+  filename: FilenameSeparator;
+  /** Casing for derived titles (ignored when title is explicit) */
+  title: TitleCasing;
+}
+
+export const DEFAULT_NAMING: NamingConventions = {
+  filename: 'space',
+  title: 'title',
+};
+
 export interface DocStoreConfig {
   type: 'docstore';
 }
@@ -74,6 +89,7 @@ export interface RouxConfig {
   source?: SourceConfig;
   cache?: CacheConfig;
   system?: SystemConfig;
+  naming?: NamingConventions;
   providers: ProvidersConfig;
 }
 

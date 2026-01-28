@@ -559,6 +559,26 @@ describe('StoreProvider', () => {
       expect(store.lastCentrality).toBeInstanceOf(Map);
       expect(store.lastCentrality!.size).toBe(5);
     });
+
+    it('base onCentralityComputed is a no-op', async () => {
+      // Use a subclass that does NOT override onCentralityComputed
+      class BaseOnlyStore extends StoreProvider {
+        readonly nodes = new Map<string, Node>();
+        protected async loadAllNodes(): Promise<Node[]> { return [...this.nodes.values()]; }
+        protected async getNodesByIds(ids: string[]): Promise<Node[]> { return ids.map(id => this.nodes.get(id)).filter((n): n is Node => n !== undefined); }
+        async createNode(node: Node): Promise<void> { this.nodes.set(node.id, node); }
+        async updateNode(): Promise<void> {}
+        async deleteNode(): Promise<void> {}
+        async getNode(id: string): Promise<Node | null> { return this.nodes.get(id) ?? null; }
+        async getNodes(ids: string[]): Promise<Node[]> { return this.getNodesByIds(ids); }
+        close(): void {}
+        async callSyncGraph(): Promise<void> { return this.syncGraph(); }
+      }
+
+      const baseStore = new BaseOnlyStore({ vectorIndex: makeMockVectorIndex() });
+      // Should not throw — the base no-op simply does nothing
+      await expect(baseStore.callSyncGraph()).resolves.not.toThrow();
+    });
   });
 
   // ── close (abstract, implemented by subclass) ───────────────
