@@ -1,12 +1,13 @@
 ---
+title: audit-reader-registry-test
 tags:
   - test-audit
   - docstore
 status: open
-title: audit-reader-registry-test
 ---
-
 # Test Audit: reader-registry.test.ts
+
+**Consolidated into:** [[consolidated-empty-string-validation]], [[consolidated-weak-assertions]]
 
 ## Summary
 

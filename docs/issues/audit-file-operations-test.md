@@ -7,6 +7,8 @@ tags:
 ---
 # Test Audit: file-operations.test.ts
 
+**Consolidated into:** [[consolidated-empty-string-validation]], [[consolidated-boundary-conditions]], [[consolidated-error-propagation-gaps]]
+
 ## Summary
 
 The test suite covers happy paths adequately but has critical gaps in security validation, error handling edge cases, and assertion specificity. Several tests pass by accident due to weak assertions.

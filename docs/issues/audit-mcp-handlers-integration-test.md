@@ -1,13 +1,14 @@
 ---
+title: audit-mcp-handlers-integration-test
 tags:
   - test-audit
   - integration
   - mcp
 status: open
-title: audit-mcp-handlers-integration-test
 ---
-
 # Test Audit: handlers.integration.test.ts
+
+**Consolidated into:** [[consolidated-weak-assertions]], [[consolidated-boundary-conditions]], [[consolidated-error-propagation-gaps]]
 
 ## Summary
 
@@ -310,40 +311,52 @@ it('returns single-node path for same source and target', async () => {
 });
 ```
 
-**Verification:** Run test, verify behavior matches expectation (or document if this should return null).
+**Verification:** Run test, verify current behavior, document or fix as appropriate.
 
 ---
 
-### [LOW] No McpError Code Assertions
+### [LOW] handleNodesExist Not Tested with Mixed Existing/Non-Existing
 
-**Location:** Throughout file (lines 110, 114-115, 389, 439, 455)
+**Location:** `tests/integration/mcp/handlers.integration.test.ts:538-547`
 
-**Problem:** Tests use `.rejects.toThrow(McpError)` but don't verify the error code. A bug could throw wrong error code (e.g., `NODE_NOT_FOUND` instead of `INVALID_PARAMS`).
+**Problem:** Test only verifies single existing node. Never tests batch with mix of existing and non-existing IDs.
 
 **Evidence:**
 ```typescript
-await expect(
-  handleSearch(noEmbeddingCtx, { query: 'test' })
-).rejects.toThrow(McpError);  // PROVIDER_ERROR expected but not asserted
-```
-
-**Fix:** Assert error codes:
-```typescript
-await expect(
-  handleSearch(noEmbeddingCtx, { query: 'test' })
-).rejects.toMatchObject({
-  code: 'PROVIDER_ERROR',
+it('returns existence status for nodes', async () => {
+  const results = await handleNodesExist(ctx, { ids: ['test-node.md'] });
+  expect(results).toEqual([{ id: 'test-node.md', exists: true }]);
 });
 ```
 
-**Verification:** Change error code in handler, confirm test fails.
+**Fix:** Add test:
+```typescript
+it('handles mixed existing and non-existing nodes', async () => {
+  const results = await handleNodesExist(ctx, { 
+    ids: ['test-node.md', 'non-existent.md', 'parent.md', 'also-missing.md'] 
+  });
+  expect(results).toEqual([
+    { id: 'test-node.md', exists: true },
+    { id: 'non-existent.md', exists: false },
+    { id: 'parent.md', exists: true },
+    { id: 'also-missing.md', exists: false },
+  ]);
+});
+```
 
----
+**Verification:** Run test, verify batch behavior is correct.
 
-## References
+## Missing Coverage Summary
 
-- Unit tests: `tests/unit/mcp/handlers.test.ts`
-- Implementation: `src/mcp/handlers.ts`
-- Related issues:
-  - `docs/issues/mcp-integration-test-gaps.md` (overlaps with missing integration tests)
-  - `docs/issues/MCP Layer Gaps.md` (broader MCP issues)
+| Handler | Missing Coverage |
+|---------|-----------------|
+| handleResolveNodes | Entire handler |
+| handleGetNode | Neighbor content assertions |
+| handleGetNeighbors | direction='both' default |
+| handleRandomNode | tags filter |
+| handleSearch | include_content parameter |
+| handleUpdateNode | successful title update |
+| handleListNodes | offset pagination |
+| handleCreateNode | explicit title |
+| handleFindPath | self-path |
+| handleNodesExist | mixed batch |

@@ -1,12 +1,13 @@
 ---
+title: audit-cli-init-test
 tags:
   - test-audit
   - cli
 status: open
-title: audit-cli-init-test
 ---
-
 # Test Audit: cli/init.test.ts
+
+**Consolidated into:** [[consolidated-error-propagation-gaps]], [[consolidated-weak-assertions]]
 
 ## Summary
 

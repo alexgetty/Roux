@@ -1,12 +1,13 @@
 ---
+title: audit-core-graphcore-test
 tags:
   - test-audit
   - core
 status: open
-title: audit-core-graphcore-test
 ---
-
 # Test Audit: core/graphcore.test.ts
+
+**Consolidated into:** [[consolidated-weak-assertions]], [[consolidated-boundary-conditions]], [[consolidated-empty-string-validation]]
 
 ## Summary
 

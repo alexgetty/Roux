@@ -4,9 +4,10 @@ tags:
   - test-audit
   - docstore
   - parser
-  - red-team
 ---
 # Test Audit: docstore/parser.test.ts
+
+**Consolidated into:** [[consolidated-type-guard-validation-gaps]], [[consolidated-weak-assertions]], [[consolidated-empty-string-validation]]
 
 ## Summary
 

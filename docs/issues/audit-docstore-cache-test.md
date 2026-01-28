@@ -1,13 +1,14 @@
 ---
+title: audit-docstore-cache-test
 tags:
   - test-audit
   - docstore
   - issue
 status: open
-title: audit-docstore-cache-test
 ---
-
 # Test Audit: docstore/cache.test.ts
+
+**Consolidated into:** [[consolidated-boundary-conditions]], [[consolidated-weak-assertions]], [[consolidated-error-propagation-gaps]]
 
 ## Summary
 

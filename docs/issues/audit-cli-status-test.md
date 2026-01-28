@@ -1,12 +1,13 @@
 ---
+title: audit-cli-status-test
 tags:
   - test-audit
   - cli
 status: open
-title: audit-cli-status-test
 ---
-
 # Test Audit: cli/status.test.ts
+
+**Consolidated into:** [[consolidated-boundary-conditions]], [[consolidated-error-propagation-gaps]], [[consolidated-weak-assertions]]
 
 ## Summary
 

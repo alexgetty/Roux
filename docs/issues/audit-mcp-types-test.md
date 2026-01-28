@@ -1,12 +1,13 @@
 ---
+title: audit-mcp-types-test
 tags:
   - test-audit
   - mcp
 status: open
-title: audit-mcp-types-test
 ---
-
 # Test Audit: mcp/types.test.ts
+
+**Consolidated into:** [[consolidated-weak-assertions]], [[consolidated-error-propagation-gaps]]
 
 ## Summary
 

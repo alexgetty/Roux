@@ -6,6 +6,8 @@ tags:
 ---
 # Test Audit: index.test.ts
 
+**Consolidated into:** [[consolidated-weak-assertions]]
+
 ## Summary
 
 The barrel export test (`tests/unit/index.test.ts`) tests only VERSION, ignoring 95% of exports including all core classes, providers, and re-exported types. A single regex assertion provides no confidence that the public API works.

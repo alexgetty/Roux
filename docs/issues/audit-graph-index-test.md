@@ -1,12 +1,13 @@
 ---
+title: audit-graph-index-test
 tags:
   - test-audit
   - graph
 status: open
-title: audit-graph-index-test
 ---
-
 # Test Audit: graph/index.test.ts
+
+**Consolidated into:** [[consolidated-weak-assertions]]
 
 ## Summary
 

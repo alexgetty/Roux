@@ -1,13 +1,14 @@
 ---
+title: audit-graphcore-integration-test
 tags:
   - test-audit
   - integration
   - core
 status: open
-title: audit-graphcore-integration-test
 ---
-
 # Test Audit: graphcore.integration.test.ts
+
+**Consolidated into:** [[consolidated-weak-assertions]], [[consolidated-boundary-conditions]], [[consolidated-error-propagation-gaps]]
 
 ## Summary
 
@@ -291,18 +292,13 @@ If the embedding provider fails to initialize, all tests will fail with potentia
 
 ## Missing Coverage Summary
 
-| Area | Gap |
-|------|-----|
-| SearchOptions | `threshold` and `tags` options untested |
-| Batch ops | `listNodes`, `resolveNodes` not integration tested |
-| Error paths | No tests for missing nodes, failed operations |
-| Edge cases | Empty arrays, negative values, boundary conditions |
-| Metrics | Only `in_degree` tested, not `out_degree` |
-| Depth | Only `depth=1` tested in integration |
-
-## References
-
-- Test file: `tests/integration/core/graphcore.integration.test.ts`
-- Implementation: `src/core/graphcore.ts`
-- Types: `src/types/graphcore.ts`, `src/types/provider.ts`
-- Related issue: `docs/issues/GraphCore Integration Test DocStore Leak.md`
+| Category | Gap |
+|----------|-----|
+| Search | threshold, tags options |
+| getNode | depth edge cases |
+| createNode | duplicate ID handling |
+| CRUD | error paths |
+| listNodes | entire method |
+| resolveNodes | entire method |
+| getHubs | out_degree metric |
+| searchByTags | empty array |

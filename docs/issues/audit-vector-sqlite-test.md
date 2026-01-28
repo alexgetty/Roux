@@ -1,12 +1,13 @@
 ---
+title: audit-vector-sqlite-test
 tags:
   - test-audit
   - vector
 status: open
-title: audit-vector-sqlite-test
 ---
-
 # Test Audit: vector/sqlite.test.ts
+
+**Consolidated into:** [[consolidated-boundary-conditions]], [[consolidated-empty-string-validation]], [[consolidated-weak-assertions]]
 
 ## Summary
 

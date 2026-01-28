@@ -6,6 +6,8 @@ tags:
 ---
 # Test Audit: docstore.test.ts
 
+**Consolidated into:** [[consolidated-empty-string-validation]], [[consolidated-boundary-conditions]], [[consolidated-weak-assertions]]
+
 ## Summary
 Comprehensive audit of `tests/unit/docstore/docstore.test.ts` against `src/providers/docstore/index.ts`. Found 12 gaps ranging from missing edge cases to weak assertions and untested code paths. Tests are generally solid but lack coverage for error paths and boundary conditions.
 
@@ -255,95 +257,12 @@ it('accepts threshold of 1 (exact only)', async () => {
 
 ### [LOW] Security Test Doesn't Check updateNode Path
 **Location:** `tests/unit/docstore/docstore.test.ts:808-836`
-**Problem:** Security tests verify createNode rejects path traversal but don't verify updateNode can't be exploited (e.g., updating to change content that writes to different location).
+**Problem:** Security tests verify createNode rejects path traversal but don't verify updateNode can't be exploited.
 **Evidence:**
 ```typescript
-// Only createNode tested, not updateNode
-it('rejects path traversal in createNode', async () => {
-  const maliciousNode: Node = {
-    id: '../../../etc/passwd.md',
-    // ...
-  };
-  await expect(store.createNode(maliciousNode)).rejects.toThrow(/outside.*source/i);
-});
+// Only createNode tested for path traversal
 ```
-Note: updateNode uses existing.id which is already validated, but explicit test documents this.
-**Fix:**
-```typescript
-it('updateNode cannot change node ID to escape source', async () => {
-  await writeMarkdownFile('safe.md', '# Safe');
-  await store.sync();
-  
-  // Verify ID cannot be changed via updates
-  await store.updateNode('safe.md', { id: '../escape.md' } as Partial<Node>);
-  const node = await store.getNode('safe.md');
-  expect(node?.id).toBe('safe.md'); // ID unchanged
-});
-```
-**Verification:** updateNode cannot be used for path traversal.
 
-### [MEDIUM] Concurrent createNode Same ID Race Condition
-**Location:** `src/providers/docstore/index.ts:122-151`
-**Problem:** createNode checks cache for existence then writes file. Two concurrent createNode calls for same ID could both pass the existence check before either completes writing.
-**Evidence:**
-```typescript
-// Lines 126-129 - TOCTOU window
-const existing = this.cache.getNode(normalizedId);
-if (existing) {
-  throw new Error(`Node already exists: ${normalizedId}`);
-}
-// ... file operations follow
-```
-**Fix:** Test the race condition:
-```typescript
-it('handles concurrent createNode for same ID', async () => {
-  const node: Node = {
-    id: 'race.md',
-    title: 'Race',
-    content: '',
-    tags: [],
-    outgoingLinks: [],
-    properties: {},
-  };
+**Fix:** Add updateNode security test.
 
-  const [result1, result2] = await Promise.allSettled([
-    store.createNode(node),
-    store.createNode(node),
-  ]);
-
-  // One should succeed, one should fail
-  const successes = [result1, result2].filter(r => r.status === 'fulfilled');
-  const failures = [result1, result2].filter(r => r.status === 'rejected');
-  
-  expect(successes).toHaveLength(1);
-  expect(failures).toHaveLength(1);
-});
-```
-**Verification:** Document expected behavior under concurrent access.
-
-### [LOW] Test Cleanup Not Verified
-**Location:** `tests/unit/docstore/docstore.test.ts:24-27`
-**Problem:** afterEach calls `store.close()` but doesn't verify the database is actually closed. If close() silently fails, subsequent tests could have resource leaks.
-**Evidence:**
-```typescript
-// Lines 24-27 - no verification close succeeded
-afterEach(async () => {
-  store.close();
-  await rm(tempDir, { recursive: true, force: true });
-});
-```
-**Fix:** This is low priority but could add verification:
-```typescript
-afterEach(async () => {
-  store.close();
-  // Verify DB operations fail after close
-  await expect(store.getNode('any')).rejects.toThrow();
-  await rm(tempDir, { recursive: true, force: true });
-});
-```
-**Verification:** Resource cleanup is verified.
-
-## Related Known Issues
-- `docs/issues/docstore-semantic-resolve-unit-test.md` - Already documents missing semantic strategy test
-- `docs/issues/parsefile-double-mtime.md` - Performance issue, not test gap
-- `docs/issues/embeddings-empty-vector-untested.md` - Overlaps with hasEmbedding gap
+**Verification:** updateNode path traversal is blocked.

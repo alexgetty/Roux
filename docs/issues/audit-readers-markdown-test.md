@@ -1,13 +1,14 @@
 ---
+title: audit-readers-markdown-test
 tags:
   - test-audit
   - docstore
   - readers
 status: open
-title: audit-readers-markdown-test
 ---
-
 # Test Audit: readers/markdown.test.ts
+
+**Consolidated into:** [[consolidated-unicode-i18n-handling]], [[consolidated-weak-assertions]], [[consolidated-empty-string-validation]]
 
 ## Summary
 
