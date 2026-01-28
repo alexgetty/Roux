@@ -1,19 +1,21 @@
 ---
 title: Graph Health & Testing Framework
 type: RFC
-status: Draft
+status: Ready for Implementation
 priority: High
 phase: Post-MVP
 tags:
   - roadmap
   - testing
   - rfc
+  - plugin
 ---
 # RFC: Graph Health & Testing Framework
 
-**Status:** Draft  
-**Type:** Core Feature Proposal  
+**Status:** Ready for Implementation
+**Type:** Plugin (`@roux/health-checks`)
 **Origin:** Aggregated from beta user requests
+**Dependencies:** [[plugin-system]] (provides/needs model)
 
 ---
 
@@ -366,48 +368,35 @@ schema:
 
 ## Open Questions
 
-### 1. Graph Access
+### Resolved
 
-Should validators receive:
-- **GraphCore instance** — Full access, tight coupling
-- **Read-only graph view** — Scoped access, better isolation
-- **Node iterator + query functions** — Most flexible, most work
+~~**Graph Access:**~~ Validators receive GraphCore via PluginContext. See Critical Concern #4.
 
-**Recommendation:** Read-only view with common query helpers (get node, get neighbors, get all links).
+~~**Async vs Sync:**~~ Async by default, parallel validator execution. See Critical Concern #5.
 
-### 2. Async vs Sync
+### Deferred (Post-MVP)
 
-Large vaults benefit from async. Small vaults don't care.
+**MCP Integration:** Should health checks expose tools via MCP?
 
-**Recommendation:** Async by default. Validators are `async` functions. Runner handles concurrency.
+If yes, the plugin declares `needs: { exposure: ['mcp'] }` and GraphCore wires it. The validator results could become interactive — Claude suggests fixes.
 
-### 3. MCP Integration
+Deferring because:
+- Health checks are primarily CI/dev-time
+- MVP focus is programmatic API + CLI
+- MCP exposure is additive; can ship later without breaking changes
 
-Should `mcp__roux__health_check` exist?
+**Auto-fix:** Should validators fix issues, not just report?
 
-**Arguments for:**
-- Run health checks from Claude without leaving chat
-- Could suggest fixes interactively
+All three beta projects say: not blocking. Report-only is fine for v1.
 
-**Arguments against:**
-- Health checks are typically CI/dev-time concerns
-- MCP adds complexity
+Deferring because:
+- Separate concern from detection
+- Requires careful UX (dry-run, confirmation, undo)
+- Can be added as separate capability layer
 
-**Recommendation:** Defer. Start with CLI and programmatic API. Add MCP if clear demand.
+**Watch Mode:** Run checks on file change.
 
-### 4. Auto-fix
-
-Should validators be able to fix issues, not just report them?
-
-**All three projects say:** Not blocking. Report-only is fine for v1.
-
-**Recommendation:** Validators return issues. Fixers are a separate concern for v2.
-
-### 5. Watch Mode
-
-Run checks on file change during development.
-
-**Recommendation:** Nice to have, not MVP. Projects can use their own file watchers.
+Nice for DX but not MVP. Projects can use their own file watchers or integrate with existing tooling. Revisit when usage patterns are clearer.
 
 ---
 
@@ -415,33 +404,36 @@ Run checks on file change during development.
 
 ### Phase 1: Foundation (MVP)
 
-- [ ] Core runner and result types
-- [ ] Config loader (YAML + JS)
+- [ ] Plugin structure (`@roux/health-checks` package)
+- [ ] Plugin registration with GraphCore (provides/needs)
+- [ ] Health suite runner and result types
+- [ ] Config loader (YAML with glob patterns, opt-in regex)
 - [ ] Ghost link validator
-- [ ] Orphan validator  
-- [ ] Basic schema validator (loose mode)
-- [ ] Custom validator factory
+- [ ] Orphan validator
+- [ ] Schema validator (minimal: types, custom types, required/optional, strict/loose modes)
+- [ ] Custom validator factory (`createValidator()`)
 - [ ] Vitest integration example
 - [ ] CLI with JSON output
 
 ### Phase 2: Common Patterns
 
-- [ ] Hierarchy validator
-- [ ] Link direction validator
+- [ ] Hierarchy validator (parent chain connectivity)
+- [ ] Link direction validator (folder-based rules)
 - [ ] Index coverage validator
 - [ ] Bidirectional link validator
-- [ ] Status chain validator
 - [ ] Naming convention validator
-- [ ] Schema modes (strict, inherited)
+- [ ] Named pattern presets (date, kebab-case, etc.)
 - [ ] CLI with pretty output
 
 ### Phase 3: Polish & Extensions
 
-- [ ] Git integration helpers
+- [ ] Status chain validator (verification propagation)
+- [ ] Git integration helpers (staleness detection)
 - [ ] Content-based validators (todo detection, patterns)
-- [ ] Performance optimization (caching, incremental)
-- [ ] MCP integration (if demand)
+- [ ] Schema inheritance/composition (if demand from Dataverse)
+- [ ] MCP tool exposure (if demand)
 - [ ] Watch mode
+- [ ] Performance optimization (incremental checking)
 
 ---
 
@@ -488,111 +480,283 @@ Issues that need resolution before implementation. Working through these one by 
 
 ### 1. Schema Validation is Underspecified
 
-**Status:** Open
+**Status:** Resolved
 
 **Problem:** Schema validation is Tier 1 MVP, but the design section punts with "Option C, figure it out later." This is the hardest validator to build — JSON Schema is a rabbit hole, custom YAML schema is a rabbit hole. Estimated complexity dwarfs ghost links + orphans combined.
 
-**Options:**
-- A) Break out schema validation into its own RFC
-- B) Demote to Tier 2, ship MVP without it
-- C) Pick a minimal subset (type + required only) and defer advanced features
+**Resolution:** Scope to minimal common core. Advanced features (inheritance, type inference) were Dataverse-specific, and Dataverse is documentation-only — not load-bearing for MVP.
 
-**Recommendation:** Option A. Schema deserves focused design.
+**Minimal Schema Validator (MVP):**
+- Field type validation: `string`, `number`, `boolean`, `array`, `enum`
+- Custom type registry: user provides regex pattern or validation function per type name
+- Required/optional per field
+- Mode flag: `strict` (unknown fields → error) vs `loose` (unknown fields → ignored)
+
+**Deferred to post-MVP:**
+- Schema inheritance/composition
+- Type inference from path
+- Status/verification chains
+
+**Schema format decision:** Simple YAML, not JSON Schema. Example:
+
+```yaml
+# schema.yaml
+fields:
+  type:
+    type: enum
+    values: [ingredient, recipe, technique]
+    required: false
+  parent:
+    type: link  # custom type
+    required: false
+  nutrition:
+    type: object
+    required: true  # only for strict mode
+  tags:
+    type: array
+    items: string
+
+customTypes:
+  link: '^\[\[[^\]]+\]\]$'  # regex pattern
+  duration: '^\d+\s*(min|hours?|days?)$'
+
+mode: strict  # or 'loose'
+```
+
+This is implementable without a separate RFC.
 
 ---
 
 ### 2. Core Module vs First Plugin
 
-**Status:** Open
+**Status:** Resolved
 
 **Problem:** The rationale for "core module" is "all three need it" — but Roux doesn't have a plugin system yet. This could *be* the first plugin that proves out the plugin architecture. Shipping as core locks in the API before we know if plugin boundaries are right.
 
-**Options:**
-- A) Ship as core, refactor to plugin later if needed
-- B) Build minimal plugin system first, health checks as first plugin
-- C) Ship as standalone package (`@roux/health-checks`), decide core vs plugin later
+**Resolution:** Health checks ships as a plugin (`@roux/health-checks`), following the package architecture now documented in [[plugin-system]].
 
-**Recommendation:** Leaning C — standalone package sidesteps the question.
+**Package architecture (applies to all of Roux):**
+
+| Layer | What | Package |
+|-------|------|---------|
+| **Core** | GraphCore, provider interfaces, plugin interface | `roux` |
+| **Providers** | StoreProvider implementations | `@roux/docstore`, future `@roux/notion-store` |
+| **Plugins** | Optional capabilities | `@roux/mcp`, `@roux/health-checks`, `@roux/tasks` |
+
+Health checks is a plugin that:
+- **provides:** validation tools (if we want MCP exposure later)
+- **needs:** `graphAccess: read`
+
+This discussion drove updates to [[plugin-system]] including:
+- GraphCore as orchestrator (provides/needs model)
+- Graceful degradation for unmet plugin needs
+- Package architecture section
 
 ---
 
 ### 3. Duplicates Existing Link Resolution
 
-**Status:** Open
+**Status:** Resolved
 
 **Problem:** Roux's link resolution logic already knows what's broken — `get_neighbors` and the graph builder already track unresolved links. Ghost link detection may be wrapping existing code or duplicating it.
 
-**Action:** Audit existing link resolution code. Determine if ghost link validator is:
-- A thin wrapper exposing existing data
-- New logic that duplicates existing detection
-- Extension that adds reporting/filtering on top
+**Finding:** `buildGraph()` in `src/graph/builder.ts:24` already identifies ghost links:
+```typescript
+if (!nodeIds.has(target)) continue;  // silently ignores
+```
+
+The check exists. It just discards the result instead of reporting it.
+
+**Resolution:** Ghost link validator uses the same logic but collects instead of ignoring. Not duplication — we're exposing data that's already computed but thrown away.
+
+Implementation approach:
+```typescript
+function findGhostLinks(nodes: Node[]): GhostLink[] {
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const ghosts: GhostLink[] = [];
+
+  for (const node of nodes) {
+    for (const target of node.outgoingLinks) {
+      if (!nodeIds.has(target)) {
+        ghosts.push({ source: node.id, target });
+      }
+    }
+  }
+  return ghosts;
+}
+```
+
+Could also consider exposing this from `buildGraph()` itself as a side-output, but that couples graph building to validation concerns. Keeping them separate is cleaner.
 
 ---
 
 ### 4. Graph Access Model is Architectural
 
-**Status:** Open
+**Status:** Resolved (by plugin system design)
 
 **Problem:** Open Question #1 asks "what do validators receive?" but this isn't a detail — it's the architecture. Wrong choice makes custom validators painful or exposes too much internal state.
 
-**Options:**
-- A) Full GraphCore instance — maximum power, tight coupling
-- B) Read-only view interface — isolation, but need to define the interface
-- C) Node iterator + query callbacks — most flexible, most work to implement
+**Resolution:** Health checks is a plugin (see concern #2). The plugin system already defines the interface:
 
-**Dependencies:** This blocks custom validator API design.
+```typescript
+// Health checks plugin declares
+needs: { graphAccess: 'read' }
+
+// Receives standard PluginContext
+interface PluginContext {
+  core: GraphCore;  // read-only access to graph operations
+  // ...
+}
+```
+
+Validators receive GraphCore through the plugin context. This is:
+- Option A (GraphCore instance), but...
+- Constrained by the `graphAccess: 'read'` declaration
+- GraphCore can enforce read-only if a plugin only declares read access
+
+Custom validators written by consumer projects also use GraphCore — they're just functions that take the plugin context and return results.
 
 ---
 
 ### 5. Performance Model Unaddressed
 
-**Status:** Open
+**Status:** Resolved
 
-**Problem:** 10 validators × 500 nodes × async operations = unknown. Document says "async by default" but doesn't discuss:
-- Can validators share loaded graph state?
-- Sequential vs parallel validator execution?
-- Caching between runs?
-- Early termination on first error?
+**Problem:** 10 validators × 500 nodes × async operations = unknown. Document says "async by default" but doesn't discuss execution model.
 
-**Action:** Add performance section with expected characteristics and constraints.
+**Resolution:** Define the execution model:
+
+**1. Shared graph state:** Yes. All validators receive the same GraphCore instance via PluginContext. Graph is loaded once, not per-validator.
+
+**2. Validator execution:** Parallel by default. Validators are independent — ghost links doesn't need orphan results. Run with `Promise.all()`.
+
+```typescript
+const results = await Promise.all(
+  validators.map(v => v.validate(context))
+);
+```
+
+**3. Caching between runs:** Delegated to GraphCore. If GraphCore caches node data (it does, via DocStore cache), validators benefit automatically. Health checks doesn't add its own caching layer.
+
+**4. Early termination:** Not by default. Run all validators, report all issues. Optional `failFast: true` config for CI that wants to exit on first error.
+
+**5. Expected performance:** For MVP target (<500 nodes):
+- Graph load: dominated by disk I/O, ~100-500ms
+- Ghost links: O(n × avg_links), single pass, <50ms
+- Orphans: O(n), single pass with incoming link count, <50ms
+- Schema: O(n × fields), <100ms
+- Total: <1s for typical vault
+
+Scale testing deferred to post-MVP (see [[Scale Testing]]).
 
 ---
 
 ### 6. YAML Regex is UX Pain
 
-**Status:** Open
+**Status:** Resolved
 
 **Problem:** Config examples show `/\.(jpg|png)$/i` in YAML. Regex in YAML is error-prone (escaping hell) and intimidating to non-developers.
 
-**Options:**
-- A) Glob patterns only (simpler, covers 90% of cases)
-- B) Glob default, regex opt-in with explicit syntax (`regex:"/pattern/"`)
-- C) Accept the pain, document clearly
+**Resolution:** Option B — globs by default, regex opt-in.
 
-**Recommendation:** Option B — globs for ignore patterns, regex only when explicitly needed.
+Actual use cases from beta users:
+- Ignore images: `*.jpg`, `*.png` → glob
+- Ignore folders: `Templates/**`, `.obsidian/**` → glob
+- Match dates: `YYYY-MM-DD.md` → named preset or regex
+
+**Config syntax:**
+
+```yaml
+ghostLinks:
+  ignore:
+    - "*.jpg"              # glob (default)
+    - "*.png"
+    - "Templates/**"
+    - regex: '^\d{4}-\d{2}-\d{2}\.md$'  # explicit regex
+
+naming:
+  rules:
+    - glob: "Daily/*.md"
+      pattern: date        # named preset
+    - glob: "Notes/*.md"
+      pattern:
+        regex: '^[A-Z].*\.md$'  # explicit regex
+```
+
+**Named presets for common patterns:**
+- `date` → `YYYY-MM-DD`
+- `timestamp` → ISO 8601
+- `kebab-case`, `Title Case`, etc.
+
+Globs use standard micromatch syntax. Regex only when explicitly requested via `regex:` key.
 
 ---
 
 ### 7. Enforcement vs Suggestions Mental Model
 
-**Status:** Open
+**Status:** Resolved
 
 **Problem:** Eldhrimnir wants strict enforcement (CI blocks on failure). Gettyverse wants advisory suggestions. Same framework, different expectations. Severity is per-check, but what if same check needs different severity in different projects?
 
-**Current design:** Severity configured per-check in project config. This works but could be clearer.
+**Resolution:** Per-check severity in config is correct. Projects configure what they need.
 
-**Action:** Validate that per-check severity in config is sufficient. Consider adding examples showing same validator with different severities.
+**Example — same validator, different projects:**
+
+```yaml
+# Eldhrimnir: strict, CI blocks
+ghostLinks:
+  severity: error          # CI fails on ghost links
+  folders: [Recipes, Ingredients]
+
+orphans:
+  severity: error          # CI fails on orphans
+```
+
+```yaml
+# Gettyverse: advisory, just report
+ghostLinks:
+  severity: warning        # Flagged but doesn't fail CI
+  folders: [Notes, Library]
+
+orphans:
+  severity: info           # Just informational
+  minAge: 7
+```
+
+**Runner respects severity:**
+
+```typescript
+const results = await runHealthSuite(graph, config);
+
+// CI integration
+if (results.checks.some(c => c.errors.some(e => e.severity === 'error'))) {
+  process.exit(1);  // fail CI
+}
+// Warnings and info are logged but don't fail
+```
+
+The mental model: validators find issues, severity is a label, consumer decides what to do with each severity level.
 
 ---
 
 ### 8. Minimum Viable Validation
 
-**Status:** Open — needs beta user input
+**Status:** Resolved
 
-**Question for beta users:** "If we shipped *only* ghost links, orphans, and custom validators — no schema validation, no hierarchy, no link direction — would that unblock you enough to delete your scripts?"
+**Context:** Dataverse is documentation-only (Alex's project, not yet implementing). Eldhrimnir and Gettyverse are the load-bearing beta users.
 
-If yes → that's the real MVP.
-If no → which specific validator is the blocker?
+**MVP scope confirmed:**
+1. Ghost links — universal need
+2. Orphans — universal need
+3. Minimal schema validation — universal need (see concern #1 resolution)
+4. Custom validators — escape hatch for domain logic
+
+**Deferred from MVP:**
+- Hierarchy connectivity (Eldhrimnir-specific, they can use custom validator)
+- Link direction rules (Gettyverse-specific, they can use custom validator)
+- Index coverage, bidirectional links, status chains, naming conventions
+
+The custom validator escape hatch means project-specific needs don't block MVP. Projects can implement their own until Tier 2 ships.
 
 ---
 
