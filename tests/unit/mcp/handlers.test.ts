@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Node } from '../../../src/types/node.js';
 import type { GraphCore } from '../../../src/types/graphcore.js';
-import type { StoreProvider } from '../../../src/types/provider.js';
+import type { Store } from '../../../src/types/provider.js';
 import {
   handleSearch,
   handleGetNode,
@@ -23,7 +23,7 @@ import { McpError } from '../../../src/mcp/types.js';
 
 function createMockStore(
   titleMap: Map<string, string> = new Map()
-): StoreProvider {
+): Store {
   return {
     resolveTitles: vi.fn().mockResolvedValue(titleMap),
     createNode: vi.fn(),

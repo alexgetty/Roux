@@ -6,7 +6,7 @@ import {
   createMcpServer,
 } from '../../../src/mcp/index.js';
 import type { GraphCore } from '../../../src/types/graphcore.js';
-import type { StoreProvider } from '../../../src/types/provider.js';
+import type { Store } from '../../../src/types/provider.js';
 import type { McpServerOptions, McpTransport } from '../../../src/mcp/server.js';
 
 // Mock StdioServerTransport for testing default transport path
@@ -17,7 +17,7 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   })),
 }));
 
-function createMockStore(): StoreProvider {
+function createMockStore(): Store {
   return {
     resolveTitles: vi.fn().mockResolvedValue(new Map()),
     createNode: vi.fn(),
@@ -72,7 +72,7 @@ vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
 
 describe('McpServer', () => {
   let mockCore: GraphCore;
-  let mockStore: StoreProvider;
+  let mockStore: Store;
   let options: McpServerOptions;
 
   beforeEach(() => {
@@ -197,7 +197,7 @@ describe('McpServer', () => {
 
 describe('createMcpServer', () => {
   let mockCore: GraphCore;
-  let mockStore: StoreProvider;
+  let mockStore: Store;
   let options: McpServerOptions;
 
   beforeEach(() => {
@@ -382,8 +382,8 @@ describe('formatErrorResponse', () => {
 
 describe('executeToolCall', () => {
   let mockCore: GraphCore;
-  let mockStore: StoreProvider;
-  let ctx: { core: GraphCore; store: StoreProvider; hasEmbedding: boolean };
+  let mockStore: Store;
+  let ctx: { core: GraphCore; store: Store; hasEmbedding: boolean };
 
   beforeEach(() => {
     mockCore = createMockCore();

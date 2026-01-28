@@ -4,8 +4,8 @@ import type {
   SearchOptions,
 } from '../types/graphcore.js';
 import type {
-  StoreProvider,
-  EmbeddingProvider,
+  Store,
+  Embedding,
   Metric,
   TagMode,
   NeighborOptions,
@@ -17,37 +17,37 @@ import type {
 } from '../types/provider.js';
 import type { RouxConfig } from '../types/config.js';
 import { DocStore } from '../providers/docstore/index.js';
-import { TransformersEmbeddingProvider } from '../providers/embedding/transformers.js';
+import { TransformersEmbedding } from '../providers/embedding/transformers.js';
 import { cosineSimilarity } from '../utils/math.js';
 
 export class GraphCoreImpl implements GraphCore {
-  private store: StoreProvider | null = null;
-  private embedding: EmbeddingProvider | null = null;
+  private store: Store | null = null;
+  private embedding: Embedding | null = null;
 
-  registerStore(provider: StoreProvider): void {
+  registerStore(provider: Store): void {
     if (!provider) {
       throw new Error('Store provider is required');
     }
     this.store = provider;
   }
 
-  registerEmbedding(provider: EmbeddingProvider): void {
+  registerEmbedding(provider: Embedding): void {
     if (!provider) {
       throw new Error('Embedding provider is required');
     }
     this.embedding = provider;
   }
 
-  private requireStore(): StoreProvider {
+  private requireStore(): Store {
     if (!this.store) {
-      throw new Error('StoreProvider not registered');
+      throw new Error('Store not registered');
     }
     return this.store;
   }
 
-  private requireEmbedding(): EmbeddingProvider {
+  private requireEmbedding(): Embedding {
     if (!this.embedding) {
-      throw new Error('EmbeddingProvider not registered');
+      throw new Error('Embedding not registered');
     }
     return this.embedding;
   }
@@ -196,7 +196,7 @@ export class GraphCoreImpl implements GraphCore {
     // Semantic strategy requires embedding provider
     if (strategy === 'semantic') {
       if (!this.embedding) {
-        throw new Error('Semantic resolution requires EmbeddingProvider');
+        throw new Error('Semantic resolution requires Embedding');
       }
 
       // Build filter without undefined values
@@ -258,7 +258,7 @@ export class GraphCoreImpl implements GraphCore {
 
   static fromConfig(config: RouxConfig): GraphCoreImpl {
     if (!config.providers?.store) {
-      throw new Error('StoreProvider configuration is required');
+      throw new Error('Store configuration is required');
     }
 
     const core = new GraphCoreImpl();
@@ -279,7 +279,7 @@ export class GraphCoreImpl implements GraphCore {
     const embeddingConfig = config.providers.embedding;
     if (!embeddingConfig || embeddingConfig.type === 'local') {
       const model = embeddingConfig?.model;
-      const embedding = new TransformersEmbeddingProvider(model);
+      const embedding = new TransformersEmbedding(model);
       core.registerEmbedding(embedding);
     } else {
       throw new Error(

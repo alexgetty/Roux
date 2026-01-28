@@ -363,15 +363,15 @@ describe('DocStore watcher integration', () => {
       customStore.close();
     });
 
-    it('integration: unlink removes embedding from real SqliteVectorProvider', async () => {
+    it('integration: unlink removes embedding from real SqliteVectorIndex', async () => {
       const integrationCacheDir = join(tempDir, 'integration-vector-cache');
       await mkdir(integrationCacheDir, { recursive: true });
 
-      // Use real SqliteVectorProvider instead of mock
-      const { SqliteVectorProvider } = await import(
+      // Use real SqliteVectorIndex instead of mock
+      const { SqliteVectorIndex } = await import(
         '../../../src/providers/vector/sqlite.js'
       );
-      const realVectorProvider = new SqliteVectorProvider(integrationCacheDir);
+      const realVectorProvider = new SqliteVectorIndex(integrationCacheDir);
       const integrationStore = new DocStore(
         sourceDir,
         integrationCacheDir,

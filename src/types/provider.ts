@@ -70,7 +70,7 @@ export interface LinkInfo {
 }
 
 /** Data persistence and graph operations. Required provider. */
-export interface StoreProvider {
+export interface Store {
   // CRUD
   createNode(node: Node): Promise<void>;
   updateNode(id: string, updates: Partial<Node>): Promise<void>;
@@ -105,8 +105,8 @@ export interface StoreProvider {
   nodesExist(ids: string[]): Promise<Map<string, boolean>>;
 }
 
-/** Stateless vector generation. Storage handled by StoreProvider. */
-export interface EmbeddingProvider {
+/** Stateless vector generation. Storage handled by Store. */
+export interface Embedding {
   embed(text: string): Promise<number[]>;
   embedBatch(texts: string[]): Promise<number[][]>;
   /** For storage allocation */
@@ -115,7 +115,7 @@ export interface EmbeddingProvider {
 }
 
 /** Pluggable vector storage and similarity search. */
-export interface VectorProvider {
+export interface VectorIndex {
   store(id: string, vector: number[], model: string): Promise<void>;
   search(vector: number[], limit: number): Promise<VectorSearchResult[]>;
   delete(id: string): Promise<void>;
@@ -123,7 +123,7 @@ export interface VectorProvider {
   hasEmbedding(id: string): boolean;
 }
 
-export function isVectorProvider(value: unknown): value is VectorProvider {
+export function isVectorIndex(value: unknown): value is VectorIndex {
   if (value === null || typeof value !== 'object') {
     return false;
   }

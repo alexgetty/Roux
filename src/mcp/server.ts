@@ -8,7 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import type { GraphCore } from '../types/graphcore.js';
-import type { StoreProvider } from '../types/provider.js';
+import type { Store } from '../types/provider.js';
 import { VERSION } from '../index.js';
 import { McpError } from './types.js';
 import { dispatchTool, type HandlerContext } from './handlers.js';
@@ -16,8 +16,8 @@ import { dispatchTool, type HandlerContext } from './handlers.js';
 export interface McpServerOptions {
   /** GraphCore instance for operations */
   core: GraphCore;
-  /** StoreProvider for link resolution and direct store access */
-  store: StoreProvider;
+  /** Store for link resolution and direct store access */
+  store: Store;
   /** Whether embedding provider is available (enables search tool) */
   hasEmbedding: boolean;
 }

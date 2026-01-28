@@ -1,10 +1,10 @@
 import Database from 'better-sqlite3';
 import type { Database as DatabaseType } from 'better-sqlite3';
 import { join } from 'node:path';
-import type { VectorProvider, VectorSearchResult } from '../../types/provider.js';
+import type { VectorIndex, VectorSearchResult } from '../../types/provider.js';
 import { cosineDistance } from '../../utils/math.js';
 
-export class SqliteVectorProvider implements VectorProvider {
+export class SqliteVectorIndex implements VectorIndex {
   private db: DatabaseType;
   private ownsDb: boolean;
 

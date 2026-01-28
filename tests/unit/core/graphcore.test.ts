@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { GraphCoreImpl } from '../../../src/core/graphcore.js';
 import type { GraphCore } from '../../../src/types/graphcore.js';
 import type {
-  StoreProvider,
-  EmbeddingProvider,
+  Store,
+  Embedding,
   VectorSearchResult,
   TagMode,
   Metric,
@@ -26,8 +26,8 @@ const createMockNode = (id: string, overrides?: Partial<Node>): Node => ({
 });
 
 const createMockStore = (
-  overrides?: Partial<StoreProvider>
-): StoreProvider => ({
+  overrides?: Partial<Store>
+): Store => ({
   createNode: vi.fn().mockResolvedValue(undefined),
   updateNode: vi.fn().mockResolvedValue(undefined),
   deleteNode: vi.fn().mockResolvedValue(undefined),
@@ -48,8 +48,8 @@ const createMockStore = (
 });
 
 const createMockEmbedding = (
-  overrides?: Partial<EmbeddingProvider>
-): EmbeddingProvider => ({
+  overrides?: Partial<Embedding>
+): Embedding => ({
   embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
   embedBatch: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
   dimensions: vi.fn().mockReturnValue(384),
@@ -58,8 +58,8 @@ const createMockEmbedding = (
 });
 
 describe('GraphCore', () => {
-  let mockStore: StoreProvider;
-  let mockEmbedding: EmbeddingProvider;
+  let mockStore: Store;
+  let mockEmbedding: Embedding;
 
   beforeEach(() => {
     mockStore = createMockStore();
@@ -91,22 +91,22 @@ describe('GraphCore', () => {
 
     it('throws when registering null store', () => {
       const core = new GraphCoreImpl();
-      expect(() => core.registerStore(null as unknown as StoreProvider)).toThrow(/store provider is required/i);
+      expect(() => core.registerStore(null as unknown as Store)).toThrow(/store provider is required/i);
     });
 
     it('throws when registering undefined store', () => {
       const core = new GraphCoreImpl();
-      expect(() => core.registerStore(undefined as unknown as StoreProvider)).toThrow(/store provider is required/i);
+      expect(() => core.registerStore(undefined as unknown as Store)).toThrow(/store provider is required/i);
     });
 
     it('throws when registering null embedding provider', () => {
       const core = new GraphCoreImpl();
-      expect(() => core.registerEmbedding(null as unknown as EmbeddingProvider)).toThrow(/embedding provider is required/i);
+      expect(() => core.registerEmbedding(null as unknown as Embedding)).toThrow(/embedding provider is required/i);
     });
 
     it('throws when registering undefined embedding provider', () => {
       const core = new GraphCoreImpl();
-      expect(() => core.registerEmbedding(undefined as unknown as EmbeddingProvider)).toThrow(/embedding provider is required/i);
+      expect(() => core.registerEmbedding(undefined as unknown as Embedding)).toThrow(/embedding provider is required/i);
     });
 
     it('uses most recently registered store', async () => {

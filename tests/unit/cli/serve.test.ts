@@ -131,9 +131,9 @@ describe('serve command', () => {
     // Verify A still has original model (not overwritten by serve)
     const verifyStore = new DocStore(testDir, join(testDir, '.roux'));
     // hasEmbedding only tells us it exists, but getModel on vectorProvider can verify model name
-    // Since DocStore doesn't expose getModel, we can check via SqliteVectorProvider directly
-    const { SqliteVectorProvider } = await import('../../../src/providers/vector/sqlite.js');
-    const vectorProvider = new SqliteVectorProvider(join(testDir, '.roux'));
+    // Since DocStore doesn't expose getModel, we can check via SqliteVectorIndex directly
+    const { SqliteVectorIndex } = await import('../../../src/providers/vector/sqlite.js');
+    const vectorProvider = new SqliteVectorIndex(join(testDir, '.roux'));
     const modelForA = await vectorProvider.getModel('a.md');
     const modelForB = await vectorProvider.getModel('b.md');
     vectorProvider.close();

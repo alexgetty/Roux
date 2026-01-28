@@ -1,7 +1,7 @@
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Cache } from '../../providers/docstore/cache.js';
-import { SqliteVectorProvider } from '../../providers/vector/sqlite.js';
+import { SqliteVectorIndex } from '../../providers/vector/sqlite.js';
 
 export interface StatusResult {
   nodeCount: number;
@@ -22,7 +22,7 @@ export async function statusCommand(directory: string): Promise<StatusResult> {
 
   const cacheDir = join(directory, '.roux');
   const cache = new Cache(cacheDir);
-  const vectorProvider = new SqliteVectorProvider(cacheDir);
+  const vectorProvider = new SqliteVectorIndex(cacheDir);
 
   try {
     const stats = cache.getStats();

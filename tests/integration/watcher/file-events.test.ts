@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DocStore } from '../../../src/providers/docstore/index.js';
-import { SqliteVectorProvider } from '../../../src/providers/vector/index.js';
+import { SqliteVectorIndex } from '../../../src/providers/vector/index.js';
 
 /**
  * Delay after startWatching() resolves to let OS-level filesystem watcher stabilize.
@@ -275,7 +275,7 @@ describe('File Watcher Integration', () => {
     it('cleans up vector embedding when file is deleted', async () => {
       const vectorCacheDir = join(tempDir, 'vector-cache');
       await mkdir(vectorCacheDir, { recursive: true });
-      const vectorProvider = new SqliteVectorProvider(vectorCacheDir);
+      const vectorProvider = new SqliteVectorIndex(vectorCacheDir);
       const storeWithVector = new DocStore(sourceDir, cacheDir, vectorProvider);
 
       const filePath = await writeMarkdownFile(

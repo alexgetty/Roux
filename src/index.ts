@@ -10,5 +10,5 @@ export { GraphCoreImpl } from './core/graphcore.js';
 
 // Providers
 export { DocStore } from './providers/docstore/index.js';
-export { TransformersEmbeddingProvider } from './providers/embedding/index.js';
-export { SqliteVectorProvider } from './providers/vector/index.js';
+export { TransformersEmbedding } from './providers/embedding/index.js';
+export { SqliteVectorIndex } from './providers/vector/index.js';

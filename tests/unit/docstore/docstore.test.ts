@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { DocStore } from '../../../src/providers/docstore/index.js';
 import * as fileOps from '../../../src/providers/docstore/file-operations.js';
 import type { Node } from '../../../src/types/node.js';
-import type { VectorProvider, VectorSearchResult } from '../../../src/types/provider.js';
+import type { VectorIndex, VectorSearchResult } from '../../../src/types/provider.js';
 
 describe('DocStore', () => {
   let tempDir: string;
@@ -378,8 +378,8 @@ Original content`
         );
       });
 
-      it('delegates to VectorProvider.delete', async () => {
-        const mockVector: VectorProvider = {
+      it('delegates to VectorIndex.delete', async () => {
+        const mockVector: VectorIndex = {
           store: vi.fn().mockResolvedValue(undefined),
           search: vi.fn().mockResolvedValue([]),
           delete: vi.fn().mockResolvedValue(undefined),
@@ -397,7 +397,7 @@ Original content`
       });
 
       it('deleteNode removes file from disk AND embedding from vector store', async () => {
-        // Uses real SqliteVectorProvider (default), not mock
+        // Uses real SqliteVectorIndex (default), not mock
         const node: Node = {
           id: 'to-delete.md',
           title: 'To Delete',
@@ -693,9 +693,9 @@ Original content`
     });
   });
 
-  describe('VectorProvider delegation', () => {
-    it('creates default SqliteVectorProvider if none injected', async () => {
-      // Default store uses SqliteVectorProvider internally
+  describe('VectorIndex delegation', () => {
+    it('creates default SqliteVectorIndex if none injected', async () => {
+      // Default store uses SqliteVectorIndex internally
       // Verify by performing vector operations without error
       await store.storeEmbedding('test.md', [0.1, 0.2, 0.3], 'test-model');
       const results = await store.searchByVector([0.1, 0.2, 0.3], 10);
@@ -703,18 +703,18 @@ Original content`
       expect(results[0]!.id).toBe('test.md');
     });
 
-    it('accepts injected VectorProvider', async () => {
-      const mockVectorProvider: VectorProvider = {
+    it('accepts injected VectorIndex', async () => {
+      const mockVectorIndex: VectorIndex = {
         store: vi.fn().mockResolvedValue(undefined),
         search: vi.fn().mockResolvedValue([]),
         delete: vi.fn().mockResolvedValue(undefined),
         getModel: vi.fn().mockResolvedValue(null),
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorProvider);
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
 
       await customStore.storeEmbedding('doc.md', [1, 2, 3], 'custom-model');
-      expect(mockVectorProvider.store).toHaveBeenCalledWith(
+      expect(mockVectorIndex.store).toHaveBeenCalledWith(
         'doc.md',
         [1, 2, 3],
         'custom-model'
@@ -723,20 +723,20 @@ Original content`
       customStore.close();
     });
 
-    it('storeEmbedding delegates to VectorProvider.store', async () => {
-      const mockVectorProvider: VectorProvider = {
+    it('storeEmbedding delegates to VectorIndex.store', async () => {
+      const mockVectorIndex: VectorIndex = {
         store: vi.fn().mockResolvedValue(undefined),
         search: vi.fn().mockResolvedValue([]),
         delete: vi.fn().mockResolvedValue(undefined),
         getModel: vi.fn().mockResolvedValue(null),
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorProvider);
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
 
       await customStore.storeEmbedding('node-id', [0.5, 0.6, 0.7], 'embedding-model');
 
-      expect(mockVectorProvider.store).toHaveBeenCalledTimes(1);
-      expect(mockVectorProvider.store).toHaveBeenCalledWith(
+      expect(mockVectorIndex.store).toHaveBeenCalledTimes(1);
+      expect(mockVectorIndex.store).toHaveBeenCalledWith(
         'node-id',
         [0.5, 0.6, 0.7],
         'embedding-model'
@@ -745,33 +745,33 @@ Original content`
       customStore.close();
     });
 
-    it('searchByVector delegates to VectorProvider.search', async () => {
+    it('searchByVector delegates to VectorIndex.search', async () => {
       const mockResults: VectorSearchResult[] = [
         { id: 'a.md', distance: 0.1 },
         { id: 'b.md', distance: 0.2 },
       ];
 
-      const mockVectorProvider: VectorProvider = {
+      const mockVectorIndex: VectorIndex = {
         store: vi.fn().mockResolvedValue(undefined),
         search: vi.fn().mockResolvedValue(mockResults),
         delete: vi.fn().mockResolvedValue(undefined),
         getModel: vi.fn().mockResolvedValue(null),
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorProvider);
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
 
       const results = await customStore.searchByVector([0.1, 0.2], 5);
 
-      expect(mockVectorProvider.search).toHaveBeenCalledTimes(1);
-      expect(mockVectorProvider.search).toHaveBeenCalledWith([0.1, 0.2], 5);
+      expect(mockVectorIndex.search).toHaveBeenCalledTimes(1);
+      expect(mockVectorIndex.search).toHaveBeenCalledWith([0.1, 0.2], 5);
       expect(results).toEqual(mockResults);
 
       customStore.close();
     });
 
-    it('close() does NOT close injected VectorProvider (caller owns lifecycle)', async () => {
+    it('close() does NOT close injected VectorIndex (caller owns lifecycle)', async () => {
       const closeMock = vi.fn();
-      const mockVectorProvider: VectorProvider & { close: () => void } = {
+      const mockVectorIndex: VectorIndex & { close: () => void } = {
         store: vi.fn().mockResolvedValue(undefined),
         search: vi.fn().mockResolvedValue([]),
         delete: vi.fn().mockResolvedValue(undefined),
@@ -779,25 +779,25 @@ Original content`
         close: closeMock,
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorProvider);
+      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
       customStore.close();
 
       expect(closeMock).not.toHaveBeenCalled();
     });
 
-    it('close() closes owned VectorProvider when DocStore created it', async () => {
-      // Create a new store with a separate cache dir to get fresh VectorProvider
+    it('close() closes owned VectorIndex when DocStore created it', async () => {
+      // Create a new store with a separate cache dir to get fresh VectorIndex
       const ownedCacheDir = join(tempDir, 'owned-vector-cache');
       const ownedStore = new DocStore(sourceDir, ownedCacheDir);
 
       // Store something to ensure vector DB is created
       await ownedStore.storeEmbedding('test.md', [0.1, 0.2, 0.3], 'model');
 
-      // close() should close the owned VectorProvider without error
+      // close() should close the owned VectorIndex without error
       // If there's a resource leak, subsequent operations might fail or DB stays open
       ownedStore.close();
 
-      // Verify the VectorProvider was closed by trying to create a new one
+      // Verify the VectorIndex was closed by trying to create a new one
       // at the same path - if old one wasn't closed, this might fail on some systems
       const newStore = new DocStore(sourceDir, ownedCacheDir);
       await newStore.storeEmbedding('test2.md', [0.4, 0.5, 0.6], 'model');

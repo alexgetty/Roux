@@ -2,15 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SqliteVectorProvider } from '../../../src/providers/vector/index.js';
+import { SqliteVectorIndex } from '../../../src/providers/vector/index.js';
 
-describe('SqliteVectorProvider', () => {
+describe('SqliteVectorIndex', () => {
   let tempDir: string;
-  let provider: SqliteVectorProvider;
+  let provider: SqliteVectorIndex;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'roux-vector-test-'));
-    provider = new SqliteVectorProvider(tempDir);
+    provider = new SqliteVectorIndex(tempDir);
   });
 
   afterEach(async () => {
@@ -376,7 +376,7 @@ describe('SqliteVectorProvider', () => {
       const Database = (await import('better-sqlite3')).default;
       const db = new Database(':memory:');
 
-      const providerWithDb = new SqliteVectorProvider(db);
+      const providerWithDb = new SqliteVectorIndex(db);
 
       await providerWithDb.store('test', [1, 2, 3], 'model');
       const model = await providerWithDb.getModel('test');

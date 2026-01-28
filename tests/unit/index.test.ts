@@ -6,3 +6,40 @@ describe('roux', () => {
     expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });
+
+describe('naming convention exports', () => {
+  it('exports Store interface (renamed from StoreProvider)', async () => {
+    const mod = await import('../../src/index.js');
+    // Store is a type-only export — verify it doesn't export under the old name
+    expect(mod).not.toHaveProperty('StoreProvider');
+  });
+
+  it('exports Embedding interface (renamed from EmbeddingProvider)', async () => {
+    const mod = await import('../../src/index.js');
+    expect(mod).not.toHaveProperty('EmbeddingProvider');
+  });
+
+  it('exports VectorIndex interface (renamed from VectorProvider)', async () => {
+    const mod = await import('../../src/index.js');
+    expect(mod).not.toHaveProperty('VectorProvider');
+  });
+
+  it('exports isVectorIndex type guard (renamed from isVectorProvider)', async () => {
+    const mod = await import('../../src/index.js');
+    expect(mod).toHaveProperty('isVectorIndex');
+    expect(typeof mod.isVectorIndex).toBe('function');
+    expect(mod).not.toHaveProperty('isVectorProvider');
+  });
+
+  it('exports TransformersEmbedding class (renamed from TransformersEmbeddingProvider)', async () => {
+    const mod = await import('../../src/index.js');
+    expect(mod).toHaveProperty('TransformersEmbedding');
+    expect(mod).not.toHaveProperty('TransformersEmbeddingProvider');
+  });
+
+  it('exports SqliteVectorIndex class (renamed from SqliteVectorProvider)', async () => {
+    const mod = await import('../../src/index.js');
+    expect(mod).toHaveProperty('SqliteVectorIndex');
+    expect(mod).not.toHaveProperty('SqliteVectorProvider');
+  });
+});

@@ -1,6 +1,6 @@
 import type { GraphCore } from '../types/graphcore.js';
 import type {
-  StoreProvider,
+  Store,
   Metric,
   TagMode,
   ListFilter,
@@ -31,7 +31,7 @@ import {
 
 export interface HandlerContext {
   core: GraphCore;
-  store: StoreProvider;
+  store: Store;
   hasEmbedding: boolean;
 }
 

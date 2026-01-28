@@ -4,19 +4,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GraphCoreImpl } from '../../../src/core/graphcore.js';
 import { DocStore } from '../../../src/providers/docstore/index.js';
-import { TransformersEmbeddingProvider } from '../../../src/providers/embedding/transformers.js';
+import { TransformersEmbedding } from '../../../src/providers/embedding/transformers.js';
 
 describe('GraphCore Integration', () => {
   let tempDir: string;
   let sourceDir: string;
   let cacheDir: string;
   let store: DocStore;
-  let embedding: TransformersEmbeddingProvider;
+  let embedding: TransformersEmbedding;
   let core: GraphCoreImpl;
 
   beforeAll(async () => {
     // Initialize embedding provider once (model loading is expensive)
-    embedding = new TransformersEmbeddingProvider();
+    embedding = new TransformersEmbedding();
     // Warm up the model
     await embedding.embed('warmup');
   }, 60000);

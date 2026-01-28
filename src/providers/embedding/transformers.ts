@@ -1,10 +1,10 @@
 import { pipeline, type FeatureExtractionPipeline } from '@xenova/transformers';
-import type { EmbeddingProvider } from '../../types/provider.js';
+import type { Embedding } from '../../types/provider.js';
 
 const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2';
 const DEFAULT_DIMENSIONS = 384;
 
-export class TransformersEmbeddingProvider implements EmbeddingProvider {
+export class TransformersEmbedding implements Embedding {
   private model: string;
   private dims: number;
   private pipe: FeatureExtractionPipeline | null = null;

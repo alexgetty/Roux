@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Node } from '../../../src/types/node.js';
-import type { StoreProvider } from '../../../src/types/provider.js';
+import type { Store } from '../../../src/types/provider.js';
 import {
   nodeToResponse,
   nodesToResponses,
@@ -15,7 +15,7 @@ import { TRUNCATION_LIMITS } from '../../../src/mcp/truncate.js';
 
 function createMockStore(
   titleMap: Map<string, string> = new Map()
-): StoreProvider {
+): Store {
   return {
     resolveTitles: vi.fn().mockResolvedValue(titleMap),
     createNode: vi.fn(),

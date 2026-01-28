@@ -2,12 +2,12 @@ import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join, relative, dirname, extname } from 'node:path';
 import type { Node } from '../../types/node.js';
 import type {
-  StoreProvider,
+  Store,
   NeighborOptions,
   Metric,
   TagMode,
   VectorSearchResult,
-  VectorProvider,
+  VectorIndex,
   ListFilter,
   ListOptions,
   ListNodesResult,
@@ -16,7 +16,7 @@ import type {
   CentralityMetrics,
 } from '../../types/provider.js';
 import { Cache } from './cache.js';
-import { SqliteVectorProvider } from '../vector/sqlite.js';
+import { SqliteVectorIndex } from '../vector/sqlite.js';
 import {
   extractWikiLinks,
   normalizeId,
@@ -49,12 +49,12 @@ function createDefaultRegistry(): ReaderRegistry {
   return registry;
 }
 
-export class DocStore implements StoreProvider {
+export class DocStore implements Store {
   private cache: Cache;
   private sourceRoot: string;
   private graphManager: GraphManager = new GraphManager();
-  private vectorProvider: VectorProvider;
-  private ownsVectorProvider: boolean;
+  private vectorIndex: VectorIndex;
+  private ownsVectorIndex: boolean;
   private registry: ReaderRegistry;
 
   private fileWatcher: FileWatcher | null = null;
@@ -63,13 +63,13 @@ export class DocStore implements StoreProvider {
   constructor(
     sourceRoot: string,
     cacheDir: string,
-    vectorProvider?: VectorProvider,
+    vectorIndex?: VectorIndex,
     registry?: ReaderRegistry
   ) {
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
-    this.ownsVectorProvider = !vectorProvider;
-    this.vectorProvider = vectorProvider ?? new SqliteVectorProvider(cacheDir);
+    this.ownsVectorIndex = !vectorIndex;
+    this.vectorIndex = vectorIndex ?? new SqliteVectorIndex(cacheDir);
     this.registry = registry ?? createDefaultRegistry();
   }
 
@@ -201,7 +201,7 @@ export class DocStore implements StoreProvider {
     const filePath = join(this.sourceRoot, existing.id);
     await rm(filePath);
     this.cache.deleteNode(existing.id);
-    await this.vectorProvider.delete(existing.id);
+    await this.vectorIndex.delete(existing.id);
 
     // Rebuild graph without deleted node
     const centrality = this.graphManager.build(this.cache.getAllNodes());
@@ -305,25 +305,25 @@ export class DocStore implements StoreProvider {
     vector: number[],
     model: string
   ): Promise<void> {
-    return this.vectorProvider.store(id, vector, model);
+    return this.vectorIndex.store(id, vector, model);
   }
 
   async searchByVector(
     vector: number[],
     limit: number
   ): Promise<VectorSearchResult[]> {
-    return this.vectorProvider.search(vector, limit);
+    return this.vectorIndex.search(vector, limit);
   }
 
   hasEmbedding(id: string): boolean {
-    return this.vectorProvider.hasEmbedding(id);
+    return this.vectorIndex.hasEmbedding(id);
   }
 
   close(): void {
     this.stopWatching();
     this.cache.close();
-    if (this.ownsVectorProvider && 'close' in this.vectorProvider) {
-      (this.vectorProvider as { close: () => void }).close();
+    if (this.ownsVectorIndex && 'close' in this.vectorIndex) {
+      (this.vectorIndex as { close: () => void }).close();
     }
   }
 
@@ -364,7 +364,7 @@ export class DocStore implements StoreProvider {
           const existing = this.cache.getNode(id);
           if (existing) {
             this.cache.deleteNode(id);
-            await this.vectorProvider.delete(id);
+            await this.vectorIndex.delete(id);
             processedIds.push(id);
           }
         } else {

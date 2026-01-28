@@ -1,21 +1,21 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { TransformersEmbeddingProvider } from '../../../src/providers/embedding/index.js';
-import type { EmbeddingProvider } from '../../../src/types/provider.js';
+import { TransformersEmbedding } from '../../../src/providers/embedding/index.js';
+import type { Embedding } from '../../../src/types/provider.js';
 
 /**
  * These tests require model download on first run (~90MB).
  * Cached in ~/.cache/transformers/ after first download.
  */
-describe('TransformersEmbeddingProvider', () => {
-  let provider: TransformersEmbeddingProvider;
+describe('TransformersEmbedding', () => {
+  let provider: TransformersEmbedding;
 
   beforeAll(() => {
-    provider = new TransformersEmbeddingProvider();
+    provider = new TransformersEmbedding();
   });
 
   describe('interface compliance', () => {
-    it('implements EmbeddingProvider interface', () => {
-      const _check: EmbeddingProvider = provider;
+    it('implements Embedding interface', () => {
+      const _check: Embedding = provider;
       expect(_check).toBeDefined();
     });
   });
@@ -26,7 +26,7 @@ describe('TransformersEmbeddingProvider', () => {
     });
 
     it('returns custom model when specified', () => {
-      const custom = new TransformersEmbeddingProvider('Xenova/paraphrase-MiniLM-L3-v2', 384);
+      const custom = new TransformersEmbedding('Xenova/paraphrase-MiniLM-L3-v2', 384);
       expect(custom.modelId()).toBe('Xenova/paraphrase-MiniLM-L3-v2');
     });
   });
@@ -37,7 +37,7 @@ describe('TransformersEmbeddingProvider', () => {
     });
 
     it('returns custom dimensions when specified', () => {
-      const custom = new TransformersEmbeddingProvider('Xenova/some-model', 768);
+      const custom = new TransformersEmbedding('Xenova/some-model', 768);
       expect(custom.dimensions()).toBe(768);
     });
   });
@@ -131,7 +131,7 @@ describe('TransformersEmbeddingProvider', () => {
 
   describe('pipeline caching', () => {
     it('reuses pipeline across multiple calls', async () => {
-      const p = new TransformersEmbeddingProvider();
+      const p = new TransformersEmbedding();
       await p.embed('first call');
       const start = performance.now();
       await p.embed('second call');

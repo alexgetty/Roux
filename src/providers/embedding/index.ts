@@ -1,1 +1,1 @@
-export { TransformersEmbeddingProvider } from './transformers.js';
+export { TransformersEmbedding } from './transformers.js';

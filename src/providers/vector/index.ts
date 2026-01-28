@@ -1,1 +1,1 @@
-export { SqliteVectorProvider } from './sqlite.js';
+export { SqliteVectorIndex } from './sqlite.js';

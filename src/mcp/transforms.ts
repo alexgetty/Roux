@@ -1,5 +1,5 @@
 import type { Node } from '../types/node.js';
-import type { LinkInfo, StoreProvider } from '../types/provider.js';
+import type { LinkInfo, Store } from '../types/provider.js';
 import type {
   NodeResponse,
   NodeMetadataResponse,
@@ -21,7 +21,7 @@ export const MAX_LINKS_TO_RESOLVE = 100;
  */
 export async function nodeToResponse(
   node: Node,
-  store: StoreProvider,
+  store: Store,
   truncation: TruncationContext
 ): Promise<NodeResponse> {
   // Limit links to prevent OOM on nodes with massive outgoing link counts
@@ -50,7 +50,7 @@ export async function nodeToResponse(
  */
 export async function nodesToResponses(
   nodes: Node[],
-  store: StoreProvider,
+  store: Store,
   truncation: TruncationContext,
   includeContent: boolean
 ): Promise<NodeResponse[] | NodeMetadataResponse[]> {
@@ -102,7 +102,7 @@ export async function nodeToContextResponse(
   node: Node,
   incomingNeighbors: Node[],
   outgoingNeighbors: Node[],
-  store: StoreProvider
+  store: Store
 ): Promise<NodeWithContextResponse> {
   // Get primary node response
   const primary = await nodeToResponse(node, store, 'primary');
@@ -135,7 +135,7 @@ export async function nodeToContextResponse(
 export async function nodesToSearchResults(
   nodes: Node[],
   scores: Map<string, number>,
-  store: StoreProvider,
+  store: Store,
   includeContent: boolean
 ): Promise<SearchResultResponse[]> {
   const responses = await nodesToResponses(nodes, store, 'list', includeContent);
@@ -151,7 +151,7 @@ export async function nodesToSearchResults(
  */
 export async function hubsToResponses(
   hubs: Array<[string, number]>,
-  store: StoreProvider
+  store: Store
 ): Promise<HubResponse[]> {
   const ids = hubs.map(([id]) => id);
   const titles = await store.resolveTitles(ids);

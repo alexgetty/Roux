@@ -1,8 +1,8 @@
 import type { Node, NodeWithContext } from './node.js';
 import type {
   Metric,
-  StoreProvider,
-  EmbeddingProvider,
+  Store,
+  Embedding,
   TagMode,
   ListFilter,
   ListOptions,
@@ -23,8 +23,8 @@ export interface SearchOptions {
 /** Orchestration hub. Zero functionality without providers. */
 export interface GraphCore {
   // Provider registration
-  registerStore(provider: StoreProvider): void;
-  registerEmbedding(provider: EmbeddingProvider): void;
+  registerStore(provider: Store): void;
+  registerEmbedding(provider: Embedding): void;
 
   // Unified operations (delegates to providers)
   search(query: string, options?: SearchOptions): Promise<Node[]>;

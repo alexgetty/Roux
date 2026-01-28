@@ -2,7 +2,7 @@ import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { DocStore } from '../../providers/docstore/index.js';
-import { TransformersEmbeddingProvider } from '../../providers/embedding/transformers.js';
+import { TransformersEmbedding } from '../../providers/embedding/transformers.js';
 import { GraphCoreImpl } from '../../core/graphcore.js';
 import { McpServer, type TransportFactory } from '../../mcp/server.js';
 import type { RouxConfig } from '../../types/config.js';
@@ -45,7 +45,7 @@ export async function serveCommand(
   const resolvedCachePath = join(directory, cachePath);
 
   const store = new DocStore(resolvedSourcePath, resolvedCachePath);
-  const embedding = new TransformersEmbeddingProvider(
+  const embedding = new TransformersEmbedding(
     config.providers?.embedding?.type === 'local'
       ? config.providers.embedding.model
       : undefined

@@ -7,9 +7,9 @@ export type { Edge, Direction, NeighborOptions } from './edge.js';
 
 // Provider types
 export type {
-  StoreProvider,
-  EmbeddingProvider,
-  VectorProvider,
+  Store,
+  Embedding,
+  VectorIndex,
   VectorSearchResult,
   LinkInfo,
   Metric,
@@ -22,7 +22,7 @@ export type {
   ResolveOptions,
   ResolveResult,
 } from './provider.js';
-export { isVectorProvider } from './provider.js';
+export { isVectorIndex } from './provider.js';
 
 // GraphCore types
 export type { GraphCore, SearchOptions } from './graphcore.js';
