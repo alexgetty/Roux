@@ -179,4 +179,146 @@ describe('serve command', () => {
       consoleSpy.mockRestore();
     }
   });
+
+  describe('error propagation and cleanup', () => {
+    it('propagates embedding failure during startup', async () => {
+      await initCommand(testDir);
+      await writeFile(join(testDir, 'test.md'), '---\ntitle: Test\n---\n\nContent', 'utf-8');
+
+      // Mock TransformersEmbedding to fail on embed()
+      const { TransformersEmbedding } = await import('../../../src/providers/embedding/transformers.js');
+      const originalEmbed = TransformersEmbedding.prototype.embed;
+      TransformersEmbedding.prototype.embed = vi.fn().mockRejectedValue(
+        new Error('Embedding model failed to load')
+      );
+
+      try {
+        await expect(
+          serveCommand(testDir, {
+            watch: false,
+            transportFactory: () => ({ start: async () => {}, close: async () => {} }),
+          })
+        ).rejects.toThrow('Embedding model failed to load');
+      } finally {
+        TransformersEmbedding.prototype.embed = originalEmbed;
+      }
+    });
+
+    it('propagates MCP server start failure after store sync', async () => {
+      await initCommand(testDir);
+      await writeFile(join(testDir, 'test.md'), '# Test', 'utf-8');
+
+      // Transport that fails on start
+      const failingTransport = () => ({
+        start: async () => {
+          throw new Error('Transport connection failed');
+        },
+        close: async () => {},
+      });
+
+      await expect(
+        serveCommand(testDir, {
+          watch: false,
+          transportFactory: failingTransport,
+        })
+      ).rejects.toThrow('Transport connection failed');
+    });
+
+    it('cleans up store when MCP server start fails', async () => {
+      await initCommand(testDir);
+      await writeFile(join(testDir, 'test.md'), '# Test', 'utf-8');
+
+      // Track DocStore close calls
+      const closeCalls: string[] = [];
+      const originalClose = DocStore.prototype.close;
+      DocStore.prototype.close = vi.fn().mockImplementation(function (this: DocStore) {
+        closeCalls.push('close');
+        return originalClose.call(this);
+      });
+
+      // Transport that fails on start
+      const failingTransport = () => ({
+        start: async () => {
+          throw new Error('Transport connection failed');
+        },
+        close: async () => {},
+      });
+
+      try {
+        await serveCommand(testDir, {
+          watch: false,
+          transportFactory: failingTransport,
+        });
+      } catch {
+        // Expected to throw
+      } finally {
+        DocStore.prototype.close = originalClose;
+      }
+
+      // Store should be cleaned up on failure
+      expect(closeCalls).toContain('close');
+    });
+
+    it('logs warning and continues when watch callback embedding fails', async () => {
+      await initCommand(testDir);
+      await writeFile(join(testDir, 'test.md'), '---\ntitle: Test\n---\n\nContent', 'utf-8');
+      await writeFile(join(testDir, 'test2.md'), '---\ntitle: Test2\n---\n\nContent2', 'utf-8');
+
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // Capture the watch callback
+      let watchCallback: ((changedIds: string[]) => Promise<void>) | null = null;
+      const originalStartWatching = DocStore.prototype.startWatching;
+      DocStore.prototype.startWatching = vi.fn().mockImplementation(
+        async function (this: DocStore, callback: (changedIds: string[]) => Promise<void>) {
+          watchCallback = callback;
+          // Call the real method to set up watching state
+          return originalStartWatching.call(this, callback);
+        }
+      );
+
+      // Mock embedding to fail on second call (first call is during startup)
+      const { TransformersEmbedding } = await import('../../../src/providers/embedding/transformers.js');
+      const originalEmbed = TransformersEmbedding.prototype.embed;
+      let embedCallCount = 0;
+      TransformersEmbedding.prototype.embed = vi.fn().mockImplementation(async (content: string) => {
+        embedCallCount++;
+        // Fail on third embed call (first two are during startup for test.md and test2.md)
+        if (embedCallCount === 3) {
+          throw new Error('Embedding failed in watch callback');
+        }
+        return originalEmbed.call(TransformersEmbedding.prototype, content);
+      });
+
+      let handle: ServeHandle | null = null;
+      try {
+        handle = await serveCommand(testDir, {
+          watch: true,
+          transportFactory: () => ({ start: async () => {}, close: async () => {} }),
+        });
+
+        // Trigger the watch callback - should NOT throw (graceful degradation)
+        expect(watchCallback).not.toBeNull();
+        await watchCallback!(['test.md', 'test2.md']);
+
+        // Warning should be logged
+        expect(consoleSpy).toHaveBeenCalledWith(
+          'Failed to generate embedding for',
+          'test.md',
+          ':',
+          'Embedding failed in watch callback'
+        );
+
+        // Second file should still have been processed (embedCallCount should be 4)
+        expect(embedCallCount).toBe(4);
+      } finally {
+        if (handle) {
+          await handle.stop();
+        }
+        DocStore.prototype.startWatching = originalStartWatching;
+        TransformersEmbedding.prototype.embed = originalEmbed;
+        consoleSpy.mockRestore();
+      }
+    });
+  });
 });

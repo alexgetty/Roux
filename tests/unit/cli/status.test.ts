@@ -38,22 +38,31 @@ describe('status command', () => {
     expect(result.embeddingCoverage).toBe(1);
   });
 
-  it('returns correct counts with nodes', async () => {
+  it('returns correct counts with nodes and verifies edge relationships', async () => {
     await initCommand(testDir);
 
-    // Create some markdown files
+    // Create markdown files with explicit links
     await writeFile(join(testDir, 'a.md'), '---\ntitle: A\n---\n\nLinks to [[B]]', 'utf-8');
-    await writeFile(join(testDir, 'b.md'), '---\ntitle: B\n---\n\nContent', 'utf-8');
+    await writeFile(join(testDir, 'b.md'), '---\ntitle: B\n---\n\nLinks to [[C]]', 'utf-8');
+    await writeFile(join(testDir, 'c.md'), '---\ntitle: C\n---\n\nContent only', 'utf-8');
 
     // Sync to create cache
     const store = new DocStore(testDir, join(testDir, '.roux'));
     await store.sync();
+
+    // Verify actual edges exist via neighbor queries
+    const aNeighbors = await store.getNeighbors('a.md', { direction: 'out' });
+    expect(aNeighbors.map(n => n.id)).toContain('b.md');
+
+    const bNeighbors = await store.getNeighbors('b.md', { direction: 'out' });
+    expect(bNeighbors.map(n => n.id)).toContain('c.md');
+
     store.close();
 
     const result = await statusCommand(testDir);
 
-    expect(result.nodeCount).toBe(2);
-    expect(result.edgeCount).toBe(1);
+    expect(result.nodeCount).toBe(3);
+    expect(result.edgeCount).toBe(2); // a->b and b->c
     expect(result.embeddingCount).toBe(0);
     expect(result.embeddingCoverage).toBe(0);
   });

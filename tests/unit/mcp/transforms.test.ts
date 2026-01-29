@@ -83,25 +83,34 @@ describe('nodeToResponse', () => {
     expect(response.links).toEqual([{ id: 'missing.md', title: 'missing.md' }]);
   });
 
-  it('truncates content based on context', async () => {
+  it('truncates content based on context and preserves prefix', async () => {
     const longContent = 'x'.repeat(TRUNCATION_LIMITS.primary + 100);
     const node = createNode({ content: longContent });
     const store = createMockStore();
+    const suffix = '... [truncated]';
 
     const response = await nodeToResponse(node, store, 'primary');
 
     expect(response.content.length).toBe(TRUNCATION_LIMITS.primary);
-    expect(response.content.endsWith('... [truncated]')).toBe(true);
+    expect(response.content.endsWith(suffix)).toBe(true);
+    // Verify actual content preservation
+    const expectedPrefix = longContent.slice(0, TRUNCATION_LIMITS.primary - suffix.length);
+    expect(response.content.slice(0, -suffix.length)).toBe(expectedPrefix);
   });
 
-  it('uses list truncation when specified', async () => {
+  it('uses list truncation when specified and preserves prefix', async () => {
     const content = 'x'.repeat(TRUNCATION_LIMITS.list + 100);
     const node = createNode({ content });
     const store = createMockStore();
+    const suffix = '... [truncated]';
 
     const response = await nodeToResponse(node, store, 'list');
 
     expect(response.content.length).toBe(TRUNCATION_LIMITS.list);
+    expect(response.content.endsWith(suffix)).toBe(true);
+    // Verify actual content preservation
+    const expectedPrefix = content.slice(0, TRUNCATION_LIMITS.list - suffix.length);
+    expect(response.content.slice(0, -suffix.length)).toBe(expectedPrefix);
   });
 
   describe('content truncation boundary', () => {
@@ -372,6 +381,74 @@ describe('nodeToContextResponse', () => {
     const response = await nodeToContextResponse(node, [], [], store);
 
     expect(response.content.length).toBe(TRUNCATION_LIMITS.primary);
+  });
+
+  describe('error propagation', () => {
+    it('propagates error when incoming neighbor resolution fails', async () => {
+      const node = createNode({ id: 'main.md' });
+      const incoming = [createNode({ id: 'in.md', outgoingLinks: ['link.md'] })];
+      const store = createMockStore();
+
+      // First call succeeds (primary node), second call fails (incoming neighbors)
+      let callCount = 0;
+      (store.resolveTitles as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        callCount++;
+        if (callCount === 2) {
+          throw new Error('Incoming neighbor resolution failed');
+        }
+        return new Map();
+      });
+
+      await expect(
+        nodeToContextResponse(node, incoming, [], store)
+      ).rejects.toThrow('Incoming neighbor resolution failed');
+    });
+
+    it('propagates error when outgoing neighbor resolution fails', async () => {
+      const node = createNode({ id: 'main.md' });
+      const outgoing = [createNode({ id: 'out.md', outgoingLinks: ['link.md'] })];
+      const store = createMockStore();
+
+      // First call succeeds (primary node), second call succeeds (incoming - empty),
+      // third call fails (outgoing neighbors)
+      let callCount = 0;
+      (store.resolveTitles as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        callCount++;
+        if (callCount === 3) {
+          throw new Error('Outgoing neighbor resolution failed');
+        }
+        return new Map();
+      });
+
+      await expect(
+        nodeToContextResponse(node, [], outgoing, store)
+      ).rejects.toThrow('Outgoing neighbor resolution failed');
+    });
+
+    it('propagates first error when both neighbor resolutions fail (Promise.all)', async () => {
+      const node = createNode({ id: 'main.md' });
+      const incoming = [createNode({ id: 'in.md', outgoingLinks: ['link.md'] })];
+      const outgoing = [createNode({ id: 'out.md', outgoingLinks: ['link.md'] })];
+      const store = createMockStore();
+
+      // First call succeeds (primary node), second and third fail (both neighbors)
+      let callCount = 0;
+      (store.resolveTitles as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        callCount++;
+        if (callCount === 2) {
+          throw new Error('Incoming failed');
+        }
+        if (callCount === 3) {
+          throw new Error('Outgoing failed');
+        }
+        return new Map();
+      });
+
+      // Promise.all rejects with the first rejection
+      await expect(
+        nodeToContextResponse(node, incoming, outgoing, store)
+      ).rejects.toThrow();
+    });
   });
 });
 

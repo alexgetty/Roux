@@ -34,7 +34,15 @@ function createMockStore(): Store {
     getRandomNode: vi.fn(),
     listNodes: vi.fn().mockResolvedValue([]),
     resolveNodes: vi.fn().mockResolvedValue([]),
-    nodesExist: vi.fn().mockResolvedValue(new Map()),
+    nodesExist: vi.fn().mockImplementation(async (ids: string[]) => {
+      // Default: all nodes reported as non-existing
+      // Tests that need specific existence should override this mock
+      const result = new Map<string, boolean>();
+      for (const id of ids) {
+        result.set(id, false);
+      }
+      return result;
+    }),
   };
 }
 

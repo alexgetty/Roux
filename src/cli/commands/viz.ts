@@ -194,13 +194,23 @@ function generateHtml(nodes: GraphNode[], edges: GraphEdge[]): string {
       .attr("dy", 4)
       .text(d => d.title.length > 20 ? d.title.slice(0, 17) + "..." : d.title);
 
+    // HTML escape function for XSS prevention
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     // Tooltip
     const tooltip = d3.select("#tooltip");
     node
       .on("mouseover", (event, d) => {
         tooltip
           .style("opacity", 1)
-          .html(\`<strong>\${d.title}</strong><br>ID: \${d.id}<br>Incoming links: \${d.inDegree}\`);
+          .html(\`<strong>\${escapeHtml(d.title)}</strong><br>ID: \${escapeHtml(d.id)}<br>Incoming links: \${d.inDegree}\`);
       })
       .on("mousemove", (event) => {
         tooltip

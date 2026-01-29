@@ -120,21 +120,34 @@ describe('ReaderRegistry', () => {
   });
 
   describe('parse', () => {
-    it('dispatches to correct reader', () => {
+    it('dispatches to correct reader and returns complete node structure', () => {
       const mdReader = createMockReader(['.md']);
       const txtReader = createMockReader(['.txt']);
       registry.register(mdReader);
       registry.register(txtReader);
 
+      const mtime = new Date('2024-01-15T12:00:00Z');
       const context: FileContext = {
         absolutePath: '/root/notes/test.md',
         relativePath: 'notes/test.md',
         extension: '.md',
-        mtime: new Date(),
+        mtime,
       };
 
       const node = registry.parse('# Content', context);
+
+      // Verify complete node structure, not just title
+      expect(node.id).toBe('notes/test.md');
       expect(node.title).toBe('Mock: notes/test.md');
+      expect(node.content).toBe('# Content');
+      expect(node.tags).toEqual([]);
+      expect(node.outgoingLinks).toEqual([]);
+      expect(node.properties).toEqual({});
+      expect(node.sourceRef).toEqual({
+        type: 'file',
+        path: '/root/notes/test.md',
+        lastModified: mtime,
+      });
     });
 
     it('throws for unknown extension', () => {

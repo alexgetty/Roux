@@ -714,4 +714,68 @@ describe('Cache', () => {
       expect(cache.getCentrality('a.md')).toBeNull();
     });
   });
+
+  describe('corrupted data handling', () => {
+    it('throws on corrupted tags JSON when reading node', () => {
+      // Insert valid node first
+      cache.upsertNode(createNode({ id: 'corrupted.md' }), 'file', '/corrupted.md', Date.now());
+
+      // Corrupt the tags field directly in SQLite
+      // @ts-expect-error accessing private db for testing
+      cache.db.prepare('UPDATE nodes SET tags = ? WHERE id = ?').run('not valid json {', 'corrupted.md');
+
+      // getNode should throw when parsing corrupted JSON
+      expect(() => cache.getNode('corrupted.md')).toThrow();
+    });
+
+    it('throws on corrupted outgoing_links JSON when reading node', () => {
+      cache.upsertNode(createNode({ id: 'corrupted.md' }), 'file', '/corrupted.md', Date.now());
+
+      // @ts-expect-error accessing private db for testing
+      cache.db.prepare('UPDATE nodes SET outgoing_links = ? WHERE id = ?').run('[broken', 'corrupted.md');
+
+      expect(() => cache.getNode('corrupted.md')).toThrow();
+    });
+
+    it('throws on corrupted properties JSON when reading node', () => {
+      cache.upsertNode(createNode({ id: 'corrupted.md' }), 'file', '/corrupted.md', Date.now());
+
+      // @ts-expect-error accessing private db for testing
+      cache.db.prepare('UPDATE nodes SET properties = ? WHERE id = ?').run('{bad json', 'corrupted.md');
+
+      expect(() => cache.getNode('corrupted.md')).toThrow();
+    });
+
+    it('throws on corrupted JSON in getAllNodes', () => {
+      cache.upsertNode(createNode({ id: 'good.md' }), 'file', '/good.md', Date.now());
+      cache.upsertNode(createNode({ id: 'bad.md' }), 'file', '/bad.md', Date.now());
+
+      // Corrupt one node
+      // @ts-expect-error accessing private db for testing
+      cache.db.prepare('UPDATE nodes SET tags = ? WHERE id = ?').run('invalid', 'bad.md');
+
+      // getAllNodes should throw when encountering corrupted data
+      expect(() => cache.getAllNodes()).toThrow();
+    });
+
+    it('throws on corrupted JSON in getNodes batch', () => {
+      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', Date.now());
+      cache.upsertNode(createNode({ id: 'b.md' }), 'file', '/b.md', Date.now());
+
+      // Corrupt the second node
+      // @ts-expect-error accessing private db for testing
+      cache.db.prepare('UPDATE nodes SET tags = ? WHERE id = ?').run('[[broken', 'b.md');
+
+      expect(() => cache.getNodes(['a.md', 'b.md'])).toThrow();
+    });
+
+    it('throws on corrupted JSON in searchByTags', () => {
+      cache.upsertNode(createNode({ id: 'tagged.md', tags: ['test'] }), 'file', '/tagged.md', Date.now());
+
+      // @ts-expect-error accessing private db for testing
+      cache.db.prepare('UPDATE nodes SET outgoing_links = ? WHERE id = ?').run('corrupt', 'tagged.md');
+
+      expect(() => cache.searchByTags(['test'], 'any')).toThrow();
+    });
+  });
 });

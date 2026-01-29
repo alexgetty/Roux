@@ -37,9 +37,10 @@ function triggerEvent(event: string, arg?: string | Error) {
   const handler = onCalls.find((call: unknown[]) => call[0] === event)?.[1] as
     | ((arg?: string | Error) => void)
     | undefined;
-  if (handler) {
-    handler(arg);
+  if (!handler) {
+    throw new Error(`No handler registered for event '${event}'`);
   }
+  handler(arg);
 }
 
 function triggerReady() {
@@ -630,8 +631,8 @@ describe('FileWatcher', () => {
       );
     });
 
-    it('resets timer on each new event (real timer test)', async () => {
-      vi.useRealTimers();
+    it('resets timer on each new event', async () => {
+      vi.useFakeTimers();
 
       const onBatch = vi.fn();
       const watcher = new FileWatcher({
@@ -640,25 +641,25 @@ describe('FileWatcher', () => {
         debounceMs: 200,
         onBatch,
       });
-      const promise = watcher.start();
+      watcher.start();
       triggerReady();
-      await promise;
 
+      // First event starts the 200ms timer
       triggerEvent('add', join(sourceDir, 'first.md'));
 
-      // Wait less than debounce time
-      await new Promise((r) => setTimeout(r, 100));
+      // Advance 100ms (halfway through debounce)
+      await vi.advanceTimersByTimeAsync(100);
       expect(onBatch).not.toHaveBeenCalled();
 
-      // Add another event - should reset timer
+      // Second event resets the timer back to 200ms
       triggerEvent('add', join(sourceDir, 'second.md'));
 
-      // Wait another 100ms (150ms from first, 100ms from second)
-      await new Promise((r) => setTimeout(r, 100));
+      // Advance another 100ms (200ms from first, but only 100ms from second)
+      await vi.advanceTimersByTimeAsync(100);
       expect(onBatch).not.toHaveBeenCalled();
 
-      // Wait for debounce to complete
-      await new Promise((r) => setTimeout(r, 150));
+      // Advance 100ms more (now 200ms from second event) - should fire
+      await vi.advanceTimersByTimeAsync(100);
       expect(onBatch).toHaveBeenCalledTimes(1);
       expect(onBatch).toHaveBeenCalledWith(
         new Map([
@@ -668,25 +669,39 @@ describe('FileWatcher', () => {
       );
 
       watcher.stop();
+      vi.useRealTimers();
     });
 
-    it('uses default 1000ms debounce when not specified', () => {
-      // This is more of a documentation test - we verify the behavior
-      // through integration testing, but assert the default exists
+    it('uses default 1000ms debounce when not specified', async () => {
+      vi.useFakeTimers();
+
+      const onBatch = vi.fn();
       const watcher = new FileWatcher({
         root: sourceDir,
         extensions: new Set(['.md']),
-        onBatch: vi.fn(),
+        onBatch,
       });
-      // Start and trigger events
       watcher.start();
       triggerReady();
 
-      // Implementation should use 1000ms default
-      // We test this indirectly through real timer test above
-      expect(watcher).toBeDefined();
+      // Trigger an event
+      triggerEvent('add', join(sourceDir, 'test.md'));
+
+      // At 500ms: should NOT have fired yet
+      await vi.advanceTimersByTimeAsync(500);
+      expect(onBatch).not.toHaveBeenCalled();
+
+      // At 999ms: still should NOT have fired
+      await vi.advanceTimersByTimeAsync(499);
+      expect(onBatch).not.toHaveBeenCalled();
+
+      // At 1000ms: NOW it should fire
+      await vi.advanceTimersByTimeAsync(1);
+      expect(onBatch).toHaveBeenCalledTimes(1);
+      expect(onBatch).toHaveBeenCalledWith(new Map([['test.md', 'add']]));
 
       watcher.stop();
+      vi.useRealTimers();
     });
   });
 

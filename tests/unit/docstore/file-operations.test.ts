@@ -66,6 +66,29 @@ describe('file-operations', () => {
       // folder/../file.md resolves to file.md which is still within root
       expect(() => validatePathWithinSource(tempDir, 'folder/../file.md')).not.toThrow();
     });
+
+    it('throws on empty string (resolves to source root itself)', () => {
+      // Empty string resolves to the source root, not a file within it
+      expect(() => validatePathWithinSource(tempDir, '')).toThrow(/outside.*source|empty|invalid/i);
+    });
+
+    it('throws on . (current directory, resolves to source root)', () => {
+      // '.' resolves to source root itself, not a path within it
+      expect(() => validatePathWithinSource(tempDir, '.')).toThrow(/outside.*source|empty|invalid/i);
+    });
+
+    it('throws on absolute paths', () => {
+      // Absolute paths should be rejected regardless of where they point
+      expect(() => validatePathWithinSource(tempDir, '/etc/passwd')).toThrow(/outside.*source|absolute/i);
+      expect(() => validatePathWithinSource(tempDir, '/tmp/file.md')).toThrow(/outside.*source|absolute/i);
+    });
+
+    it('allows absolute path if it resolves within source', () => {
+      // Absolute paths that resolve within source are allowed
+      // (this is consistent with how resolve() works)
+      const absoluteWithinSource = join(tempDir, 'file.md');
+      expect(() => validatePathWithinSource(tempDir, absoluteWithinSource)).not.toThrow();
+    });
   });
 
   describe('collectFiles', () => {

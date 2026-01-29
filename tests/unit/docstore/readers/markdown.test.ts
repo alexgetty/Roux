@@ -187,5 +187,58 @@ Body paragraph with **bold** text.`;
       expect(node.outgoingLinks).toContain('doc.txt');
       expect(node.outgoingLinks).not.toContain('file.md.md');
     });
+
+    describe('unicode wiki-links', () => {
+      it('extracts CJK wiki-links', () => {
+        const content = 'See [[日本語ノート]] for details';
+        const context = createContext('source.md');
+        const node = reader.parse(content, context);
+
+        expect(node.outgoingLinks).toContain('日本語ノート.md');
+      });
+
+      it('extracts emoji wiki-links', () => {
+        const content = 'Check [[🚀 Launch]] and [[Ideas 💡]]';
+        const context = createContext('source.md');
+        const node = reader.parse(content, context);
+
+        expect(node.outgoingLinks).toContain('🚀 launch.md');
+        expect(node.outgoingLinks).toContain('ideas 💡.md');
+      });
+
+      it('extracts accented wiki-links', () => {
+        const content = 'See [[Café Notes]] and [[Résumé]]';
+        const context = createContext('source.md');
+        const node = reader.parse(content, context);
+
+        expect(node.outgoingLinks).toContain('café notes.md');
+        expect(node.outgoingLinks).toContain('résumé.md');
+      });
+
+      it('handles mixed script wiki-links', () => {
+        const content = 'Link to [[Hello世界]]';
+        const context = createContext('source.md');
+        const node = reader.parse(content, context);
+
+        expect(node.outgoingLinks).toContain('hello世界.md');
+      });
+
+      it('handles combining character wiki-links', () => {
+        // e + combining acute
+        const content = 'Link to [[Caf\u0065\u0301]]';
+        const context = createContext('source.md');
+        const node = reader.parse(content, context);
+
+        expect(node.outgoingLinks).toContain('caf\u0065\u0301.md');
+      });
+
+      it('handles aliased unicode wiki-links', () => {
+        const content = 'Link to [[日本語|Japanese Notes]]';
+        const context = createContext('source.md');
+        const node = reader.parse(content, context);
+
+        expect(node.outgoingLinks).toContain('日本語.md');
+      });
+    });
   });
 });

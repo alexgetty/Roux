@@ -116,4 +116,76 @@ describe('buildGraph', () => {
     expect(graph.order).toBe(4);
     expect(graph.size).toBe(5);
   });
+
+  it('throws on duplicate node IDs', () => {
+    const nodes = [
+      createNode({ id: 'dupe.md', title: 'First' }),
+      createNode({ id: 'dupe.md', title: 'Second' }),
+    ];
+
+    // graphology throws when adding duplicate node
+    expect(() => buildGraph(nodes)).toThrow();
+  });
+
+  it('treats different-case IDs as distinct nodes', () => {
+    // Node IDs are case-sensitive in graphology
+    const nodes = [
+      createNode({ id: 'Note.md', outgoingLinks: ['note.md'] }),
+      createNode({ id: 'note.md', outgoingLinks: [] }),
+    ];
+
+    const graph = buildGraph(nodes);
+
+    expect(graph.order).toBe(2);
+    expect(graph.hasNode('Note.md')).toBe(true);
+    expect(graph.hasNode('note.md')).toBe(true);
+    expect(graph.hasDirectedEdge('Note.md', 'note.md')).toBe(true);
+  });
+
+  describe('edge cases for node IDs', () => {
+    it('accepts empty string node ID (graphology allows it)', () => {
+      // Note: This documents graphology behavior. Upstream validation
+      // (DocStore, MCP handlers) should reject empty IDs before they reach here.
+      const nodes = [createNode({ id: '' })];
+
+      const graph = buildGraph(nodes);
+
+      expect(graph.order).toBe(1);
+      expect(graph.hasNode('')).toBe(true);
+    });
+
+    it('accepts whitespace-only node ID (graphology allows it)', () => {
+      // Note: Upstream validation should reject whitespace-only IDs.
+      const nodes = [createNode({ id: '   ' })];
+
+      const graph = buildGraph(nodes);
+
+      expect(graph.order).toBe(1);
+      expect(graph.hasNode('   ')).toBe(true);
+    });
+
+    it('ignores links to empty string target when no empty node exists', () => {
+      const nodes = [
+        createNode({ id: 'a.md', outgoingLinks: [''] }),
+      ];
+
+      const graph = buildGraph(nodes);
+
+      expect(graph.order).toBe(1);
+      expect(graph.size).toBe(0);
+    });
+
+    it('creates edge to empty string target when empty node exists', () => {
+      const nodes = [
+        createNode({ id: 'a.md', outgoingLinks: [''] }),
+        createNode({ id: '' }),
+      ];
+
+      const graph = buildGraph(nodes);
+
+      expect(graph.order).toBe(2);
+      expect(graph.size).toBe(1);
+      expect(graph.hasDirectedEdge('a.md', '')).toBe(true);
+    });
+  });
 });

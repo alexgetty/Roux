@@ -90,5 +90,10 @@ export function getHubs(
     }
   });
 
-  return heap.toArray().sort((a, b) => b[1] - a[1]);
+  // Sort by score descending, then by node ID ascending for deterministic tie-breaking
+  return heap.toArray().sort((a, b) => {
+    const scoreDiff = b[1] - a[1];
+    if (scoreDiff !== 0) return scoreDiff;
+    return a[0].localeCompare(b[0]);
+  });
 }

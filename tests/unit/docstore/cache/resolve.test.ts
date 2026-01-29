@@ -21,6 +21,21 @@ describe('resolveNames', () => {
       expect(result[0]!.match).toBeNull();
       expect(result[0]!.score).toBe(0);
     });
+
+    it('handles empty string in names array', () => {
+      const result = resolveNames([''], candidates, { strategy: 'fuzzy', threshold: 0.7 });
+      expect(result).toHaveLength(1);
+      expect(result[0]!.query).toBe('');
+      // Empty string shouldn't match anything above threshold
+      expect(result[0]!.match).toBeNull();
+    });
+
+    it('handles whitespace-only in names array', () => {
+      const result = resolveNames(['   '], candidates, { strategy: 'fuzzy', threshold: 0.7 });
+      expect(result).toHaveLength(1);
+      expect(result[0]!.query).toBe('   ');
+      expect(result[0]!.match).toBeNull();
+    });
   });
 
   describe('exact strategy', () => {
@@ -166,6 +181,52 @@ describe('resolveNames', () => {
       expect(result[0]!.match).not.toBeNull();
       expect(result[1]!.match).toBeNull();
       expect(result[2]!.match).not.toBeNull();
+    });
+  });
+
+  describe('unicode handling', () => {
+    const unicodeCandidates: Candidate[] = [
+      { id: 'recipes/bulgogi.md', title: '불고기' },
+      { id: 'ingredients/café-blend.md', title: 'Café Blend' },
+      { id: 'notes/日本語ノート.md', title: '日本語ノート' },
+      { id: 'recipes/pho.md', title: 'Phở' },
+    ];
+
+    describe('exact strategy', () => {
+      it('matches CJK characters exactly', () => {
+        const result = resolveNames(['불고기'], unicodeCandidates, { strategy: 'exact', threshold: 0.7 });
+        expect(result[0]!.match).toBe('recipes/bulgogi.md');
+      });
+
+      it('matches accented characters case-insensitively', () => {
+        const result = resolveNames(['café blend'], unicodeCandidates, { strategy: 'exact', threshold: 0.7 });
+        expect(result[0]!.match).toBe('ingredients/café-blend.md');
+      });
+
+      it('matches Japanese text', () => {
+        const result = resolveNames(['日本語ノート'], unicodeCandidates, { strategy: 'exact', threshold: 0.7 });
+        expect(result[0]!.match).toBe('notes/日本語ノート.md');
+      });
+
+      it('matches Vietnamese diacritics', () => {
+        const result = resolveNames(['phở'], unicodeCandidates, { strategy: 'exact', threshold: 0.7 });
+        expect(result[0]!.match).toBe('recipes/pho.md');
+      });
+    });
+
+    describe('fuzzy strategy', () => {
+      it('fuzzy matches CJK with typo tolerance', () => {
+        // Partial match - one character different
+        const result = resolveNames(['불고'], unicodeCandidates, { strategy: 'fuzzy', threshold: 0.5 });
+        expect(result[0]!.match).toBe('recipes/bulgogi.md');
+        expect(result[0]!.score).toBeGreaterThan(0.5);
+      });
+
+      it('fuzzy matches accented text', () => {
+        const result = resolveNames(['cafe blend'], unicodeCandidates, { strategy: 'fuzzy', threshold: 0.7 });
+        // Should match despite missing accent
+        expect(result[0]!.match).toBe('ingredients/café-blend.md');
+      });
     });
   });
 });

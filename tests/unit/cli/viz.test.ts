@@ -137,4 +137,56 @@ describe('viz command', () => {
       expect(html).toContain('<svg');
     });
   });
+
+  describe('XSS prevention', () => {
+    it('includes HTML escape function to prevent XSS in tooltip', async () => {
+      await initCommand(testDir);
+      // Create a node with XSS payload in title
+      await writeFile(
+        join(testDir, 'xss.md'),
+        '---\ntitle: <script>alert("xss")</script>\n---\n\nContent',
+        'utf-8'
+      );
+
+      const store = new DocStore(testDir, join(testDir, '.roux'));
+      await store.sync();
+      store.close();
+
+      const result = await vizCommand(testDir);
+      const html = await readFile(result.outputPath, 'utf-8');
+
+      // The generated HTML should include an escapeHtml function
+      expect(html).toContain('function escapeHtml');
+      expect(html).toContain('&lt;');
+      expect(html).toContain('&gt;');
+      expect(html).toContain('&amp;');
+
+      // The tooltip .html() call should use escapeHtml
+      expect(html).toContain('escapeHtml(d.title)');
+      expect(html).toContain('escapeHtml(d.id)');
+
+      expect(result.nodeCount).toBe(1);
+    });
+
+    it('handles node IDs with special characters', async () => {
+      await initCommand(testDir);
+      // Create a node with special characters in filename (which becomes ID)
+      await writeFile(
+        join(testDir, "test'quotes.md"),
+        '---\ntitle: Test with quotes\n---\n\nContent',
+        'utf-8'
+      );
+
+      const store = new DocStore(testDir, join(testDir, '.roux'));
+      await store.sync();
+      store.close();
+
+      const result = await vizCommand(testDir);
+      const html = await readFile(result.outputPath, 'utf-8');
+
+      // Should generate valid HTML without breaking JS
+      expect(result.nodeCount).toBe(1);
+      expect(html).toContain('<!DOCTYPE html>');
+    });
+  });
 });

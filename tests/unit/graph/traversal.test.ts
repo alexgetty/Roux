@@ -70,12 +70,68 @@ describe('graph traversal', () => {
       const result = getNeighborIds(graph, 'a', { direction: 'out', limit: -5 });
       expect(result).toEqual([]);
     });
+
+    it('returns self as neighbor for self-loop (out direction)', () => {
+      const selfLoopGraph = new DirectedGraph();
+      selfLoopGraph.addNode('loop');
+      selfLoopGraph.addDirectedEdge('loop', 'loop');
+
+      const result = getNeighborIds(selfLoopGraph, 'loop', { direction: 'out' });
+      expect(result).toEqual(['loop']);
+    });
+
+    it('returns self as neighbor for self-loop (in direction)', () => {
+      const selfLoopGraph = new DirectedGraph();
+      selfLoopGraph.addNode('loop');
+      selfLoopGraph.addDirectedEdge('loop', 'loop');
+
+      const result = getNeighborIds(selfLoopGraph, 'loop', { direction: 'in' });
+      expect(result).toEqual(['loop']);
+    });
+
+    it('returns self once for self-loop (both direction, deduplicated)', () => {
+      const selfLoopGraph = new DirectedGraph();
+      selfLoopGraph.addNode('loop');
+      selfLoopGraph.addDirectedEdge('loop', 'loop');
+
+      // graphology.neighbors() should deduplicate
+      const result = getNeighborIds(selfLoopGraph, 'loop', { direction: 'both' });
+      expect(result).toEqual(['loop']);
+    });
+
+    it('returns empty for isolated node (zero edges)', () => {
+      const isolatedGraph = new DirectedGraph();
+      isolatedGraph.addNode('island');
+
+      expect(getNeighborIds(isolatedGraph, 'island', { direction: 'out' })).toEqual([]);
+      expect(getNeighborIds(isolatedGraph, 'island', { direction: 'in' })).toEqual([]);
+      expect(getNeighborIds(isolatedGraph, 'island', { direction: 'both' })).toEqual([]);
+    });
+
+    it('deduplicates when both in and out edges to same neighbor', () => {
+      // a <-> b (bidirectional)
+      const biGraph = new DirectedGraph();
+      biGraph.addNode('a');
+      biGraph.addNode('b');
+      biGraph.addDirectedEdge('a', 'b');
+      biGraph.addDirectedEdge('b', 'a');
+
+      const result = getNeighborIds(biGraph, 'a', { direction: 'both' });
+      // graphology.neighbors() returns unique neighbors
+      expect(result).toEqual(['b']);
+    });
   });
 
   describe('findPath', () => {
-    it('returns path between connected nodes', () => {
+    it('returns path between connected nodes with valid edges', () => {
       const path = findPath(graph, 'a', 'c');
       expect(path).toEqual(['a', 'b', 'c']);
+      // Verify path validity: every consecutive pair must have an edge
+      for (let i = 0; i < path!.length - 1; i++) {
+        const from = path![i]!;
+        const to = path![i + 1]!;
+        expect(graph.hasDirectedEdge(from, to)).toBe(true);
+      }
     });
 
     it('returns path for adjacent nodes', () => {
@@ -103,12 +159,65 @@ describe('graph traversal', () => {
       expect(path).toBeNull();
     });
 
-    it('finds shortest path when multiple exist', () => {
+    it('finds shortest path when multiple exist and all edges are valid', () => {
       // a -> e via d (2 hops) or via b (2 hops)
       const path = findPath(graph, 'a', 'e');
       expect(path).toHaveLength(3);
       expect(path?.[0]).toBe('a');
       expect(path?.[path.length - 1]).toBe('e');
+      // Verify path validity: every consecutive pair must have an edge
+      for (let i = 0; i < path!.length - 1; i++) {
+        const from = path![i]!;
+        const to = path![i + 1]!;
+        expect(graph.hasDirectedEdge(from, to)).toBe(true);
+      }
+    });
+
+    it('returns null between disconnected components', () => {
+      const disconnected = new DirectedGraph();
+      disconnected.addNode('a');
+      disconnected.addNode('b');
+      disconnected.addNode('x');
+      disconnected.addNode('y');
+      disconnected.addDirectedEdge('a', 'b');
+      disconnected.addDirectedEdge('x', 'y');
+
+      expect(findPath(disconnected, 'a', 'x')).toBeNull();
+      expect(findPath(disconnected, 'b', 'y')).toBeNull();
+    });
+
+    it('finds path within same component of disconnected graph', () => {
+      const disconnected = new DirectedGraph();
+      disconnected.addNode('a');
+      disconnected.addNode('b');
+      disconnected.addNode('x');
+      disconnected.addNode('y');
+      disconnected.addDirectedEdge('a', 'b');
+      disconnected.addDirectedEdge('x', 'y');
+
+      expect(findPath(disconnected, 'a', 'b')).toEqual(['a', 'b']);
+      expect(findPath(disconnected, 'x', 'y')).toEqual(['x', 'y']);
+    });
+
+    it('returns single-node path for self-loop source=target', () => {
+      const selfLoopGraph = new DirectedGraph();
+      selfLoopGraph.addNode('loop');
+      selfLoopGraph.addDirectedEdge('loop', 'loop');
+
+      // Same source and target should return [source], not follow the self-loop
+      const path = findPath(selfLoopGraph, 'loop', 'loop');
+      expect(path).toEqual(['loop']);
+    });
+
+    it('returns null for path from isolated node', () => {
+      const mixedGraph = new DirectedGraph();
+      mixedGraph.addNode('island');
+      mixedGraph.addNode('connected');
+      mixedGraph.addNode('other');
+      mixedGraph.addDirectedEdge('connected', 'other');
+
+      expect(findPath(mixedGraph, 'island', 'other')).toBeNull();
+      expect(findPath(mixedGraph, 'connected', 'island')).toBeNull();
     });
   });
 
@@ -154,6 +263,48 @@ describe('graph traversal', () => {
     it('returns empty array for large negative limit', () => {
       const hubs = getHubs(graph, 'out_degree', -10);
       expect(hubs).toEqual([]);
+    });
+
+    it('breaks ties deterministically by node ID (ascending)', () => {
+      // Create graph with multiple nodes having equal degree
+      const tiedGraph = new DirectedGraph();
+      tiedGraph.addNode('zebra');
+      tiedGraph.addNode('apple');
+      tiedGraph.addNode('mango');
+      tiedGraph.addNode('hub');
+      // hub -> all others: hub has out_degree 3
+      tiedGraph.addDirectedEdge('hub', 'zebra');
+      tiedGraph.addDirectedEdge('hub', 'apple');
+      tiedGraph.addDirectedEdge('hub', 'mango');
+      // zebra, apple, mango all have in_degree 1
+
+      const hubs = getHubs(tiedGraph, 'in_degree', 4);
+
+      // hub has in_degree 0, should be last
+      // zebra, apple, mango all have in_degree 1, should be sorted alphabetically
+      expect(hubs[0][0]).toBe('apple'); // in_degree 1, alphabetically first
+      expect(hubs[1][0]).toBe('mango'); // in_degree 1
+      expect(hubs[2][0]).toBe('zebra'); // in_degree 1
+      expect(hubs[3][0]).toBe('hub'); // in_degree 0
+    });
+
+    it('returns consistent order across multiple calls', () => {
+      // Verify determinism by calling multiple times
+      const tiedGraph = new DirectedGraph();
+      tiedGraph.addNode('c');
+      tiedGraph.addNode('a');
+      tiedGraph.addNode('b');
+      // All nodes have degree 0
+
+      const results = [];
+      for (let i = 0; i < 10; i++) {
+        results.push(getHubs(tiedGraph, 'in_degree', 3).map(([id]) => id).join(','));
+      }
+
+      // All results should be identical
+      expect(new Set(results).size).toBe(1);
+      // And should be sorted alphabetically since all degrees are equal
+      expect(results[0]).toBe('a,b,c');
     });
   });
 });

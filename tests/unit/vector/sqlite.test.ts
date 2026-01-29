@@ -386,6 +386,67 @@ describe('SqliteVectorIndex', () => {
     });
   });
 
+  describe('SQL injection resistance', () => {
+    it('handles malicious ID with SQL injection attempt in store', async () => {
+      const maliciousId = "'; DROP TABLE vectors; --";
+      await provider.store(maliciousId, [1, 2, 3], 'model');
+
+      // Table should still exist and function
+      const tables = provider.getTableNames();
+      expect(tables).toContain('vectors');
+
+      // Should be able to retrieve the malicious ID
+      const model = await provider.getModel(maliciousId);
+      expect(model).toBe('model');
+    });
+
+    it('handles malicious ID with SQL injection attempt in search', async () => {
+      const maliciousId = "'; DROP TABLE vectors; --";
+      await provider.store(maliciousId, [1, 2, 3], 'model');
+
+      const results = await provider.search([1, 2, 3], 10);
+      expect(results).toHaveLength(1);
+      expect(results[0]!.id).toBe(maliciousId);
+    });
+
+    it('handles malicious ID with SQL injection attempt in delete', async () => {
+      await provider.store('keep-me', [1, 2, 3], 'model');
+      const maliciousId = "'; DROP TABLE vectors; --";
+      await provider.store(maliciousId, [4, 5, 6], 'model');
+
+      await provider.delete(maliciousId);
+
+      // Table should still exist
+      const tables = provider.getTableNames();
+      expect(tables).toContain('vectors');
+
+      // The legitimate entry should still exist
+      const model = await provider.getModel('keep-me');
+      expect(model).toBe('model');
+    });
+
+    it('handles malicious ID with SQL injection attempt in getModel', async () => {
+      await provider.store('legitimate', [1, 2, 3], 'model');
+
+      // Try to inject via getModel query
+      const maliciousId = "legitimate' OR '1'='1";
+      const model = await provider.getModel(maliciousId);
+
+      // Should return null, not the legitimate entry
+      expect(model).toBeNull();
+    });
+
+    it('handles malicious ID with SQL injection attempt in hasEmbedding', async () => {
+      await provider.store('legitimate', [1, 2, 3], 'model');
+
+      const maliciousId = "legitimate' OR '1'='1";
+      const exists = provider.hasEmbedding(maliciousId);
+
+      // Should return false, not true (injection would make it always true)
+      expect(exists).toBe(false);
+    });
+  });
+
   describe('hasEmbedding', () => {
     it('returns false for non-existent id', () => {
       expect(provider.hasEmbedding('nonexistent')).toBe(false);

@@ -90,7 +90,13 @@ export async function serveCommand(
     naming,
   });
 
-  await mcpServer.start(transportFactory);
+  try {
+    await mcpServer.start(transportFactory);
+  } catch (err) {
+    // Clean up store on MCP server start failure
+    store.close();
+    throw err;
+  }
 
   // Start file watcher if enabled
   if (watch) {
@@ -98,10 +104,20 @@ export async function serveCommand(
       await store.startWatching(async (changedIds) => {
         // Generate embeddings for changed nodes
         for (const id of changedIds) {
-          const node = await store.getNode(id);
-          if (node && node.content) {
-            const vector = await embedding.embed(node.content);
-            await store.storeEmbedding(id, vector, embedding.modelId());
+          try {
+            const node = await store.getNode(id);
+            if (node && node.content) {
+              const vector = await embedding.embed(node.content);
+              await store.storeEmbedding(id, vector, embedding.modelId());
+            }
+          } catch (err) {
+            // Log warning but continue processing other changed files
+            console.warn(
+              'Failed to generate embedding for',
+              id,
+              ':',
+              (err as Error).message || 'Unknown error'
+            );
           }
         }
       });

@@ -37,6 +37,10 @@ describe('links', () => {
       expect(hasFileExtension('.hidden')).toBe(false);
     });
 
+    it('returns false for empty string', () => {
+      expect(hasFileExtension('')).toBe(false);
+    });
+
     it('returns false for extensions longer than 4 chars', () => {
       expect(hasFileExtension('file.typescript')).toBe(false);
     });
@@ -76,6 +80,60 @@ describe('links', () => {
     it('handles combined transformations', () => {
       expect(normalizeWikiLink('Folder\\MyNote')).toBe('folder/mynote.md');
       expect(normalizeWikiLink('A\\B\\C.TXT')).toBe('a/b/c.txt');
+    });
+
+    it('trims leading whitespace', () => {
+      expect(normalizeWikiLink('  note')).toBe('note.md');
+      expect(normalizeWikiLink('\tnote')).toBe('note.md');
+    });
+
+    it('trims trailing whitespace', () => {
+      expect(normalizeWikiLink('note  ')).toBe('note.md');
+      expect(normalizeWikiLink('note\t')).toBe('note.md');
+    });
+
+    it('trims both leading and trailing whitespace', () => {
+      expect(normalizeWikiLink('  note  ')).toBe('note.md');
+      expect(normalizeWikiLink('  folder/note  ')).toBe('folder/note.md');
+    });
+
+    it('handles whitespace-only input', () => {
+      // Whitespace-only should become empty + .md = ".md"
+      // This is arguably invalid, but documenting current behavior
+      expect(normalizeWikiLink('   ')).toBe('.md');
+    });
+
+    describe('unicode handling', () => {
+      it('lowercases accented characters', () => {
+        expect(normalizeWikiLink('Café')).toBe('café.md');
+        expect(normalizeWikiLink('RÉSUMÉ')).toBe('résumé.md');
+      });
+
+      it('preserves CJK characters (no case change)', () => {
+        expect(normalizeWikiLink('日本語')).toBe('日本語.md');
+        expect(normalizeWikiLink('中文笔记')).toBe('中文笔记.md');
+      });
+
+      it('handles mixed scripts', () => {
+        expect(normalizeWikiLink('Hello世界')).toBe('hello世界.md');
+        expect(normalizeWikiLink('Café☕Notes')).toBe('café☕notes.md');
+      });
+
+      it('handles emoji in link names', () => {
+        expect(normalizeWikiLink('🚀 Launch')).toBe('🚀 launch.md');
+        expect(normalizeWikiLink('Ideas 💡')).toBe('ideas 💡.md');
+      });
+
+      it('handles combining characters', () => {
+        // e + combining acute = é
+        const withCombining = 'Note\u0301';
+        const result = normalizeWikiLink(withCombining);
+        expect(result).toBe('note\u0301.md');
+      });
+
+      it('handles Greek uppercase', () => {
+        expect(normalizeWikiLink('ΩMEGA')).toBe('ωmega.md');
+      });
     });
   });
 

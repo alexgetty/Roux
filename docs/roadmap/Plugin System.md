@@ -15,7 +15,7 @@ Modular extension system for Roux. Plugins extend graph capabilities, add MCP to
 
 ## Open Questions
 
-Red team review surfaced these gaps. **Design questions resolved. Implementation blockers remain.**
+Red team review surfaced these gaps. **Some design questions remain open. Implementation blockers documented.**
 
 ### Implementation Blockers
 
@@ -56,30 +56,27 @@ Plan specifies GraphCore as orchestration hub with three-phase lifecycle (Regist
 
 **IB3: No `query()` API as specified**
 
-Q14 specifies unified `query()` with `text`, `where`, `not`, `or`, `and`, `sort`, `limit`. Current API only has `search(query: string, options?)`. Plan says query() "replaces current `search()`" but migration path undefined.
+Q14 specifies unified `query()` with `text`, `where`, `not`, `or`, `and`, `sort`, `limit`. Current API only has `search(query: string, options?)`.
 
 **Location:** `src/types/graphcore.ts:30`
 
 **Required changes:**
 1. Define `QueryOptions` interface with all specified fields
 2. Implement `query()` on GraphCore
-3. Decision: deprecate `search()` or keep as convenience alias?
+3. Remove `search()` entirely — `query()` is the only API (no deprecation, no alias; breaking changes acceptable at this stage)
 
 **Verification:** Test composing semantic + structured: `{ text: 'bug', where: { priority: 'high' }, limit: 5 }`
 
 ---
 
-**IB4: Event system — interface exists, implementation missing (Q20)**
+**IB4: Event system — interface exists, implementation missing (Q20)** — RESOLVED
 
-Plugin interface specifies `wants.events` for subscriptions, but no event system exists. Can't ship interface that references non-existent functionality.
+**Resolution:** Option A — remove `wants.events` from MVP interface. Events are useful but not required for core plugin functionality. Add back when event system lands (see [[Plugin Cross-Communication]]).
 
-**Location:** Plan lines 217-220, `wants.events` in RouxPlugin interface
-
-**Resolution options:**
-- **Option A:** Remove `wants.events` from MVP interface. Add back when event system lands.
-- **Option B:** Implement minimal event emitter in GraphCore (`on`, `emit`, `off`). Events: `node.created`, `node.updated`, `node.deleted`.
-
-**Verification:** If Option B: test plugin subscribes to `node.created`, receives callback on createNode.
+**Changes:**
+- Remove `events?: string[]` from `wants` in RouxPlugin interface
+- Remove `events: string[]` from `wiring` in PluginContext interface
+- Plugins needing reactivity can poll via `query()` for MVP
 
 ---
 
@@ -95,6 +92,119 @@ Q23 asks what happens when `plugin.register()` throws but marks it post-MVP. Thi
 - Add try/catch around all plugin lifecycle calls
 
 **Verification:** Test: plugin that throws on register, verify skipped and other plugins activate.
+
+---
+
+### Open Design Questions
+
+Design decisions that need resolution before implementation.
+
+---
+
+**IB6: PluginContext write API undefined** — OPEN
+
+PluginContext currently only exposes `query()`. Plugins with readwrite permission have no way to write.
+
+**Discovery:** Red team review identified that the interface lacks write operations. Plugins need to create nodes, update data, and potentially delete.
+
+**Agreed so far:**
+- Plugins can create full nodes (with core fields + their namespace data)
+- Plugins can write to their own namespace
+- Plugins can write to core fields (title, content, tags, properties) on nodes they can access
+- Schema auto-registers from manifest — no `registerSchema()` call needed
+- Remove `registerSchema()` from examples
+
+**Open:** Whether to use scoped methods on PluginContext vs proxy wrapper around core. See Q26 for related namespace access question.
+
+**Scoped methods approach:**
+```typescript
+interface PluginContext {
+  query(options: QueryOptions): Promise<Node[]>;
+  createNode(node: Partial<Node>): Promise<Node>;
+  updateNode(id: string, updates: NodeUpdates): Promise<Node>;
+  deleteNode(id: string): Promise<boolean>;
+  // All methods enforce scope + mode permissions
+  // All methods auto-namespace plugin-specific data
+}
+```
+
+**Proxy approach:**
+```typescript
+interface PluginContext {
+  core: ScopedGraphCore;  // Proxy that enforces permissions
+}
+```
+
+**Leaning:** Scoped methods — clearer semantics, but decision blocked on Q26.
+
+---
+
+**Q26: Cross-plugin namespace access** — OPEN
+
+Can plugins write to other plugins' namespaces? Tension between security and interoperability.
+
+**Context:** Current model says plugins can only write to `node.plugins[ownId]`. But this prevents:
+- plugin-pm-github writing `syncedAt` to plugin-pm's namespace
+- Workflow automation updating statuses across plugins
+- Plugins that genuinely extend each other
+
+**Options explored:**
+
+**Option 1: `requires` = namespace access**
+
+If plugin declares `requires: ['plugin-pm']`, it gets write access to plugin-pm's namespace. Dependency = trust.
+
+Pros: Simple, `requires` already exists, explicit relationship.
+Cons: All-or-nothing access, no granular control.
+
+**Option 2: Explicit grants in manifest**
+
+```typescript
+provides: {
+  namespaceWriters?: string[];  // plugin IDs allowed to write here
+}
+```
+
+Pros: Granular control, explicit consent from target plugin.
+Cons: More complexity, requires coordination between plugin authors.
+
+**Option 3: API-only interaction**
+
+No direct cross-plugin writes. Plugins expose tools, others call them:
+
+```typescript
+// plugin-pm exposes
+tools: [{ name: 'set_status', ... }]
+// plugin-pm-github calls the tool instead of writing directly
+```
+
+Pros: Clean interfaces, plugin controls its mutations, no namespace pollution.
+Cons: More work, every interaction needs a tool, might be overkill for tightly-coupled plugins.
+
+**Option 4: No boundary**
+
+Any plugin can write anywhere. User trusts their plugins.
+
+Pros: Maximum flexibility, simple implementation.
+Cons: Data corruption risk, debugging nightmare, no encapsulation.
+
+**Option 5: Write-through with audit**
+
+Allow cross-plugin writes but log them. Soft boundary with visibility.
+
+Pros: Flexibility with accountability.
+Cons: Doesn't prevent mistakes, just documents them.
+
+**Trade-off spectrum:**
+
+```
+Security ←————————————————————————→ Interoperability
+
+Hard boundary    requires=access    Explicit grants    No boundary
+(strict)         (option 1)         (option 2)         (option 4)
+```
+
+**Leaning:** Option 1 (`requires` = namespace access). Simple extension of existing concept. But decision deferred — need to think through implications for plugin ecosystem.
 
 ---
 
@@ -188,19 +298,17 @@ No topological sort needed. `requires` means "must exist," not "must initialize 
 
 **Q16: Tool name collision handling** — RESOLVED
 
-**Resolution:** Tools are namespaced by plugin ID. No collisions possible.
+**Resolution:** Tools are namespaced by full plugin ID. No collisions possible.
 
-Plugin `plugin-pm` providing `create_issue` → tool exposed as `pm_create_issue`.
-
-- Namespace prefix derived from plugin ID (strip `plugin-` prefix if present)
-- Collisions impossible by design
-- No detection or resolution logic needed
+- Full plugin ID becomes tool prefix (no stripping)
+- Plugin registry enforces unique IDs → tool names can't collide
+- `@roux/*` reserved for official plugins (by convention)
 - Users see namespaced tool names in MCP
 
-**Normalization rules:** Lowercase, strip `plugin-` prefix, replace non-alphanumeric with `_`, dedupe consecutive underscores. Examples:
-- `plugin-pm` → `pm_create_issue`
-- `@roux/tasks` → `roux_tasks_create_issue`
-- `my-awesome-plugin` → `my_awesome_create_issue`
+**Normalization rules:** Lowercase, replace non-alphanumeric with `_`, dedupe consecutive underscores. Examples:
+- `@roux/pm` → `roux_pm_create_issue` (official)
+- `plugin-pm` → `plugin_pm_create_issue`
+- `my-tracker` → `my_tracker_create_issue`
 
 ---
 
@@ -231,7 +339,7 @@ Plugin `plugin-pm` providing `create_issue` → tool exposed as `pm_create_issue
 
 **Q19: MCP module extraction** — Plan says MCP becomes separate module but no extraction strategy documented.
 
-**Q20: Event system** — `wants.events` in interface but no event system exists. Either implement basic events or remove from MVP interface. (See IB4 for MVP decision.)
+**Q20: Event system** — RESOLVED via IB4. Removed from MVP interface. See [[Plugin Cross-Communication]] for future event system.
 
 **Q21: Plugin test contract** — How do plugin authors write tests? **Resolution:** Plugin tests instantiate real GraphCoreImpl with in-memory DocStore (sourceRoot = temp dir). No mocks. Test actual graph behavior.
 
@@ -239,7 +347,7 @@ Plugin `plugin-pm` providing `create_issue` → tool exposed as `pm_create_issue
 
 **Q23: Error boundaries** — What happens when `plugin.register()` throws? (See IB5 for resolution.)
 
-**Q24: Schema field types missing `array`** — Current schema supports `string | enum | number | date | boolean | reference`. Missing: `array` type for `assignees: string[]` or `labels: string[]`. Add `array` type with `items: FieldDefinition`.
+**Q24: Schema field types missing `array`** — RESOLVED. Added `array` type with `items: FieldDefinition` for nested type definition. Required for real-world schemas (`assignees: string[]`, `labels: string[]`, etc.).
 
 **Q25: Singleton conflict detection timing** — Plan says singleton capabilities (MCP, REST) error on duplicate. When? **Resolution:** Error at resolution phase. All manifests collected, then validated. Clear error: "Multiple plugins provide 'mcp' exposure: plugin-a, plugin-b. Configure one."
 
@@ -310,7 +418,6 @@ needs?: {
 // "I want these capabilities if available. I work without them."
 wants?: {
   exposure?: ExposureType[];  // MCP, REST, CLI
-  events?: string[];          // event subscriptions
 };
 ```
 
@@ -331,7 +438,6 @@ wants?: {
 
 **Aggregate capabilities** (multiple providers combine):
 - `tools: [...]` — merge all tools
-- `events: [...]` — merge all event streams
 - **Merge arrays.** Name collisions within aggregates = error.
 
 **Q5: Schema validation on unloaded plugin** — RESOLVED
@@ -363,16 +469,20 @@ Clear via three-tier model:
 - `needs` — must be satisfied or plugin can't function  
 - `wants` — always graceful, reduced functionality
 
-**Q12: Permission scopes** — RESOLVED (by Q1)
+**Q12: Permission scopes** — PARTIALLY RESOLVED (see Q26 for cross-plugin access)
 
 Two-dimensional: **scope** (local/global) × **mode** (read/readwrite).
 
 | Scope | Mode | Query | Write |
 |-------|------|-------|-------|
-| `local` | `read` | Own namespace only | None |
-| `local` | `readwrite` | Own namespace only | Own namespace on touched nodes |
+| `local` | `read` | Nodes with own namespace | None |
+| `local` | `readwrite` | Nodes with own namespace | Core fields + own namespace (on touched nodes) |
 | `global` | `read` | All nodes | None |
-| `global` | `readwrite` | All nodes | Own namespace on any node |
+| `global` | `readwrite` | All nodes | Core fields + own namespace (on any node) |
+
+**Core fields:** title, content, tags, properties (shared node data).
+**Own namespace:** `node.plugins[pluginId]` (plugin-specific data).
+**Cross-plugin namespace access:** See Q26 — decision pending on whether `requires` grants write access to other plugins' namespaces.
 
 ### Deferred (Post-MVP)
 
@@ -517,7 +627,7 @@ Three tiers, from fatal to graceful:
 │                                                             │
 │  WANTS (inter-plugin enhancement)                           │
 │  "I want this if available. I work without it."             │
-│  → Exposure (MCP, REST), events.                            │
+│  → Exposure (MCP, REST).                                    │
 │  → Best-effort wiring after all plugins load.               │
 │  → Unmet = warning, reduced functionality, never crash.     │
 │                                                             │
@@ -529,7 +639,7 @@ Three tiers, from fatal to graceful:
 Plugins declare what they `provide`. Other plugins declare what they `want`. GraphCore matches them:
 
 - **Singleton capabilities** (exposure) — one provider only, error on duplicate
-- **Aggregate capabilities** (tools, events) — merge from all providers
+- **Aggregate capabilities** (tools) — merge from all providers
 
 Wiring happens after all plugins load. No plugin needs another plugin to load first (unless `requires`).
 
@@ -548,7 +658,6 @@ interface RouxPlugin {
   provides?: {
     tools?: ToolDefinition[];           // aggregate: merged
     exposure?: ExposureType[];          // singleton: one provider
-    events?: string[];                  // aggregate: merged
   };
 
   // System capabilities required to function
@@ -563,7 +672,6 @@ interface RouxPlugin {
   // Inter-plugin capabilities wanted (graceful if unmet)
   wants?: {
     exposure?: ExposureType[];          // "expose my tools via these"
-    events?: string[];                  // "subscribe to these events"
   };
 
   // Schema for this plugin's namespace (suggestive, not prescriptive)
@@ -581,7 +689,6 @@ interface PluginContext {
   providers: ProviderType[];            // which providers are available
   wiring: {
     exposures: ExposureType[];          // which exposure wants were met
-    events: string[];                   // which event wants were met
   };
 }
 ```
@@ -669,9 +776,10 @@ const pmPlugin: RouxPlugin = {
   },
   
   async register(context) {
-    context.core.registerSchema(this.id, this.schema);
+    // Schema auto-registers from manifest — no explicit call needed
+    // Plugin-specific initialization here if needed
   },
-  
+
   async unregister() {},
 };
 ```

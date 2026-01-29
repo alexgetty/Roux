@@ -40,7 +40,15 @@ function createMockStore(
     getRandomNode: vi.fn(),
     listNodes: vi.fn().mockResolvedValue({ nodes: [], total: 0 }),
     resolveNodes: vi.fn().mockResolvedValue([]),
-    nodesExist: vi.fn().mockResolvedValue(new Map()),
+    nodesExist: vi.fn().mockImplementation(async (ids: string[]) => {
+      // Default: all nodes reported as non-existing
+      // Tests that need specific existence should override this mock
+      const result = new Map<string, boolean>();
+      for (const id of ids) {
+        result.set(id, false);
+      }
+      return result;
+    }),
   };
 }
 
@@ -1854,5 +1862,100 @@ describe('coerceInt', () => {
 
   it('accepts value greater than minimum', () => {
     expect(coerceInt(50, 10, 1, 'limit')).toBe(50);
+  });
+});
+
+describe('transform layer error propagation', () => {
+  it('propagates error when store.resolveTitles throws in handleGetNode', async () => {
+    const node = createNode({ outgoingLinks: ['link1.md'] });
+    const ctx = createContext();
+    (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(node);
+    (ctx.store.resolveTitles as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Title resolution failed')
+    );
+
+    await expect(handleGetNode(ctx, { id: 'test.md', depth: 0 })).rejects.toThrow(
+      'Title resolution failed'
+    );
+  });
+
+  it('propagates error when store.resolveTitles throws in handleSearch', async () => {
+    const nodes = [createNode({ id: 'a.md', outgoingLinks: ['link.md'] })];
+    const ctx = createContext();
+    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue(nodes);
+    (ctx.store.resolveTitles as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Title resolution failed')
+    );
+
+    await expect(handleSearch(ctx, { query: 'test' })).rejects.toThrow(
+      'Title resolution failed'
+    );
+  });
+
+  it('propagates error when store.resolveTitles throws in handleGetNeighbors', async () => {
+    const neighbors = [createNode({ id: 'n.md', outgoingLinks: ['link.md'] })];
+    const ctx = createContext();
+    (ctx.core.getNeighbors as ReturnType<typeof vi.fn>).mockResolvedValue(neighbors);
+    (ctx.store.resolveTitles as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Database connection lost')
+    );
+
+    await expect(handleGetNeighbors(ctx, { id: 'test.md' })).rejects.toThrow(
+      'Database connection lost'
+    );
+  });
+
+  it('propagates error when store.resolveTitles throws in handleGetHubs', async () => {
+    const hubs: Array<[string, number]> = [['hub.md', 10]];
+    const ctx = createContext();
+    (ctx.core.getHubs as ReturnType<typeof vi.fn>).mockResolvedValue(hubs);
+    (ctx.store.resolveTitles as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Title lookup failed')
+    );
+
+    await expect(handleGetHubs(ctx, {})).rejects.toThrow('Title lookup failed');
+  });
+
+  it('propagates error when store.resolveTitles throws in handleRandomNode', async () => {
+    const node = createNode({ outgoingLinks: ['link.md'] });
+    const ctx = createContext();
+    (ctx.core.getRandomNode as ReturnType<typeof vi.fn>).mockResolvedValue(node);
+    (ctx.store.resolveTitles as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Database unavailable')
+    );
+
+    await expect(handleRandomNode(ctx, {})).rejects.toThrow('Database unavailable');
+  });
+
+  it('propagates error when store.resolveTitles throws in handleSearchByTags', async () => {
+    const nodes = [createNode({ id: 'tagged.md', outgoingLinks: ['link.md'] })];
+    const ctx = createContext();
+    (ctx.core.searchByTags as ReturnType<typeof vi.fn>).mockResolvedValue(nodes);
+    (ctx.store.resolveTitles as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Cache corrupted')
+    );
+
+    await expect(handleSearchByTags(ctx, { tags: ['test'] })).rejects.toThrow(
+      'Cache corrupted'
+    );
+  });
+
+  it('propagates error when store.resolveTitles throws in depth=1 context response', async () => {
+    const node = createNode();
+    const incoming = [createNode({ id: 'in.md', outgoingLinks: ['a.md'] })];
+    const outgoing = [createNode({ id: 'out.md', outgoingLinks: ['b.md'] })];
+    const ctx = createContext();
+    (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(node);
+    (ctx.core.getNeighbors as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(incoming)
+      .mockResolvedValueOnce(outgoing);
+    // First call for primary node succeeds, subsequent calls fail
+    (ctx.store.resolveTitles as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(new Map())
+      .mockRejectedValueOnce(new Error('Neighbor resolution failed'));
+
+    await expect(handleGetNode(ctx, { id: 'test.md', depth: 1 })).rejects.toThrow(
+      'Neighbor resolution failed'
+    );
   });
 });

@@ -135,7 +135,7 @@ describe('MCP Handlers Integration', () => {
       expect(result!.tags).toContain('testing');
     });
 
-    it('returns node with context at depth=1', async () => {
+    it('returns node with context at depth=1 including neighbor details', async () => {
       // Create linked nodes
       await writeMarkdownFile(
         'parent.md',
@@ -147,9 +147,22 @@ describe('MCP Handlers Integration', () => {
 
       expect(result).not.toBeNull();
       expect(result!.id).toBe('test-node.md');
-      // Should have context fields
-      expect('incomingNeighbors' in result!).toBe(true);
-      expect('outgoingNeighbors' in result!).toBe(true);
+
+      // Verify context fields exist with actual values
+      const contextResult = result as {
+        incomingNeighbors: Array<{ id: string; title: string }>;
+        outgoingNeighbors: Array<{ id: string; title: string }>;
+        incomingCount: number;
+        outgoingCount: number;
+      };
+
+      expect(contextResult.incomingNeighbors).toHaveLength(1);
+      expect(contextResult.incomingNeighbors[0]!.id).toBe('parent.md');
+      expect(contextResult.incomingNeighbors[0]!.title).toBe('Parent');
+      expect(contextResult.incomingCount).toBe(1);
+
+      expect(contextResult.outgoingNeighbors).toHaveLength(0);
+      expect(contextResult.outgoingCount).toBe(0);
     });
 
     it('returns null for non-existent node', async () => {

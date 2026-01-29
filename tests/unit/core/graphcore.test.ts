@@ -177,6 +177,15 @@ describe('GraphCore', () => {
       // Results should be ordered by score descending (already is since distance ascending)
       expect(results).toHaveLength(2);
       expect(results[0]?.id).toBe('a.md');
+      expect(results[1]?.id).toBe('b.md');
+
+      // Verify actual score conversion from distances
+      // The SearchResult type includes score, verify it's computed correctly
+      // Note: GraphCore.search returns Node[], not SearchResult with scores
+      // The scores are computed at the MCP layer. GraphCore just returns hydrated nodes
+      // in distance order. Verify the ordering is correct (closest first).
+      const ids = results.map(r => r.id);
+      expect(ids).toEqual(['a.md', 'b.md']); // a.md has lower distance (0.1), so comes first
     });
 
     it('hydrates nodes from IDs', async () => {

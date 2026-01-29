@@ -15,6 +15,7 @@ const TRUNCATION_SUFFIX = '... [truncated]';
 /**
  * Truncate content to limit, appending suffix if truncated.
  * Returns original content if within limit.
+ * Ensures valid UTF-16 output by not splitting surrogate pairs.
  */
 export function truncateContent(
   content: string,
@@ -27,7 +28,17 @@ export function truncateContent(
   }
 
   // Account for suffix length when truncating, guard against negative
-  const truncatedLength = Math.max(0, limit - TRUNCATION_SUFFIX.length);
+  let truncatedLength = Math.max(0, limit - TRUNCATION_SUFFIX.length);
+
+  // Don't split surrogate pairs - if we'd end on a high surrogate, back up one
+  if (truncatedLength > 0) {
+    const lastCharCode = content.charCodeAt(truncatedLength - 1);
+    // High surrogate range: 0xD800-0xDBFF
+    if (lastCharCode >= 0xd800 && lastCharCode <= 0xdbff) {
+      truncatedLength--;
+    }
+  }
+
   return content.slice(0, truncatedLength) + TRUNCATION_SUFFIX;
 }
 

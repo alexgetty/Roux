@@ -134,15 +134,96 @@ describe('TransformersEmbedding', () => {
     }, 60000);
   });
 
+  describe('unicode input', () => {
+    it('embeds CJK text without throwing', async () => {
+      const embedding = await provider.embed('日本語ノート');
+      expect(embedding).toHaveLength(384);
+      expect(embedding.every((v) => Number.isFinite(v))).toBe(true);
+    }, 60000);
+
+    it('embeds emoji text', async () => {
+      const embedding = await provider.embed('🚀 Launch Day ☕');
+      expect(embedding).toHaveLength(384);
+      expect(embedding.every((v) => Number.isFinite(v))).toBe(true);
+    }, 60000);
+
+    it('embeds mixed scripts', async () => {
+      const embedding = await provider.embed('Hello世界 Café');
+      expect(embedding).toHaveLength(384);
+      expect(embedding.every((v) => Number.isFinite(v))).toBe(true);
+    }, 60000);
+
+    it('embeds combining characters', async () => {
+      // e + combining acute accent
+      const embedding = await provider.embed('Caf\u0065\u0301');
+      expect(embedding).toHaveLength(384);
+      expect(embedding.every((v) => Number.isFinite(v))).toBe(true);
+    }, 60000);
+
+    it('returns normalized vector for unicode input', async () => {
+      const embedding = await provider.embed('日本語ノート');
+      const magnitude = Math.sqrt(
+        embedding.reduce((sum, val) => sum + val * val, 0)
+      );
+      expect(magnitude).toBeCloseTo(1, 2);
+    }, 60000);
+  });
+
   describe('pipeline caching', () => {
     it('reuses pipeline across multiple calls', async () => {
+      // Access private pipeline via instance for spying
+      // We verify caching by checking that pipeline() is only called once
       const p = new TransformersEmbedding();
+
+      // First embed call - initializes pipeline
       await p.embed('first call');
-      const start = performance.now();
+
+      // The pipe property is now set - verify it exists and reuse works
+      // by checking that subsequent calls don't change the cached reference
+      const pipeRef = (p as unknown as { pipe: unknown }).pipe;
+      expect(pipeRef).not.toBeNull();
+
+      // Second call should reuse the same pipeline instance
       await p.embed('second call');
-      const elapsed = performance.now() - start;
-      // Second call should be fast (no model loading)
-      expect(elapsed).toBeLessThan(5000);
+      const pipeRefAfter = (p as unknown as { pipe: unknown }).pipe;
+
+      // Same reference means pipeline was reused, not recreated
+      expect(pipeRefAfter).toBe(pipeRef);
+    }, 60000);
+  });
+
+  describe('pipeline initialization errors', () => {
+    it('propagates error when model cannot be loaded', async () => {
+      // Use a model name that definitely doesn't exist
+      const invalidProvider = new TransformersEmbedding(
+        'Xenova/nonexistent-model-that-will-fail-12345',
+        384
+      );
+
+      // First embed() call triggers pipeline initialization
+      await expect(invalidProvider.embed('test')).rejects.toThrow();
+    }, 60000);
+
+    it('propagates error in embedBatch when model cannot be loaded', async () => {
+      const invalidProvider = new TransformersEmbedding(
+        'Xenova/another-fake-model-xyz',
+        384
+      );
+
+      await expect(invalidProvider.embedBatch(['test'])).rejects.toThrow();
+    }, 60000);
+
+    it('subsequent calls also fail after initialization error', async () => {
+      const invalidProvider = new TransformersEmbedding(
+        'Xenova/broken-model-abc',
+        384
+      );
+
+      // First call fails
+      await expect(invalidProvider.embed('first')).rejects.toThrow();
+
+      // Second call should also fail (not hang or crash)
+      await expect(invalidProvider.embed('second')).rejects.toThrow();
     }, 60000);
   });
 });

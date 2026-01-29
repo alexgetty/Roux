@@ -48,9 +48,10 @@ function triggerEvent(event: string, arg?: string | Error) {
   const handler = onCalls.find((call: unknown[]) => call[0] === event)?.[1] as
     | ((arg?: string | Error) => void)
     | undefined;
-  if (handler) {
-    handler(arg);
+  if (!handler) {
+    throw new Error(`No handler registered for event '${event}'`);
   }
+  handler(arg);
 }
 
 describe('DocStore watcher integration', () => {
@@ -220,8 +221,8 @@ describe('DocStore watcher integration', () => {
   });
 
   describe('cache and graph updates', () => {
-    it('upserts node on add event', async () => {
-      await writeMarkdownFile('new.md', '---\ntitle: New\n---\nContent');
+    it('upserts node on add event with complete node data', async () => {
+      await writeMarkdownFile('new.md', '---\ntitle: New\ntags:\n  - test\n---\nContent body here');
 
       store.startWatching();
       triggerEvent('add', join(sourceDir, 'new.md'));
@@ -235,14 +236,25 @@ describe('DocStore watcher integration', () => {
       );
 
       const node = await store.getNode('new.md');
+      // Verify complete node structure, not just title
+      expect(node?.id).toBe('new.md');
       expect(node?.title).toBe('New');
+      expect(node?.content).toBe('Content body here');
+      expect(node?.tags).toContain('test');
     });
 
-    it('upserts node on change event', async () => {
-      await writeMarkdownFile('existing.md', '---\ntitle: Original\n---\nContent');
+    it('upserts node on change event with updated content', async () => {
+      await writeMarkdownFile('existing.md', '---\ntitle: Original\ntags:\n  - old\n---\nOriginal content');
       await store.sync();
+
+      // Verify original state
+      const originalNode = await store.getNode('existing.md');
+      expect(originalNode?.title).toBe('Original');
+      expect(originalNode?.content).toBe('Original content');
+      expect(originalNode?.tags).toContain('old');
+
       // Modify the file
-      await writeMarkdownFile('existing.md', '---\ntitle: Updated\n---\nNew content');
+      await writeMarkdownFile('existing.md', '---\ntitle: Updated\ntags:\n  - new\n---\nNew content here');
 
       store.startWatching();
       triggerEvent('change', join(sourceDir, 'existing.md'));
@@ -250,7 +262,11 @@ describe('DocStore watcher integration', () => {
       await vi.waitFor(
         async () => {
           const node = await store.getNode('existing.md');
+          // Verify complete update, not just title
           expect(node?.title).toBe('Updated');
+          expect(node?.content).toBe('New content here');
+          expect(node?.tags).toContain('new');
+          expect(node?.tags).not.toContain('old');
         },
         { timeout: 2000 }
       );
@@ -443,6 +459,126 @@ describe('DocStore watcher integration', () => {
     it('throws if startWatching called while already watching', () => {
       store.startWatching();
       expect(() => store.startWatching()).toThrow(/already watching/i);
+    });
+  });
+
+  describe('vectorProvider.delete() failure handling', () => {
+    it('logs warning and continues when vectorProvider.delete throws on unlink', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const failingVector = {
+        store: vi.fn().mockResolvedValue(undefined),
+        search: vi.fn().mockResolvedValue([]),
+        delete: vi.fn().mockRejectedValue(new Error('Vector delete failed')),
+        getModel: vi.fn().mockResolvedValue(null),
+        hasEmbedding: vi.fn().mockReturnValue(true),
+      };
+
+      const customCacheDir = join(tempDir, 'vector-fail-test');
+      const customStore = new DocStore(sourceDir, customCacheDir, failingVector);
+
+      // Create and sync a file
+      await writeMarkdownFile('to-delete.md', '# To Delete');
+      await customStore.sync();
+
+      // Verify node exists
+      expect(await customStore.getNode('to-delete.md')).not.toBeNull();
+
+      const onChange = vi.fn();
+      customStore.startWatching(onChange);
+
+      // Trigger unlink - vectorProvider.delete will fail
+      triggerEvent('unlink', join(sourceDir, 'to-delete.md'));
+
+      await vi.waitFor(
+        () => {
+          // Warning should have been logged
+          expect(consoleSpy).toHaveBeenCalledWith(
+            expect.stringContaining('to-delete.md'),
+            expect.anything()
+          );
+        },
+        { timeout: 2000 }
+      );
+
+      // Note: Due to the error, the node deletion from cache happens but
+      // onChange callback may or may not be called depending on implementation
+      // The key test is that it doesn't crash
+
+      consoleSpy.mockRestore();
+      customStore.close();
+    });
+
+    it('still removes node from cache even when vectorProvider.delete fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const failingVector = {
+        store: vi.fn().mockResolvedValue(undefined),
+        search: vi.fn().mockResolvedValue([]),
+        delete: vi.fn().mockRejectedValue(new Error('Storage unavailable')),
+        getModel: vi.fn().mockResolvedValue(null),
+        hasEmbedding: vi.fn().mockReturnValue(true),
+      };
+
+      const customCacheDir = join(tempDir, 'cache-still-deletes');
+      const customStore = new DocStore(sourceDir, customCacheDir, failingVector);
+
+      await writeMarkdownFile('will-be-orphaned.md', '# Orphan');
+      await customStore.sync();
+
+      customStore.startWatching();
+      triggerEvent('unlink', join(sourceDir, 'will-be-orphaned.md'));
+
+      await vi.waitFor(
+        async () => {
+          // Node should be deleted from cache even though vector delete failed
+          expect(await customStore.getNode('will-be-orphaned.md')).toBeNull();
+        },
+        { timeout: 2000 }
+      );
+
+      consoleSpy.mockRestore();
+      customStore.close();
+    });
+
+    it('continues processing other files after vectorProvider.delete failure', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const failOnceVector = {
+        store: vi.fn().mockResolvedValue(undefined),
+        search: vi.fn().mockResolvedValue([]),
+        delete: vi.fn()
+          .mockRejectedValueOnce(new Error('First delete failed'))
+          .mockResolvedValue(undefined),
+        getModel: vi.fn().mockResolvedValue(null),
+        hasEmbedding: vi.fn().mockReturnValue(true),
+      };
+
+      const customCacheDir = join(tempDir, 'batch-continues');
+      const customStore = new DocStore(sourceDir, customCacheDir, failOnceVector);
+
+      await writeMarkdownFile('fail.md', '# Fail');
+      await writeMarkdownFile('succeed.md', '# Succeed');
+      await customStore.sync();
+
+      const onChange = vi.fn();
+      customStore.startWatching(onChange);
+
+      // Trigger both unlinks - first will fail vector delete, second succeeds
+      triggerEvent('unlink', join(sourceDir, 'fail.md'));
+      triggerEvent('unlink', join(sourceDir, 'succeed.md'));
+
+      await vi.waitFor(
+        async () => {
+          // Both nodes should be removed from cache
+          expect(await customStore.getNode('fail.md')).toBeNull();
+          expect(await customStore.getNode('succeed.md')).toBeNull();
+        },
+        { timeout: 2000 }
+      );
+
+      consoleSpy.mockRestore();
+      customStore.close();
     });
   });
 

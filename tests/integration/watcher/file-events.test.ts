@@ -7,38 +7,63 @@ import { SqliteVectorIndex } from '../../../src/providers/vector/index.js';
 
 /**
  * Delay after startWatching() resolves to let OS-level filesystem watcher stabilize.
- * chokidar's 'ready' event fires after initial directory scan, but FSEvents/inotify
- * may need additional time before reliably delivering events.
+ *
+ * WHY 100ms: Empirically determined through CI runs. chokidar's 'ready' event fires
+ * after its initial directory scan completes, but the underlying OS watcher
+ * (FSEvents on macOS, inotify on Linux) may not be fully subscribed yet.
+ * Without this delay, the first file event after startWatching() can be missed.
+ *
+ * This is inherent to filesystem watching - there's no API to query "is the watcher
+ * fully ready". 100ms works reliably across macOS/Linux in both local and CI.
  */
 const WATCHER_STABILIZATION_MS = 100;
 
 /**
- * Creates a callback that captures changed IDs for later assertion.
+ * Creates a callback that captures all changed IDs for later assertion.
  * Uses vi.waitFor for proper cleanup instead of leaky manual timeouts.
  */
 function createChangeCapture(): {
   callback: (ids: string[]) => void;
   waitForChanges: () => Promise<string[]>;
+  getAllChanges: () => string[][];
+  waitForNChanges: (n: number) => Promise<string[][]>;
 } {
-  let capturedIds: string[] | null = null;
+  const allChanges: string[][] = [];
 
   const callback = (changedIds: string[]) => {
-    capturedIds = changedIds;
+    allChanges.push(changedIds);
   };
 
   const waitForChanges = async (): Promise<string[]> => {
     await vi.waitFor(
       () => {
-        if (capturedIds === null) {
+        if (allChanges.length === 0) {
           throw new Error('Changes not yet received');
         }
       },
       { timeout: 5000 }
     );
-    return capturedIds!;
+    // Return the most recent change batch for backwards compatibility
+    return allChanges[allChanges.length - 1]!;
   };
 
-  return { callback, waitForChanges };
+  const getAllChanges = (): string[][] => {
+    return [...allChanges];
+  };
+
+  const waitForNChanges = async (n: number): Promise<string[][]> => {
+    await vi.waitFor(
+      () => {
+        if (allChanges.length < n) {
+          throw new Error(`Only ${allChanges.length}/${n} changes received`);
+        }
+      },
+      { timeout: 5000 }
+    );
+    return [...allChanges];
+  };
+
+  return { callback, waitForChanges, getAllChanges, waitForNChanges };
 }
 
 /**
@@ -167,7 +192,13 @@ describe('File Watcher Integration', () => {
       const node = await store.getNode('rapid.md');
       expect(node?.title).toBe('V4');
 
-      // Batching should limit calls - at most 3 (one per debounce window reset)
+      // Batching should limit calls - at most 3 (one per debounce window reset).
+      // Range 1-3 is correct because:
+      //   - Minimum 1: All edits could fall within a single debounce window
+      //   - Maximum 3: Each 100ms delay could trigger separate batches if
+      //     filesystem delivers events with timing variations
+      // This test verifies batching WORKS, not exact batch count (which depends
+      // on OS scheduler, disk speed, etc). Unit tests verify exact debounce behavior.
       expect(allChanges.length).toBeGreaterThanOrEqual(1);
       expect(allChanges.length).toBeLessThanOrEqual(3);
     });
@@ -179,7 +210,10 @@ describe('File Watcher Integration', () => {
       // Create persistent file first
       await writeMarkdownFile('persistent.md', '# Persistent');
 
-      // Create and delete transient file within debounce window
+      // Create and delete transient file within debounce window.
+      // 50ms delay ensures filesystem has time to register the add event before
+      // we unlink. Without this, the add event might not be queued at all,
+      // and we'd be testing nothing. The 50ms is well under the 1000ms debounce.
       const transientPath = await writeMarkdownFile('transient.md', '# Transient');
       await new Promise((r) => setTimeout(r, 50));
       await unlink(transientPath);

@@ -16,12 +16,13 @@ export function hasFileExtension(path: string): boolean {
 
 /**
  * Normalize a wiki-link target to an ID.
+ * - Trim leading/trailing whitespace
  * - Lowercase
  * - Backslashes to forward slashes
  * - Add .md if no file extension present
  */
 export function normalizeWikiLink(target: string): string {
-  let normalized = target.toLowerCase().replace(/\\/g, '/');
+  let normalized = target.trim().toLowerCase().replace(/\\/g, '/');
 
   if (!hasFileExtension(normalized)) {
     normalized += '.md';

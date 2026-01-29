@@ -203,4 +203,62 @@ describe('GraphManager', () => {
       expect(hubs).toEqual([]);
     });
   });
+
+  describe('rebuild behavior', () => {
+    it('replaces graph completely on second build', () => {
+      // First build
+      manager.build(testNodes);
+      expect(manager.getNeighborIds('a', { direction: 'out' }).sort()).toEqual(['b', 'd']);
+
+      // Second build with completely different nodes
+      const newNodes = [
+        createTestNode('x', ['y']),
+        createTestNode('y', []),
+      ];
+      manager.build(newNodes);
+
+      // Old nodes should be gone
+      expect(manager.getNeighborIds('a', { direction: 'out' })).toEqual([]);
+      expect(manager.findPath('a', 'c')).toBeNull();
+
+      // New nodes should exist
+      expect(manager.getNeighborIds('x', { direction: 'out' })).toEqual(['y']);
+      expect(manager.findPath('x', 'y')).toEqual(['x', 'y']);
+    });
+
+    it('clears centrality metrics on rebuild', () => {
+      const firstMetrics = manager.build(testNodes);
+      expect(firstMetrics.has('a')).toBe(true);
+
+      const secondMetrics = manager.build([createTestNode('solo', [])]);
+
+      expect(secondMetrics.has('a')).toBe(false);
+      expect(secondMetrics.has('solo')).toBe(true);
+      expect(secondMetrics.size).toBe(1);
+    });
+  });
+
+  describe('non-existent node queries', () => {
+    beforeEach(() => {
+      manager.build(testNodes);
+    });
+
+    it('getNeighborIds returns empty for non-existent node', () => {
+      expect(manager.getNeighborIds('ghost', { direction: 'out' })).toEqual([]);
+      expect(manager.getNeighborIds('ghost', { direction: 'in' })).toEqual([]);
+      expect(manager.getNeighborIds('ghost', { direction: 'both' })).toEqual([]);
+    });
+
+    it('findPath returns null for non-existent source', () => {
+      expect(manager.findPath('ghost', 'a')).toBeNull();
+    });
+
+    it('findPath returns null for non-existent target', () => {
+      expect(manager.findPath('a', 'ghost')).toBeNull();
+    });
+
+    it('findPath returns null for both non-existent', () => {
+      expect(manager.findPath('ghost', 'phantom')).toBeNull();
+    });
+  });
 });
