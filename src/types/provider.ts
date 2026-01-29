@@ -1,4 +1,4 @@
-import type { Node } from './node.js';
+import type { Node, NodeUpdates } from './node.js';
 import type { Direction, NeighborOptions } from './edge.js';
 
 export type Metric = 'in_degree' | 'out_degree';
@@ -73,7 +73,7 @@ export interface LinkInfo {
 export interface Store {
   // CRUD
   createNode(node: Node): Promise<void>;
-  updateNode(id: string, updates: Partial<Node>): Promise<void>;
+  updateNode(id: string, updates: NodeUpdates): Promise<void>;
   deleteNode(id: string): Promise<void>;
   getNode(id: string): Promise<Node | null>;
   getNodes(ids: string[]): Promise<Node[]>;

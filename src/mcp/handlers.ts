@@ -10,7 +10,7 @@ import type {
   NodeSummary,
   ResolveResult,
 } from '../types/provider.js';
-import type { Node } from '../types/node.js';
+import type { NodeUpdates } from '../types/node.js';
 import {
   McpError,
   type NodeResponse,
@@ -426,7 +426,7 @@ export async function handleUpdateNode(
     }
   }
 
-  const updates: Partial<Node> = {};
+  const updates: NodeUpdates = {};
   if (title !== undefined) updates.title = title;
   if (content !== undefined) updates.content = content;
   if (tags !== undefined) updates.tags = tags;

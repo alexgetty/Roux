@@ -1,7 +1,7 @@
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
-import type { Node } from '../../types/node.js';
+import type { Node, NodeUpdates } from '../../types/node.js';
 import type {
   TagMode,
   VectorIndex,
@@ -156,25 +156,23 @@ export class DocStore extends StoreProvider {
     await this.syncGraph();
   }
 
-  async updateNode(id: string, updates: Partial<Node>): Promise<void> {
+  async updateNode(id: string, updates: NodeUpdates): Promise<void> {
     const normalizedId = normalizeId(id);
     const existing = this.cache.getNode(normalizedId);
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
 
-    // If content is updated, reparse wiki-links
-    let outgoingLinks = updates.outgoingLinks;
-    if (updates.content !== undefined && outgoingLinks === undefined) {
-      const rawLinks = extractWikiLinks(updates.content);
-      outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
-    }
+    // Derive outgoingLinks from content (new or existing)
+    const contentForLinks = updates.content ?? existing.content;
+    const rawLinks = extractWikiLinks(contentForLinks);
+    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
 
     const updated: Node = {
       ...existing,
       ...updates,
-      outgoingLinks: outgoingLinks ?? existing.outgoingLinks,
-      id: existing.id, // ID cannot be changed
+      outgoingLinks,
+      id: existing.id,
     };
 
     const filePath = join(this.sourceRoot, existing.id);
@@ -190,11 +188,9 @@ export class DocStore extends StoreProvider {
     const mtime = await getFileMtime(filePath);
     this.cache.upsertNode(updated, 'file', filePath, mtime);
 
-    // Resolve wikilinks and rebuild graph if links changed
-    if (outgoingLinks !== undefined || updates.outgoingLinks !== undefined) {
-      this.resolveAllLinks();
-      await this.syncGraph();
-    }
+    // Resolve wikilinks and rebuild graph
+    this.resolveAllLinks();
+    await this.syncGraph();
   }
 
   async deleteNode(id: string): Promise<void> {

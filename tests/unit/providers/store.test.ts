@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Node } from '../../../src/types/node.js';
+import type { Node, NodeUpdates } from '../../../src/types/node.js';
 import type {
   VectorIndex,
   VectorSearchResult,
@@ -55,7 +55,7 @@ class TestStore extends StoreProvider {
     this.nodes.set(node.id, node);
   }
 
-  async updateNode(id: string, updates: Partial<Node>): Promise<void> {
+  async updateNode(id: string, updates: NodeUpdates): Promise<void> {
     const existing = this.nodes.get(id);
     if (!existing) return;
     this.nodes.set(id, { ...existing, ...updates, id });

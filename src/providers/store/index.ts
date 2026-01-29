@@ -1,4 +1,4 @@
-import type { Node } from '../../types/node.js';
+import type { Node, NodeUpdates } from '../../types/node.js';
 import type {
   Metric,
   CentralityMetrics,
@@ -32,7 +32,7 @@ export abstract class StoreProvider {
   protected abstract loadAllNodes(): Promise<Node[]>;
   protected abstract getNodesByIds(ids: string[]): Promise<Node[]>;
   abstract createNode(node: Node): Promise<void>;
-  abstract updateNode(id: string, updates: Partial<Node>): Promise<void>;
+  abstract updateNode(id: string, updates: NodeUpdates): Promise<void>;
   abstract deleteNode(id: string): Promise<void>;
   abstract getNode(id: string): Promise<Node | null>;
   abstract getNodes(ids: string[]): Promise<Node[]>;

@@ -269,7 +269,7 @@ export class Cache {
     }
 
     if (filter.path) {
-      conditions.push("id LIKE ? || '%'");
+      conditions.push("LOWER(id) LIKE LOWER(?) || '%'");
       params.push(filter.path);
     }
 

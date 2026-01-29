@@ -1,4 +1,4 @@
-import type { Node, NodeWithContext } from '../types/node.js';
+import type { Node, NodeUpdates, NodeWithContext } from '../types/node.js';
 import type {
   GraphCore,
   SearchOptions,
@@ -123,7 +123,7 @@ export class GraphCoreImpl implements GraphCore {
     return (await store.getNode(node.id)) ?? node;
   }
 
-  async updateNode(id: string, updates: Partial<Node>): Promise<Node> {
+  async updateNode(id: string, updates: NodeUpdates): Promise<Node> {
     const store = this.requireStore();
     await store.updateNode(id, updates);
     const updated = await store.getNode(id);

@@ -1,4 +1,4 @@
-import type { Node, NodeWithContext } from './node.js';
+import type { Node, NodeUpdates, NodeWithContext } from './node.js';
 import type {
   Metric,
   Store,
@@ -30,7 +30,7 @@ export interface GraphCore {
   search(query: string, options?: SearchOptions): Promise<Node[]>;
   getNode(id: string, depth?: number): Promise<NodeWithContext | null>;
   createNode(node: Partial<Node>): Promise<Node>;
-  updateNode(id: string, updates: Partial<Node>): Promise<Node>;
+  updateNode(id: string, updates: NodeUpdates): Promise<Node>;
   deleteNode(id: string): Promise<boolean>;
 
   // Graph operations

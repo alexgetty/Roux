@@ -17,6 +17,14 @@ export interface Node {
   sourceRef?: SourceRef;
 }
 
+/** Caller-settable fields for updateNode. No id (immutable), no outgoingLinks (derived from content). */
+export interface NodeUpdates {
+  title?: string;
+  content?: string;
+  tags?: string[];
+  properties?: Record<string, unknown>;
+}
+
 export interface NodeWithContext extends Node {
   /** Populated when depth > 0 */
   neighbors?: Node[];

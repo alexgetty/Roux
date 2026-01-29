@@ -565,6 +565,23 @@ describe('Cache', () => {
       expect(result.nodes.every(n => n.id.startsWith('recipes/'))).toBe(true);
     });
 
+    it('matches uppercase IDs with lowercase path filter', () => {
+      cache.upsertNode(
+        createNode({ id: 'Guides/Setup.md', title: 'Setup Guide', tags: ['guide'] }),
+        'file', '/Guides/Setup.md', Date.now()
+      );
+
+      // Enable case_sensitive_like to prove the SQL uses explicit LOWER(),
+      // not SQLite's default ASCII case-folding in LIKE
+      // @ts-expect-error accessing private db for testing
+      cache.db.pragma('case_sensitive_like = ON');
+
+      const result = cache.listNodes({ path: 'guides/' });
+      expect(result.nodes).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(result.nodes[0]!.id).toBe('Guides/Setup.md');
+    });
+
     it('combines tag and path filters with AND', () => {
       // Add an ingredient in recipes folder for testing
       cache.upsertNode(

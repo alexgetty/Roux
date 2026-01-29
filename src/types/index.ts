@@ -1,5 +1,5 @@
 // Node types
-export type { Node, NodeWithContext, SourceRef } from './node.js';
+export type { Node, NodeUpdates, NodeWithContext, SourceRef } from './node.js';
 export { isNode, isSourceRef } from './node.js';
 
 // Edge types

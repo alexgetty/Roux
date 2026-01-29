@@ -374,12 +374,12 @@ Original content`
         ).rejects.toThrow(/not found/i);
       });
 
-      it('updates outgoingLinks and rebuilds graph', async () => {
+      it('derives outgoingLinks from content and rebuilds graph', async () => {
         await writeMarkdownFile('linked.md', '---\ntitle: Linked\n---\nContent');
         await store.sync();
 
         await store.updateNode('target.md', {
-          outgoingLinks: ['linked.md'],
+          content: 'Now links to [[linked]]',
         });
 
         // Graph should be rebuilt - target should now have linked as neighbor
