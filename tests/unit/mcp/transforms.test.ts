@@ -104,6 +104,31 @@ describe('nodeToResponse', () => {
     expect(response.content.length).toBe(TRUNCATION_LIMITS.list);
   });
 
+  describe('content truncation boundary', () => {
+    it('does not truncate when exactly at limit', async () => {
+      const content = 'x'.repeat(TRUNCATION_LIMITS.list);
+      const node = createNode({ content });
+      const store = createMockStore();
+
+      const response = await nodeToResponse(node, store, 'list');
+
+      expect(response.content).toBe(content);
+      expect(response.content.length).toBe(TRUNCATION_LIMITS.list);
+      expect(response.content.endsWith('... [truncated]')).toBe(false);
+    });
+
+    it('truncates when one character over limit', async () => {
+      const content = 'x'.repeat(TRUNCATION_LIMITS.list + 1);
+      const node = createNode({ content });
+      const store = createMockStore();
+
+      const response = await nodeToResponse(node, store, 'list');
+
+      expect(response.content.length).toBe(TRUNCATION_LIMITS.list);
+      expect(response.content.endsWith('... [truncated]')).toBe(true);
+    });
+  });
+
   it('includes properties in response', async () => {
     const node = createNode({
       properties: { author: 'Jane Doe', status: 'draft', priority: 1 },
@@ -230,6 +255,42 @@ describe('nodesToResponses', () => {
     expect(responses[0]?.links).toHaveLength(100);
     expect(responses[0]?.links[0]?.id).toBe('link-0.md');
     expect(responses[0]?.links[99]?.id).toBe('link-99.md');
+  });
+
+  describe('MAX_LINKS_TO_RESOLVE boundary', () => {
+    it('includes all links when count is below limit (99)', async () => {
+      const links = Array.from({ length: 99 }, (_, i) => `link-${i}.md`);
+      const nodes = [createNode({ outgoingLinks: links })];
+      const store = createMockStore();
+
+      const responses = await nodesToResponses(nodes, store, 'list', true);
+
+      expect(responses[0]?.links).toHaveLength(99);
+      expect(responses[0]?.links[98]?.id).toBe('link-98.md');
+    });
+
+    it('includes all links when exactly at limit (100)', async () => {
+      const links = Array.from({ length: 100 }, (_, i) => `link-${i}.md`);
+      const nodes = [createNode({ outgoingLinks: links })];
+      const store = createMockStore();
+
+      const responses = await nodesToResponses(nodes, store, 'list', true);
+
+      expect(responses[0]?.links).toHaveLength(100);
+      expect(responses[0]?.links[99]?.id).toBe('link-99.md');
+    });
+
+    it('truncates when one over limit (101)', async () => {
+      const links = Array.from({ length: 101 }, (_, i) => `link-${i}.md`);
+      const nodes = [createNode({ outgoingLinks: links })];
+      const store = createMockStore();
+
+      const responses = await nodesToResponses(nodes, store, 'list', true);
+
+      expect(responses[0]?.links).toHaveLength(100);
+      expect(responses[0]?.links[99]?.id).toBe('link-99.md');
+      // link-100.md should be excluded
+    });
   });
 
   it('includes properties for each node', async () => {

@@ -125,4 +125,66 @@ describe('MinHeap', () => {
       expect(heap.peek()).toBe(3);
     });
   });
+
+  describe('duplicate values', () => {
+    it('handles multiple items with identical sort values', () => {
+      const heap = new MinHeap<number>((a, b) => a - b);
+      heap.push(5);
+      heap.push(5);
+      heap.push(5);
+      heap.push(3);
+      heap.push(3);
+
+      expect(heap.size()).toBe(5);
+      expect(heap.peek()).toBe(3);
+
+      // Extract all - should get all duplicates
+      const extracted: number[] = [];
+      while (heap.size() > 0) {
+        extracted.push(heap.pop()!);
+      }
+      expect(extracted).toEqual([3, 3, 5, 5, 5]);
+    });
+
+    it('handles duplicates in tuple comparator (top-k with ties)', () => {
+      const heap = new MinHeap<[string, number]>((a, b) => a[1] - b[1]);
+
+      // All items have same score
+      heap.push(['a', 10]);
+      heap.push(['b', 10]);
+      heap.push(['c', 10]);
+
+      expect(heap.size()).toBe(3);
+      expect(heap.peek()![1]).toBe(10);
+
+      // All three should be extractable
+      const ids: string[] = [];
+      while (heap.size() > 0) {
+        ids.push(heap.pop()![0]);
+      }
+      expect(ids.sort()).toEqual(['a', 'b', 'c']);
+    });
+
+    it('maintains correct min property when duplicates mixed with non-duplicates', () => {
+      const heap = new MinHeap<number>((a, b) => a - b);
+      heap.push(7);
+      heap.push(3);
+      heap.push(3);
+      heap.push(5);
+      heap.push(3);
+      heap.push(1);
+      heap.push(3);
+
+      expect(heap.peek()).toBe(1);
+      expect(heap.pop()).toBe(1);
+      expect(heap.peek()).toBe(3);
+
+      // Pop all 3s
+      expect(heap.pop()).toBe(3);
+      expect(heap.pop()).toBe(3);
+      expect(heap.pop()).toBe(3);
+      expect(heap.pop()).toBe(3);
+      expect(heap.peek()).toBe(5);
+    });
+  });
 });

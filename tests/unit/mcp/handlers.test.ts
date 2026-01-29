@@ -232,6 +232,34 @@ describe('handleSearch', () => {
       message: expect.stringContaining('limit'),
     });
   });
+
+  describe('score normalization', () => {
+    it('clamps score to 0 when result count exceeds normalization range', async () => {
+      // Score formula: Math.max(0, 1 - index * 0.05)
+      // At index 20: 1 - 20 * 0.05 = 0
+      // At index 21+: would be negative, but clamped to 0
+      const nodes = Array.from({ length: 25 }, (_, i) =>
+        createNode({ id: `node-${i}.md`, title: `Node ${i}` })
+      );
+      const ctx = createContext();
+      (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue(nodes);
+
+      const result = await handleSearch(ctx, { query: 'test', limit: 25 });
+
+      expect(result).toHaveLength(25);
+      // First result: score = 1
+      expect(result[0]?.score).toBe(1);
+      // Result at index 19: score = 1 - 19 * 0.05 = 0.05 (floating point)
+      expect(result[19]?.score).toBeCloseTo(0.05);
+      // Result at index 20: score = 1 - 20 * 0.05 = 0 (boundary)
+      expect(result[20]?.score).toBe(0);
+      // Results beyond index 20: score clamped to 0, not negative
+      expect(result[21]?.score).toBe(0);
+      expect(result[22]?.score).toBe(0);
+      expect(result[23]?.score).toBe(0);
+      expect(result[24]?.score).toBe(0);
+    });
+  });
 });
 
 describe('handleGetNode', () => {

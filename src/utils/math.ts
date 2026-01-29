@@ -4,8 +4,16 @@ type VectorLike = ArrayLike<number>;
  * Compute cosine similarity between two vectors.
  * Returns value in range [-1, 1] where 1 = identical direction, 0 = orthogonal, -1 = opposite.
  * Returns 0 if either vector has zero magnitude.
+ * Throws if either vector is empty or dimensions differ.
  */
 export function cosineSimilarity(a: VectorLike, b: VectorLike): number {
+  if (a.length === 0 || b.length === 0) {
+    throw new Error('Cannot compute similarity for empty vector');
+  }
+  if (a.length !== b.length) {
+    throw new Error(`Dimension mismatch: ${a.length} vs ${b.length}`);
+  }
+
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;

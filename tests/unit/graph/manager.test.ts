@@ -22,6 +22,31 @@ describe('GraphManager', () => {
     manager = new GraphManager();
   });
 
+  describe('empty graph handling', () => {
+    it('builds empty centrality map from empty nodes array', () => {
+      const metrics = manager.build([]);
+
+      expect(metrics).toBeInstanceOf(Map);
+      expect(metrics.size).toBe(0);
+    });
+
+    it('handles getHubs on empty graph', () => {
+      manager.build([]);
+
+      const hubs = manager.getHubs('in_degree', 10);
+
+      expect(hubs).toEqual([]);
+    });
+
+    it('handles getHubs out_degree on empty graph', () => {
+      manager.build([]);
+
+      const hubs = manager.getHubs('out_degree', 10);
+
+      expect(hubs).toEqual([]);
+    });
+  });
+
   describe('build', () => {
     it('returns centrality Map with all nodes', () => {
       const metrics = manager.build(testNodes);
@@ -166,6 +191,16 @@ describe('GraphManager', () => {
     it('respects limit', () => {
       const hubs = manager.getHubs('in_degree', 1);
       expect(hubs).toHaveLength(1);
+    });
+
+    it('returns empty array when limit is 0', () => {
+      const hubs = manager.getHubs('in_degree', 0);
+      expect(hubs).toEqual([]);
+    });
+
+    it('returns empty array when limit is negative', () => {
+      const hubs = manager.getHubs('out_degree', -5);
+      expect(hubs).toEqual([]);
     });
   });
 });

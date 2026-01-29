@@ -92,4 +92,52 @@ describe('centrality', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('zero degree handling', () => {
+    it('stores and retrieves zero in_degree for node with no incoming links', () => {
+      const now = Date.now();
+      storeCentrality(db, 'test.md', 0.15, 0, 5, now);
+
+      const result = getCentrality(db, 'test.md');
+
+      expect(result).not.toBeNull();
+      expect(result!.inDegree).toBe(0);
+      expect(result!.outDegree).toBe(5);
+    });
+
+    it('stores and retrieves zero out_degree for node with no outgoing links', () => {
+      const now = Date.now();
+      storeCentrality(db, 'test.md', 0.15, 3, 0, now);
+
+      const result = getCentrality(db, 'test.md');
+
+      expect(result).not.toBeNull();
+      expect(result!.inDegree).toBe(3);
+      expect(result!.outDegree).toBe(0);
+    });
+
+    it('handles isolated node with zero degrees in both directions', () => {
+      const now = Date.now();
+      storeCentrality(db, 'test.md', 0.0, 0, 0, now);
+
+      const result = getCentrality(db, 'test.md');
+
+      expect(result).not.toBeNull();
+      expect(result!.pagerank).toBe(0.0);
+      expect(result!.inDegree).toBe(0);
+      expect(result!.outDegree).toBe(0);
+    });
+
+    it('handles zero pagerank with non-zero degrees', () => {
+      const now = Date.now();
+      storeCentrality(db, 'test.md', 0.0, 2, 3, now);
+
+      const result = getCentrality(db, 'test.md');
+
+      expect(result).not.toBeNull();
+      expect(result!.pagerank).toBe(0.0);
+      expect(result!.inDegree).toBe(2);
+      expect(result!.outDegree).toBe(3);
+    });
+  });
 });

@@ -71,6 +71,55 @@ describe('resolveNames', () => {
       expect(result[0]!.score).toBe(0);
     });
 
+    describe('threshold boundary', () => {
+      it('includes match when score exactly equals threshold (>= semantics)', () => {
+        // Find actual score for a query to set threshold at exact boundary
+        const probeResult = resolveNames(['ground bef'], candidates, { strategy: 'fuzzy', threshold: 0 });
+        const exactScore = probeResult[0]!.score;
+
+        // Now set threshold to exactly that score - should still match
+        const result = resolveNames(['ground bef'], candidates, { strategy: 'fuzzy', threshold: exactScore });
+
+        expect(result[0]!.match).toBe('ingredients/ground beef.md');
+        expect(result[0]!.score).toBe(exactScore);
+      });
+
+      it('excludes match when score just below threshold', () => {
+        // Find actual score and set threshold slightly above
+        const probeResult = resolveNames(['ground bef'], candidates, { strategy: 'fuzzy', threshold: 0 });
+        const exactScore = probeResult[0]!.score;
+        const thresholdAbove = exactScore + 0.001;
+
+        const result = resolveNames(['ground bef'], candidates, { strategy: 'fuzzy', threshold: thresholdAbove });
+
+        expect(result[0]!.match).toBeNull();
+        expect(result[0]!.score).toBe(0);
+      });
+
+      it('handles threshold of 0 (matches anything with score >= 0)', () => {
+        // Threshold 0 accepts all matches including score 0
+        // 'xyz' has no character overlap with candidates, score is 0
+        const zeroScoreResult = resolveNames(['xyz'], candidates, { strategy: 'fuzzy', threshold: 0 });
+        expect(zeroScoreResult[0]!.match).not.toBeNull();
+        expect(zeroScoreResult[0]!.score).toBe(0);
+
+        // Any partial match returns positive score
+        const partialResult = resolveNames(['beef'], candidates, { strategy: 'fuzzy', threshold: 0 });
+        expect(partialResult[0]!.match).not.toBeNull();
+        expect(partialResult[0]!.score).toBeGreaterThan(0);
+      });
+
+      it('handles threshold of 1 (exact matches only)', () => {
+        // Exact match should work
+        const exactResult = resolveNames(['ground beef'], candidates, { strategy: 'fuzzy', threshold: 1 });
+        expect(exactResult[0]!.match).toBe('ingredients/ground beef.md');
+
+        // Near match should fail
+        const nearResult = resolveNames(['ground bef'], candidates, { strategy: 'fuzzy', threshold: 1 });
+        expect(nearResult[0]!.match).toBeNull();
+      });
+    });
+
     it('matches with typos above threshold', () => {
       const result = resolveNames(['ground beeef'], candidates, { strategy: 'fuzzy', threshold: 0.7 });
 

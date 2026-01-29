@@ -121,4 +121,20 @@ describe('viz command', () => {
     // HTML should contain the valid link target but not the broken one
     expect(html).toContain('b.md');
   });
+
+  describe('empty graph', () => {
+    it('handles graph with zero nodes', async () => {
+      await initCommand(testDir);
+      // No markdown files - empty graph
+
+      const result = await vizCommand(testDir);
+      const html = await readFile(result.outputPath, 'utf-8');
+
+      expect(result.nodeCount).toBe(0);
+      expect(result.edgeCount).toBe(0);
+      expect(html).toContain('<!DOCTYPE html>');
+      expect(html).toContain('d3js.org');
+      expect(html).toContain('<svg');
+    });
+  });
 });

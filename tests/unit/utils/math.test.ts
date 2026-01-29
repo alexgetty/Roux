@@ -49,6 +49,30 @@ describe('cosineSimilarity', () => {
     const b = new Float32Array([1, 2, 3]);
     expect(cosineSimilarity(a, b)).toBeCloseTo(1, 5);
   });
+
+  describe('empty vector handling', () => {
+    it('throws when both vectors are empty', () => {
+      expect(() => cosineSimilarity([], [])).toThrow(/empty/i);
+    });
+
+    it('throws when first vector is empty', () => {
+      expect(() => cosineSimilarity([], [1, 2, 3])).toThrow(/empty/i);
+    });
+
+    it('throws when second vector is empty', () => {
+      expect(() => cosineSimilarity([1, 2, 3], [])).toThrow(/empty/i);
+    });
+  });
+
+  describe('dimension mismatch', () => {
+    it('throws when vectors have different dimensions', () => {
+      expect(() => cosineSimilarity([1, 2, 3], [1, 2])).toThrow(/dimension/i);
+    });
+
+    it('throws regardless of which vector is longer', () => {
+      expect(() => cosineSimilarity([1, 2], [1, 2, 3])).toThrow(/dimension/i);
+    });
+  });
 });
 
 describe('cosineDistance', () => {
@@ -94,5 +118,29 @@ describe('cosineDistance', () => {
     const a = new Float32Array([1, 2, 3]);
     const b = new Float32Array([1, 2, 3]);
     expect(cosineDistance(a, b)).toBeCloseTo(0, 5);
+  });
+
+  describe('empty vector handling', () => {
+    it('throws when both vectors are empty', () => {
+      expect(() => cosineDistance([], [])).toThrow(/empty/i);
+    });
+
+    it('throws when first vector is empty', () => {
+      expect(() => cosineDistance([], [1, 2, 3])).toThrow(/empty/i);
+    });
+
+    it('throws when second vector is empty', () => {
+      expect(() => cosineDistance([1, 2, 3], [])).toThrow(/empty/i);
+    });
+  });
+
+  describe('dimension mismatch', () => {
+    it('throws when vectors have different dimensions', () => {
+      expect(() => cosineDistance([1, 2, 3], [1, 2])).toThrow(/dimension/i);
+    });
+
+    it('throws regardless of which vector is longer', () => {
+      expect(() => cosineDistance([1, 2], [1, 2, 3])).toThrow(/dimension/i);
+    });
   });
 });

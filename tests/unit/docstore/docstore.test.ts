@@ -1363,6 +1363,36 @@ No links yet`
         const result = await store.resolveNodes(['ground beef'], { strategy: 'semantic' });
         expect(result[0]!.match).toBeNull();
       });
+
+      describe('threshold boundaries', () => {
+        it('handles threshold of 0 (accepts any match)', async () => {
+          // With threshold 0, even poor matches are accepted
+          const result = await store.resolveNodes(['xyz'], { strategy: 'fuzzy', threshold: 0 });
+          // Score 0 match should still be returned when threshold is 0
+          expect(result[0]!.match).not.toBeNull();
+        });
+
+        it('handles threshold of 1 (exact matches only)', async () => {
+          // Exact title match works
+          const exactResult = await store.resolveNodes(['ground beef'], { strategy: 'fuzzy', threshold: 1 });
+          expect(exactResult[0]!.match).toBe('ingredients/ground beef.md');
+
+          // Near match rejected
+          const nearResult = await store.resolveNodes(['ground bef'], { strategy: 'fuzzy', threshold: 1 });
+          expect(nearResult[0]!.match).toBeNull();
+        });
+
+        it('includes match when score exactly equals threshold', async () => {
+          // First, find the actual score for a known match
+          const probeResult = await store.resolveNodes(['ground bef'], { strategy: 'fuzzy', threshold: 0 });
+          const exactScore = probeResult[0]!.score;
+
+          // With threshold set to exactly that score, should still match (>= semantics)
+          const result = await store.resolveNodes(['ground bef'], { strategy: 'fuzzy', threshold: exactScore });
+          expect(result[0]!.match).toBe('ingredients/ground beef.md');
+          expect(result[0]!.score).toBe(exactScore);
+        });
+      });
     });
 
     describe('nodesExist', () => {
