@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import type { Database as DatabaseType } from 'better-sqlite3';
 import { join } from 'node:path';
 import type { VectorIndex, VectorSearchResult } from '../../types/provider.js';
+import { MinHeap } from '../../utils/heap.js';
 import { cosineDistance } from '../../utils/math.js';
 
 export class SqliteVectorIndex implements VectorIndex {
@@ -71,37 +72,48 @@ export class SqliteVectorIndex implements VectorIndex {
       return [];
     }
 
-    const rows = this.db
-      .prepare('SELECT id, vector FROM vectors')
-      .all() as Array<{ id: string; vector: Buffer }>;
-
-    if (rows.length === 0) {
-      return [];
-    }
-
-    // Check dimension mismatch against first stored vector
-    const firstStoredDim = rows[0]!.vector.byteLength / 4;
-    if (vector.length !== firstStoredDim) {
-      throw new Error(
-        `Dimension mismatch: query has ${vector.length} dimensions, stored vectors have ${firstStoredDim}`
-      );
-    }
-
     const queryVec = new Float32Array(vector);
-    const results: VectorSearchResult[] = [];
+    const stmt = this.db.prepare('SELECT id, vector FROM vectors');
 
-    for (const row of rows) {
+    // Max-heap by distance: largest distance at root for efficient eviction
+    const heap = new MinHeap<VectorSearchResult>(
+      (a, b) => b.distance - a.distance
+    );
+
+    let dimensionChecked = false;
+
+    for (const row of stmt.iterate() as IterableIterator<{
+      id: string;
+      vector: Buffer;
+    }>) {
+      // Check dimension mismatch against first stored vector
+      if (!dimensionChecked) {
+        const storedDim = row.vector.byteLength / 4;
+        if (vector.length !== storedDim) {
+          throw new Error(
+            `Dimension mismatch: query has ${vector.length} dimensions, stored vectors have ${storedDim}`
+          );
+        }
+        dimensionChecked = true;
+      }
+
       const storedVec = new Float32Array(
         row.vector.buffer,
         row.vector.byteOffset,
         row.vector.byteLength / 4
       );
       const distance = cosineDistance(queryVec, storedVec);
-      results.push({ id: row.id, distance });
+
+      if (heap.size() < limit) {
+        heap.push({ id: row.id, distance });
+      } else if (distance < heap.peek()!.distance) {
+        heap.pop();
+        heap.push({ id: row.id, distance });
+      }
     }
 
-    results.sort((a, b) => a.distance - b.distance);
-    return results.slice(0, limit);
+    // Extract and sort by distance ascending
+    return heap.toArray().sort((a, b) => a.distance - b.distance);
   }
 
   async delete(id: string): Promise<void> {

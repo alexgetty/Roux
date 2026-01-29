@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Low
+priority: P3
+effort: M
 phase: Post-MVP
-parent: "[[Wiki-links]]"
+category: Graph & Links
 ---
 
 # Feature - Fragment Links

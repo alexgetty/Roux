@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Low
+priority: P3
+effort: L
 phase: Future
-parent: "[[Node]]"
+category: Storage & Providers
 ---
 
 # Feature - Node Versioning

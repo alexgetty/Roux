@@ -1,10 +1,4 @@
 export {
-  type EmbeddingRecord,
-  storeEmbedding,
-  getEmbedding,
-} from './embeddings.js';
-
-export {
   type CentralityRecord,
   storeCentrality,
   getCentrality,

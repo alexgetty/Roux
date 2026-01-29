@@ -1,6 +1,11 @@
 ---
-priority: Low
+type: Feature
+status: Proposed
+priority: P2
+effort: M
 phase: Post-MVP
+category: Testing
+parent: "[[Testing Framework]]"
 ---
 
 # Scale Testing

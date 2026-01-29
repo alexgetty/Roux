@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Medium
+priority: P2
+effort: L
 phase: Future
-parent: "[[MVP]]"
+category: Storage & Providers
 ---
 
 # Feature - Multi-Directory

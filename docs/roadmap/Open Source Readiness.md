@@ -1,5 +1,10 @@
 ---
-title: Open Source Readiness
+type: Feature
+status: In Progress
+priority: P1
+effort: M
+phase: Post-MVP
+category: Release
 ---
 # Open Source Readiness
 

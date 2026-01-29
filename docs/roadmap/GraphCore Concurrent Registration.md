@@ -1,7 +1,10 @@
 ---
-type: Roadmap
-priority: Low
-component: GraphCore
+type: Enhancement
+status: Proposed
+priority: P3
+effort: S
+phase: Post-MVP
+category: Infrastructure
 ---
 
 # GraphCore Concurrent Registration

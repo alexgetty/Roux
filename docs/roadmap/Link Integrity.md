@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Critical
+priority: P0
+effort: L
 phase: Post-MVP
-parent: "[[MCP Tools Schema]]"
+category: Graph & Links
 ---
 
 # Feature - Link Integrity
@@ -56,8 +57,42 @@ Option 2 for MVP safety, Option 1 as opt-in behavior later.
 
 High — touches file watcher, link resolution, write operations.
 
+## Implementation Sketch
+
+From consolidated docs, the recommended approach:
+
+```typescript
+async moveNode(oldId: string, newId: string): Promise<Node> {
+  const node = await this.getNode(oldId);
+  const incoming = await this.getNeighbors(oldId, { direction: 'in' });
+
+  // Update each linking node's content
+  for (const neighbor of incoming) {
+    // Rewrite [[oldId]] → [[newId]] in content
+    await this.updateNode(neighbor.id, {
+      content: neighbor.content.replace(`[[${oldId}]]`, `[[${newId}]]`)
+    });
+  }
+
+  // Rename file, update cache, rebuild graph
+  await this.renameFile(oldId, newId);
+  return this.getNode(newId);
+}
+```
+
+**Key considerations:**
+- Atomicity — all-or-nothing operation
+- Embedding migration — move embedding to new ID
+- MCP tool: `move_node` or extend `update_node`
+
 ## References
 
 - [[MCP Tools Schema#update_node]] — CRITICAL warning documented
 - [[Wiki-links]] — Link resolution logic
 - [[DocStore]] — File write operations
+
+## Consolidated From
+
+- `archive/Move Node Operation.md`
+- `archive/Rename Node Support.md`
+- `archive/UpdateNode File Rename.md`

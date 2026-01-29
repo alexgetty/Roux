@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Low
+priority: P3
+effort: XL
 phase: Future
-parent: "[[StoreProvider]]"
+category: Storage & Providers
 ---
 
 # Feature - Alternative Stores

@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Low
+priority: P3
+effort: S
 phase: Future
-parent: "[[Config]]"
+category: Infrastructure
 ---
 
 # Feature - Config Env Vars

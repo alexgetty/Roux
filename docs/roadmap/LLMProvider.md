@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Planned
-priority: High
-phase: Phase 0.5
-parent: "[[LLMProvider]]"
+priority: P1
+effort: L
+phase: Post-MVP
+category: Storage & Providers
 ---
 
 # Feature - LLMProvider

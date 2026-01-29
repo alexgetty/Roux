@@ -1,8 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Planned
-priority: Medium
+priority: P2
+effort: L
 phase: Post-MVP
+category: CLI & Visualization
 ---
 
 # Feature - Script Extensions

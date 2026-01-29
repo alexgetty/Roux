@@ -1,7 +1,11 @@
 ---
-type: Roadmap
-priority: Low
-component: Cache, GraphCore
+type: Feature
+status: Proposed
+priority: P3
+effort: S
+phase: Post-MVP
+category: Testing
+parent: "[[Testing Framework]]"
 ---
 
 # Batch Operations Scale Testing

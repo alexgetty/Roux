@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Low
+priority: P3
+effort: S
 phase: Post-MVP
-parent: "[[MCP Tools Schema]]"
+category: Search & Query
 ---
 
 # Feature - Search Threshold

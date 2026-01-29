@@ -42,11 +42,6 @@ describe('Cache', () => {
       expect(tables).toContain('nodes');
     });
 
-    it('creates embeddings table', () => {
-      const tables = cache.getTableNames();
-      expect(tables).toContain('embeddings');
-    });
-
     it('creates centrality table', () => {
       const tables = cache.getTableNames();
       expect(tables).toContain('centrality');
@@ -391,66 +386,6 @@ describe('Cache', () => {
     });
   });
 
-  describe('embedding storage', () => {
-    it('stores and retrieves embedding', () => {
-      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);
-
-      const vector = [0.1, 0.2, 0.3, 0.4, 0.5];
-      cache.storeEmbedding('a.md', vector, 'test-model');
-
-      const retrieved = cache.getEmbedding('a.md');
-      expect(retrieved?.model).toBe('test-model');
-      // Float32 has less precision than Float64, so we check approximate equality
-      expect(retrieved?.vector).toHaveLength(5);
-      retrieved?.vector.forEach((v, i) => {
-        expect(v).toBeCloseTo(vector[i]!, 5);
-      });
-    });
-
-    it('stores embeddings as Float32Array (4 bytes per element)', () => {
-      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);
-
-      const vector = [0.1, 0.2, 0.3, 0.4, 0.5];
-      cache.storeEmbedding('a.md', vector, 'test-model');
-
-      // Access the raw buffer to verify Float32 format (4 bytes per float)
-      // @ts-expect-error accessing private db for testing
-      const row = cache.db
-        .prepare('SELECT vector FROM embeddings WHERE node_id = ?')
-        .get('a.md') as { vector: Buffer };
-
-      // 5 floats * 4 bytes = 20 bytes for Float32
-      // Would be 40 bytes if Float64
-      expect(row.vector.length).toBe(20);
-    });
-
-    it('returns null for node without embedding', () => {
-      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);
-      const result = cache.getEmbedding('a.md');
-      expect(result).toBeNull();
-    });
-
-    it('overwrites existing embedding', () => {
-      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);
-
-      cache.storeEmbedding('a.md', [1, 2, 3], 'model-v1');
-      cache.storeEmbedding('a.md', [4, 5, 6], 'model-v2');
-
-      const retrieved = cache.getEmbedding('a.md');
-      expect(retrieved?.model).toBe('model-v2');
-      expect(retrieved?.vector).toEqual([4, 5, 6]);
-    });
-
-    it('deletes embedding when node is deleted', () => {
-      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);
-      cache.storeEmbedding('a.md', [1, 2, 3], 'model');
-      cache.deleteNode('a.md');
-
-      const result = cache.getEmbedding('a.md');
-      expect(result).toBeNull();
-    });
-  });
-
   describe('centrality storage', () => {
     it('stores and retrieves centrality metrics', () => {
       cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);
@@ -768,15 +703,6 @@ describe('Cache', () => {
       cache.clear();
 
       expect(cache.getAllNodes()).toEqual([]);
-    });
-
-    it('removes all embeddings', () => {
-      cache.upsertNode(createNode({ id: 'a.md' }), 'file', '/a.md', 1);
-      cache.storeEmbedding('a.md', [1, 2, 3], 'model');
-
-      cache.clear();
-
-      expect(cache.getEmbedding('a.md')).toBeNull();
     });
 
     it('removes all centrality data', () => {

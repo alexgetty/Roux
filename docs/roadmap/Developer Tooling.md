@@ -1,8 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: High
+priority: P1
+effort: L
 phase: Post-MVP
+category: Infrastructure
 ---
 
 # Developer Tooling

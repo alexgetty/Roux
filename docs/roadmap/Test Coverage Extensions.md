@@ -1,8 +1,11 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Low
+priority: P3
+effort: M
 phase: Post-MVP
+category: Testing
+parent: "[[Testing Framework]]"
 ---
 
 # Feature - Test Coverage Extensions

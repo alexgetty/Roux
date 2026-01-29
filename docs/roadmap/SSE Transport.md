@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Medium
+priority: P2
+effort: M
 phase: Future
-parent: "[[MCP Server]]"
+category: External APIs
 ---
 
 # Feature - SSE Transport

@@ -11,16 +11,13 @@ import type {
   ResolveResult,
 } from '../../types/provider.js';
 import {
-  type EmbeddingRecord,
   type CentralityRecord,
-  storeEmbedding,
-  getEmbedding,
   storeCentrality,
   getCentrality,
   resolveNames,
 } from './cache/index.js';
 
-export type { EmbeddingRecord, CentralityRecord };
+export type { CentralityRecord };
 
 interface NodeRow {
   id: string;
@@ -58,13 +55,6 @@ export class Cache {
         source_type TEXT,
         source_path TEXT,
         source_modified INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS embeddings (
-        node_id TEXT PRIMARY KEY,
-        model TEXT,
-        vector BLOB,
-        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS centrality (
@@ -311,14 +301,6 @@ export class Cache {
       .run(JSON.stringify(links), nodeId);
   }
 
-  storeEmbedding(nodeId: string, vector: number[], model: string): void {
-    storeEmbedding(this.db, nodeId, vector, model);
-  }
-
-  getEmbedding(nodeId: string): EmbeddingRecord | null {
-    return getEmbedding(this.db, nodeId);
-  }
-
   storeCentrality(
     nodeId: string,
     pagerank: number,
@@ -333,13 +315,9 @@ export class Cache {
     return getCentrality(this.db, nodeId);
   }
 
-  getStats(): { nodeCount: number; embeddingCount: number; edgeCount: number } {
+  getStats(): { nodeCount: number; edgeCount: number } {
     const nodeCount = this.db
       .prepare('SELECT COUNT(*) as count FROM nodes')
-      .get() as { count: number };
-
-    const embeddingCount = this.db
-      .prepare('SELECT COUNT(*) as count FROM embeddings')
       .get() as { count: number };
 
     // Sum all in_degree values to get edge count
@@ -349,14 +327,12 @@ export class Cache {
 
     return {
       nodeCount: nodeCount.count,
-      embeddingCount: embeddingCount.count,
       edgeCount: edgeSum.total ?? 0,
     };
   }
 
   clear(): void {
     this.db.exec('DELETE FROM centrality');
-    this.db.exec('DELETE FROM embeddings');
     this.db.exec('DELETE FROM nodes');
   }
 

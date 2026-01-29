@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Medium
+priority: P2
+effort: M
 phase: Post-MVP
-parent: "[[CLI]]"
+category: CLI & Visualization
 ---
 
 # Feature - Serve Visualization

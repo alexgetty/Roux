@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Medium
+priority: P2
+effort: S
 phase: Post-MVP
-parent: "[[DocStore]]"
+category: Graph & Links
 ---
 
 # Feature - Inline Tags

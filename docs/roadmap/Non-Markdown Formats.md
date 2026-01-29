@@ -1,9 +1,10 @@
 ---
-type: Roadmap Feature
+type: Feature
 status: Proposed
-priority: Low
+priority: P3
+effort: M
 phase: Future
-parent: "[[DocStore]]"
+category: Storage & Providers
 ---
 
 # Feature - Non-Markdown Formats
