@@ -38,6 +38,18 @@ GraphCore is the orchestration hub with zero functionality itself - delegates to
 
 See [[TDD]] for full methodology and tooling.
 
+## Agent Spawning
+
+**MANDATORY: Pass `docs/Agent Context.md` contents to every spawned agent.**
+
+Agents spawned via Task tool do NOT automatically inherit CLAUDE.md context. When spawning any agent:
+
+1. Read `docs/Agent Context.md`
+2. Include its contents verbatim in the task prompt
+3. Add task-specific requirements after the context
+
+This ensures agents follow TDD, coverage requirements, and style guidelines. Failure to include context results in agents cutting corners (e.g., testing 3 of 16 methods instead of all 16).
+
 **Docs stay in sync with code.**
 
 When changing behavior, update all relevant documentation in the same change:

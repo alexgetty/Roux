@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   isVectorIndex,
+  isStoreProvider,
+  isEmbeddingProvider,
   type VectorIndex,
   type VectorSearchResult,
+  type Store,
+  type Embedding,
 } from '../../../src/types/provider.js';
 
 describe('isVectorIndex', () => {
@@ -98,5 +102,126 @@ describe('isVectorIndex', () => {
 
   it('returns false when hasEmbedding is not a function', () => {
     expect(isVectorIndex({ ...validProvider, hasEmbedding: 'nope' })).toBe(false);
+  });
+});
+
+describe('isStoreProvider', () => {
+  // Note: Type guards use duck typing - extra properties are allowed.
+  // This matches TypeScript's structural type system.
+  const validStore: Store = {
+    createNode: async () => {},
+    updateNode: async () => {},
+    deleteNode: async () => {},
+    getNode: async () => null,
+    getNodes: async () => [],
+    getNeighbors: async () => [],
+    findPath: async () => null,
+    getHubs: async () => [],
+    storeEmbedding: async () => {},
+    searchByVector: async () => [],
+    searchByTags: async () => [],
+    getRandomNode: async () => null,
+    resolveTitles: async () => new Map(),
+    listNodes: async () => ({ nodes: [], total: 0 }),
+    resolveNodes: async () => [],
+    nodesExist: async () => new Map(),
+  };
+
+  it('returns true for valid store provider', () => {
+    expect(isStoreProvider(validStore)).toBe(true);
+  });
+
+  it('returns false for null', () => {
+    expect(isStoreProvider(null)).toBe(false);
+  });
+
+  it('returns false for undefined', () => {
+    expect(isStoreProvider(undefined)).toBe(false);
+  });
+
+  it('returns false for primitive values', () => {
+    expect(isStoreProvider('string')).toBe(false);
+    expect(isStoreProvider(42)).toBe(false);
+  });
+
+  it('returns false for empty object', () => {
+    expect(isStoreProvider({})).toBe(false);
+  });
+
+  // Exhaustive test for all 16 Store methods
+  const storeMethods = [
+    'createNode',
+    'updateNode',
+    'deleteNode',
+    'getNode',
+    'getNodes',
+    'getNeighbors',
+    'findPath',
+    'getHubs',
+    'storeEmbedding',
+    'searchByVector',
+    'searchByTags',
+    'getRandomNode',
+    'resolveTitles',
+    'listNodes',
+    'resolveNodes',
+    'nodesExist',
+  ] as const;
+
+  it.each(storeMethods)('returns false when %s is missing', (method) => {
+    const { [method]: _, ...partial } = validStore;
+    expect(isStoreProvider(partial)).toBe(false);
+  });
+
+  it.each(storeMethods)('returns false when %s is not a function', (method) => {
+    expect(isStoreProvider({ ...validStore, [method]: 'not-a-function' })).toBe(
+      false
+    );
+  });
+});
+
+describe('isEmbeddingProvider', () => {
+  // Note: Type guards use duck typing - extra properties are allowed.
+  // This matches TypeScript's structural type system.
+  const validEmbedding: Embedding = {
+    embed: async () => [],
+    embedBatch: async () => [],
+    dimensions: () => 384,
+    modelId: () => 'test-model',
+  };
+
+  it('returns true for valid embedding provider', () => {
+    expect(isEmbeddingProvider(validEmbedding)).toBe(true);
+  });
+
+  it('returns false for null', () => {
+    expect(isEmbeddingProvider(null)).toBe(false);
+  });
+
+  it('returns false for undefined', () => {
+    expect(isEmbeddingProvider(undefined)).toBe(false);
+  });
+
+  it('returns false for primitive values', () => {
+    expect(isEmbeddingProvider('string')).toBe(false);
+    expect(isEmbeddingProvider(42)).toBe(false);
+  });
+
+  it('returns false for empty object', () => {
+    expect(isEmbeddingProvider({})).toBe(false);
+  });
+
+  // Exhaustive test for all 4 Embedding methods
+  const embeddingMethods = ['embed', 'embedBatch', 'dimensions', 'modelId'] as const;
+
+  it.each(embeddingMethods)('returns false when %s is missing', (method) => {
+    const { [method]: _, ...partial } = validEmbedding;
+    expect(isEmbeddingProvider(partial)).toBe(false);
+  });
+
+  it.each(embeddingMethods)('returns false when %s is not a function', (method) => {
+    expect(
+      isEmbeddingProvider({ ...validEmbedding, [method]: 'not-a-function' })
+    ).toBe(false);
   });
 });

@@ -481,6 +481,11 @@ export async function handleResolveNodes(
     throw new McpError('INVALID_PARAMS', 'names is required and must be an array');
   }
 
+  // Validate all elements are strings
+  if (!names.every((n) => typeof n === 'string')) {
+    throw new McpError('INVALID_PARAMS', 'names must contain only strings');
+  }
+
   if (strategy !== undefined && !VALID_STRATEGIES.includes(strategy as ResolveStrategy)) {
     throw new McpError(
       'INVALID_PARAMS',
@@ -498,7 +503,7 @@ export async function handleResolveNodes(
   if (tag) options.tag = tag;
   if (path) options.path = path;
 
-  return ctx.core.resolveNodes(names as string[], options);
+  return ctx.core.resolveNodes(names, options);
 }
 
 export async function handleNodesExist(
@@ -511,7 +516,12 @@ export async function handleNodesExist(
     throw new McpError('INVALID_PARAMS', 'ids is required and must be an array');
   }
 
-  const result = await ctx.store.nodesExist(ids as string[]);
+  // Validate all elements are strings
+  if (!ids.every((id) => typeof id === 'string')) {
+    throw new McpError('INVALID_PARAMS', 'ids must contain only strings');
+  }
+
+  const result = await ctx.store.nodesExist(ids);
 
   // Convert Map to plain object
   const response: NodesExistResponse = {};

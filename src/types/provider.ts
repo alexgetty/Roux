@@ -137,5 +137,53 @@ export function isVectorIndex(value: unknown): value is VectorIndex {
   );
 }
 
+/**
+ * Runtime type guard for Store interface.
+ * IMPORTANT: Update this function when Store interface changes.
+ * Current method count: 16
+ */
+export function isStoreProvider(value: unknown): value is Store {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.createNode === 'function' &&
+    typeof obj.updateNode === 'function' &&
+    typeof obj.deleteNode === 'function' &&
+    typeof obj.getNode === 'function' &&
+    typeof obj.getNodes === 'function' &&
+    typeof obj.getNeighbors === 'function' &&
+    typeof obj.findPath === 'function' &&
+    typeof obj.getHubs === 'function' &&
+    typeof obj.storeEmbedding === 'function' &&
+    typeof obj.searchByVector === 'function' &&
+    typeof obj.searchByTags === 'function' &&
+    typeof obj.getRandomNode === 'function' &&
+    typeof obj.resolveTitles === 'function' &&
+    typeof obj.listNodes === 'function' &&
+    typeof obj.resolveNodes === 'function' &&
+    typeof obj.nodesExist === 'function'
+  );
+}
+
+/**
+ * Runtime type guard for Embedding interface.
+ * IMPORTANT: Update this function when Embedding interface changes.
+ * Current method count: 4
+ */
+export function isEmbeddingProvider(value: unknown): value is Embedding {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.embed === 'function' &&
+    typeof obj.embedBatch === 'function' &&
+    typeof obj.dimensions === 'function' &&
+    typeof obj.modelId === 'function'
+  );
+}
+
 // Re-export for convenience
 export type { Direction, NeighborOptions };

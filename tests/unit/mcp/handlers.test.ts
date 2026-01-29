@@ -971,7 +971,7 @@ describe('handleCreateNode', () => {
     ).rejects.toThrow(/outside.*source/i);
   });
 
-  it('derives title from original case, not lowercased ID', async () => {
+  it('derives title via title-casing from normalized ID when title not provided', async () => {
     const created = createNode({
       id: 'notes/my title here.md',
       title: 'My Title Here',
@@ -986,8 +986,27 @@ describe('handleCreateNode', () => {
 
     // ID is lowercased
     expect(result.id).toBe('notes/my title here.md');
-    // Title preserves original case
+    // Title is derived from lowercased ID, then title-cased per naming conventions
     expect(result.title).toBe('My Title Here');
+  });
+
+  it('title-cases derived titles (API becomes Api, not API)', async () => {
+    const created = createNode({
+      id: 'notes/api.md',
+      title: 'Api',
+    });
+    const ctx = createContext();
+    (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
+
+    const result = await handleCreateNode(ctx, {
+      id: 'notes/API.md',
+      content: '',
+    });
+
+    // ID is lowercased
+    expect(result.id).toBe('notes/api.md');
+    // Title is derived from lowercased ID ('api'), then title-cased -> 'Api' (not 'API')
+    expect(result.title).toBe('Api');
   });
 });
 
@@ -1537,6 +1556,30 @@ describe('handleResolveNodes', () => {
 
     expect(result).toEqual([]);
   });
+
+  it('throws INVALID_PARAMS when names contains non-strings', async () => {
+    const ctx = createContext();
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(
+      handleResolveNodes(ctx, { names: ['valid', 123, null] })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
+  });
+
+  it('throws INVALID_PARAMS when names contains objects', async () => {
+    const ctx = createContext();
+
+    const { handleResolveNodes } = await import('../../../src/mcp/handlers.js');
+    await expect(
+      handleResolveNodes(ctx, { names: [{ name: 'beef' }] })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
+  });
 });
 
 describe('handleNodesExist', () => {
@@ -1580,6 +1623,30 @@ describe('handleNodesExist', () => {
     const result = await handleNodesExist(ctx, { ids: [] });
 
     expect(result).toEqual({});
+  });
+
+  it('throws INVALID_PARAMS when ids contains non-strings', async () => {
+    const ctx = createContext();
+
+    const { handleNodesExist } = await import('../../../src/mcp/handlers.js');
+    await expect(
+      handleNodesExist(ctx, { ids: ['valid.md', 123, null] })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
+  });
+
+  it('throws INVALID_PARAMS when ids contains objects', async () => {
+    const ctx = createContext();
+
+    const { handleNodesExist } = await import('../../../src/mcp/handlers.js');
+    await expect(
+      handleNodesExist(ctx, { ids: [{ id: 'test.md' }] })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
   });
 });
 

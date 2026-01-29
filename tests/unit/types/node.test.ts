@@ -107,6 +107,25 @@ describe('isNode', () => {
   it('returns false when properties is null', () => {
     expect(isNode({ ...validNode, properties: null })).toBe(false);
   });
+
+  it('returns false when properties is an array', () => {
+    expect(isNode({ ...validNode, properties: ['not', 'an', 'object'] })).toBe(false);
+  });
+
+  it('returns false when sourceRef is present but invalid', () => {
+    expect(isNode({ ...validNode, sourceRef: { type: 'invalid' } })).toBe(false);
+    expect(isNode({ ...validNode, sourceRef: 'not-an-object' })).toBe(false);
+    expect(isNode({ ...validNode, sourceRef: null })).toBe(false);
+  });
+
+  it('returns false when sourceRef has invalid lastModified', () => {
+    expect(
+      isNode({
+        ...validNode,
+        sourceRef: { type: 'file', lastModified: new Date('invalid') },
+      })
+    ).toBe(false);
+  });
 });
 
 describe('isSourceRef', () => {
@@ -178,5 +197,10 @@ describe('isSourceRef', () => {
   it('returns false when lastModified is not a Date', () => {
     expect(isSourceRef({ type: 'file', lastModified: '2024-01-01' })).toBe(false);
     expect(isSourceRef({ type: 'file', lastModified: 1234567890 })).toBe(false);
+  });
+
+  it('returns false when lastModified is an Invalid Date', () => {
+    expect(isSourceRef({ type: 'file', lastModified: new Date('invalid') })).toBe(false);
+    expect(isSourceRef({ type: 'file', lastModified: new Date(NaN) })).toBe(false);
   });
 });

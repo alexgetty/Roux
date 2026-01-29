@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { TransformersEmbedding } from '../../../src/providers/embedding/index.js';
 import type { Embedding } from '../../../src/types/provider.js';
+import { isEmbeddingProvider } from '../../../src/types/provider.js';
 
 /**
  * These tests require model download on first run (~90MB).
@@ -14,9 +15,13 @@ describe('TransformersEmbedding', () => {
   });
 
   describe('interface compliance', () => {
-    it('implements Embedding interface', () => {
+    it('implements Embedding interface (compile-time)', () => {
       const _check: Embedding = provider;
       expect(_check).toBeDefined();
+    });
+
+    it('passes isEmbeddingProvider runtime check', () => {
+      expect(isEmbeddingProvider(provider)).toBe(true);
     });
   });
 
