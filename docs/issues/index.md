@@ -6,15 +6,14 @@ tags:
 ---
 # Open Issues
 
-16 active issues across 5 categories.
+15 active issues across 5 categories.
 
-## Architecture (6)
+## Architecture (5)
 
 Structural improvements to reduce complexity and coupling.
 
 | Priority | Issue | Scope |
 |----------|-------|-------|
-| HIGH | [[mcp-architecture]] | Monolith refactor: split handlers, co-locate schemas |
 | MEDIUM | [[docstore-cache-complexity]] | Cache at ~486 lines, SQL generation could be modularized |
 | MEDIUM | [[cache-schema-operation-split]] | Schema ownership split across modules |
 | MEDIUM | [[file-operations-depends-on-watcher]] | Inverted dependency via EXCLUDED_DIRS import |

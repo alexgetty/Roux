@@ -11,6 +11,8 @@ GraphCore is the invariant center of the [[GPI]]. It doesn't store data, generat
 
 Think of it as a switchboard: external interfaces call GraphCore, GraphCore routes to the appropriate provider(s), results flow back.
 
+GraphCore is deliberately **schema-agnostic**—it stores whatever properties applications give it without validation. Domain-specific logic (task schemas, validation rules, business logic) belongs in the application layer, not here. See [[Library vs Application Boundaries]] for the full distinction.
+
 ## Responsibilities
 
 - **Define provider interfaces** — The contracts that all providers of a type must fulfill
@@ -65,6 +67,7 @@ These are internal to GraphCore—not architectural components, but the language
 ## Related
 
 - [[GPI]] — What GraphCore serves
+- [[Library vs Application Boundaries]] — What belongs in Roux vs applications
 - [[StoreProvider]] — Data persistence
 - [[EmbeddingProvider]] — Vector generation
 - [[MCP Server]] — Primary external interface

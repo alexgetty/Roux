@@ -14,7 +14,6 @@ export interface CacheConfig {
 export type ModelChangeBehavior = 'lazy' | 'eager';
 
 export interface SystemConfig {
-  /** Embedding regeneration strategy */
   onModelChange: ModelChangeBehavior;
 }
 
@@ -22,9 +21,7 @@ export type FilenameSeparator = 'space' | 'dash';
 export type TitleCasing = 'title' | 'sentence' | 'as-is';
 
 export interface NamingConventions {
-  /** Word separator in filenames: 'space' (default) or 'dash' */
   filename: FilenameSeparator;
-  /** Casing for derived titles (ignored when title is explicit) */
   title: TitleCasing;
 }
 
@@ -80,7 +77,6 @@ export type StoreConfig = DocStoreConfig;
 
 export interface ProvidersConfig {
   store: StoreConfig;
-  /** Defaults to local */
   embedding?: EmbeddingConfig;
   llm?: LLMConfig;
 }

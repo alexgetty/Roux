@@ -1364,6 +1364,18 @@ describe('deriveTitle', () => {
     expect(deriveTitle('notes/.md', { filename: 'space', title: 'title' }))
       .toBe('Untitled');
   });
+
+  it('preserves dashes when filename convention is space', () => {
+    // When filename: 'space', files use spaces. Dashes are preserved (not converted to spaces).
+    // Title casing still capitalizes at word boundaries (including after dashes).
+    expect(deriveTitle('recipes/sesame-oil.md', { filename: 'space', title: 'title' }))
+      .toBe('Sesame-Oil');
+  });
+
+  it('preserves spaces in title when filename convention is space', () => {
+    expect(deriveTitle('recipes/sesame oil.md', { filename: 'space', title: 'title' }))
+      .toBe('Sesame Oil');
+  });
 });
 
 describe('handleListNodes', () => {

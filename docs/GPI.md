@@ -29,10 +29,14 @@ A GPI is defined by four commitments:
 
 ## What a GPI Provides
 
+A GPI provides **graph-general** capabilities:
+
 - **Semantic search** — Find nodes by meaning, not just keywords
 - **Graph traversal** — Follow links, find paths, identify hubs
 - **CRUD operations** — Create, read, update, delete nodes programmatically
 - **Co-authoring** — Let AI assistants read and write knowledge alongside humans
+
+What it deliberately **doesn't** provide: domain-specific schemas, validation rules, or business logic. Those belong in applications built on top. See [[Library vs Application Boundaries]].
 
 ## The Stack
 
@@ -67,6 +71,7 @@ We're building infrastructure for this new reality.
 ## Related
 
 - [[GraphCore]] — The hub that implements GPI
+- [[Library vs Application Boundaries]] — What Roux provides vs what apps provide
 - [[MCP Server]] — Primary interface for AI co-authoring
 - [[API]] — Programmatic access
 - [[CLI]] — Terminal access

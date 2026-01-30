@@ -3,24 +3,22 @@ title: Readme
 ---
 # Roux
 
-A **Graph Programming Interface (GPI)** for building and maintaining knowledge graphs. Semantic search, graph traversal, and AI co-authoring through a unified interface—regardless of storage backend.
+A **Graph Programming Interface (GPI)** for markdown knowledge bases. Semantic search, graph traversal, and AI-assisted editing through MCP.
 
 ## What It Does
 
-- **Semantic search** — Find nodes by meaning, not just keywords
-- **Graph traversal** — Follow links, find paths, identify central nodes
-- **CRUD operations** — Create, read, update, delete nodes programmatically
-- **AI co-authoring** — Let AI assistants read and write knowledge alongside humans
+- **Semantic search** — Find notes by meaning, not just keywords
+- **Graph traversal** — Follow wiki-links, find paths, identify hub notes
+- **CRUD operations** — Create, read, update, delete notes programmatically
+- **MCP integration** — Works with Claude Code and other MCP clients
 
-The graph is always the target structure. Data that isn't natively a graph gets transformed during ingestion. The query model stays constant regardless of source or storage.
+Point it at a markdown directory. Query it like a graph database. Edit in Obsidian.
 
 ## Architecture
 
-Roux is a platform of pluggable modules. GraphCore is the coordination hub—it defines provider interfaces but has zero functionality without them.
-
 ```
 ┌─────────────────────────────┐
-│     External Interfaces     │  MCP Server, REST API, CLI
+│        MCP Server           │  Claude Code, other clients
 └──────────────┬──────────────┘
                │
 ┌──────────────▼──────────────┐
@@ -28,26 +26,17 @@ Roux is a platform of pluggable modules. GraphCore is the coordination hub—it 
 └──────────────┬──────────────┘
                │
 ┌──────────────▼──────────────┐
-│          Providers          │  Store, Embedding, LLM, ...
+│          Providers          │
+│  DocStore + Transformers.js │
 └─────────────────────────────┘
 ```
 
-**Store backends** span zero infrastructure to enterprise scale:
-- File-based: DocStore (markdown directories)
-- Embedded: SQLite, LevelGraph
-- Standalone: SurrealDB, FalkorDB, Memgraph
-- Enterprise: Neo4j, ArangoDB, Amazon Neptune
-
-**Embedding providers** for semantic search:
-- Local: transformers.js (default, zero config)
-- Self-hosted: Ollama
-- Cloud: OpenAI
-
-Same queries, same results—regardless of what's plugged in.
+**Current implementation:**
+- **DocStore** — Reads markdown directories, parses frontmatter and wiki-links
+- **Transformers.js** — Local embeddings, no external API required
+- **SQLite cache** — Fast queries without re-parsing files
 
 ## Quick Start
-
-Roux ships today with **DocStore**: point it at a markdown directory, query via MCP, edit in Obsidian.
 
 ```bash
 # Install
@@ -58,12 +47,12 @@ cd ~/my-notes
 roux init
 ```
 
-That's it. `roux init` creates a `.mcp.json` file that Claude Code detects automatically. The MCP server starts in the background when you open the project.
+`roux init` creates config files that Claude Code detects automatically. The MCP server starts when you open the project.
 
 Then ask Claude things like:
-- "Search my notes for distributed systems concepts"
-- "What links to my note on consensus algorithms?"
-- "Create a new note summarizing what I learned today"
+- "Search my notes for distributed systems"
+- "What links to my consensus algorithms note?"
+- "Create a new note about today's meeting"
 
 ### Requirements
 - Node.js 20+
@@ -121,22 +110,16 @@ roux serve
 # Option 2: Configure your client to spawn it (check your client's docs)
 ```
 
-## Roadmap
+## Future
 
-**Near term:**
-- LLMProvider — Text generation for assisted features
-- Structural embeddings — Graph-aware vectors
+The architecture supports pluggable backends. Currently only DocStore exists—these are planned:
 
-**Medium term:**
-- Neo4jStore — Graph database backend for scale
-- IngestionProvider — Entity extraction, edge inference
-- REST/GraphQL API
+- **Additional stores** — Neo4j, SQLite-native, SurrealDB
+- **Cloud embeddings** — OpenAI, Ollama for higher-quality vectors
+- **LLM provider** — Text generation for assisted writing
+- **REST API** — For non-MCP integrations
 
-**Future:**
-- Multi-store federation
-- Multi-tenancy and access control
-
-See [implementation-plan.md](docs/implementation-plan.md) for details.
+See `docs/roadmap/` for details.
 
 ## How It Works
 

@@ -1,7 +1,6 @@
 export {
   McpServer,
   createMcpServer,
-  getToolDefinitions,
   formatToolResponse,
   formatErrorResponse,
   executeToolCall,
@@ -39,6 +38,7 @@ export {
   MAX_LINKS_TO_RESOLVE,
 } from './transforms.js';
 export {
+  getToolDefinitions,
   handleSearch,
   handleGetNode,
   handleGetNeighbors,
@@ -49,6 +49,9 @@ export {
   handleCreateNode,
   handleUpdateNode,
   handleDeleteNode,
+  handleListNodes,
+  handleResolveNodes,
+  handleNodesExist,
   normalizeCreateId,
   deriveTitle,
   dispatchTool,
