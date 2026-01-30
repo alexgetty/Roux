@@ -214,6 +214,20 @@ describe('file-operations', () => {
       expect(content).toBe(unicodeContent);
     });
 
+    it('handles invalid UTF-8 sequences gracefully', async () => {
+      const filePath = join(tempDir, 'invalid-utf8.md');
+      // Invalid UTF-8: 0xFF 0xFE are not valid UTF-8 lead bytes
+      // Node.js replaces invalid sequences with U+FFFD (replacement character)
+      const invalidBytes = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0xff, 0xfe, 0x21]);
+      await writeFile(filePath, invalidBytes);
+
+      const content = await readFileContent(filePath);
+
+      // Should not throw, should contain replacement characters
+      expect(content).toContain('Hello');
+      expect(content).toContain('\uFFFD'); // Replacement character
+    });
+
     it('throws ENOENT for missing file', async () => {
       const missingPath = join(tempDir, 'missing.md');
 

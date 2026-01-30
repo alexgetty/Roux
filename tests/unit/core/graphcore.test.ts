@@ -1108,7 +1108,7 @@ describe('GraphCore', () => {
       expect(result).toEqual([{ query: 'test', match: null, score: 0 }]);
     });
 
-    it('handles zero vectors gracefully (cosine similarity edge case)', async () => {
+    it('handles zero query vector gracefully (cosine similarity edge case)', async () => {
       const candidates = [{ id: 'a.md', title: 'A' }];
       vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: candidates, total: 1 });
       vi.mocked(mockEmbedding.embedBatch)
@@ -1122,6 +1122,30 @@ describe('GraphCore', () => {
       const result = await core.resolveNodes(['test'], { strategy: 'semantic' });
 
       // Zero vector should result in 0 similarity, no match
+      expect(result[0]!.match).toBeNull();
+      expect(result[0]!.score).toBe(0);
+    });
+
+    it('handles all-zero candidate vectors gracefully', async () => {
+      const candidates = [
+        { id: 'a.md', title: 'A' },
+        { id: 'b.md', title: 'B' },
+      ];
+      vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: candidates, total: 2 });
+      vi.mocked(mockEmbedding.embedBatch)
+        .mockResolvedValueOnce([[1, 0, 0]]) // query is normal
+        .mockResolvedValueOnce([
+          [0, 0, 0], // candidate A is zero vector
+          [0, 0, 0], // candidate B is zero vector
+        ]);
+
+      const core = new GraphCoreImpl();
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
+
+      const result = await core.resolveNodes(['test'], { strategy: 'semantic' });
+
+      // All zero candidates should result in 0 similarity, no match
       expect(result[0]!.match).toBeNull();
       expect(result[0]!.score).toBe(0);
     });

@@ -20,6 +20,7 @@ import {
   type HandlerContext,
 } from '../../../src/mcp/handlers.js';
 import { McpError } from '../../../src/mcp/types.js';
+import { TRUNCATION_LIMITS } from '../../../src/mcp/truncate.js';
 
 function createMockStore(
   titleMap: Map<string, string> = new Map()
@@ -130,6 +131,19 @@ describe('handleSearch', () => {
     const result = await handleSearch(ctx, { query: 'test', include_content: true });
 
     expect(result[0]?.content).toBe('This should appear');
+  });
+
+  it('truncates very long content in search results', async () => {
+    const longContent = 'x'.repeat(TRUNCATION_LIMITS.list + 1000);
+    const nodes = [createNode({ id: 'a.md', content: longContent })];
+    const ctx = createContext();
+    (ctx.core.search as ReturnType<typeof vi.fn>).mockResolvedValue(nodes);
+
+    const result = await handleSearch(ctx, { query: 'test', include_content: true });
+
+    // Content should be truncated to list limit
+    expect(result[0]?.content?.length).toBeLessThanOrEqual(TRUNCATION_LIMITS.list);
+    expect(result[0]?.content).toContain('... [truncated]');
   });
 
   it('throws PROVIDER_ERROR when embedding not available', async () => {
