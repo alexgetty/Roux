@@ -31,7 +31,7 @@ describe('TransformersEmbedding', () => {
     });
 
     it('returns custom model when specified', () => {
-      const custom = new TransformersEmbedding('Xenova/paraphrase-MiniLM-L3-v2', 384);
+      const custom = new TransformersEmbedding({ model: 'Xenova/paraphrase-MiniLM-L3-v2', dimensions: 384 });
       expect(custom.modelId()).toBe('Xenova/paraphrase-MiniLM-L3-v2');
     });
   });
@@ -42,7 +42,7 @@ describe('TransformersEmbedding', () => {
     });
 
     it('returns custom dimensions when specified', () => {
-      const custom = new TransformersEmbedding('Xenova/some-model', 768);
+      const custom = new TransformersEmbedding({ model: 'Xenova/some-model', dimensions: 768 });
       expect(custom.dimensions()).toBe(768);
     });
   });
@@ -195,29 +195,29 @@ describe('TransformersEmbedding', () => {
   describe('pipeline initialization errors', () => {
     it('propagates error when model cannot be loaded', async () => {
       // Use a model name that definitely doesn't exist
-      const invalidProvider = new TransformersEmbedding(
-        'Xenova/nonexistent-model-that-will-fail-12345',
-        384
-      );
+      const invalidProvider = new TransformersEmbedding({
+        model: 'Xenova/nonexistent-model-that-will-fail-12345',
+        dimensions: 384,
+      });
 
       // First embed() call triggers pipeline initialization
       await expect(invalidProvider.embed('test')).rejects.toThrow();
     }, 60000);
 
     it('propagates error in embedBatch when model cannot be loaded', async () => {
-      const invalidProvider = new TransformersEmbedding(
-        'Xenova/another-fake-model-xyz',
-        384
-      );
+      const invalidProvider = new TransformersEmbedding({
+        model: 'Xenova/another-fake-model-xyz',
+        dimensions: 384,
+      });
 
       await expect(invalidProvider.embedBatch(['test'])).rejects.toThrow();
     }, 60000);
 
     it('subsequent calls also fail after initialization error', async () => {
-      const invalidProvider = new TransformersEmbedding(
-        'Xenova/broken-model-abc',
-        384
-      );
+      const invalidProvider = new TransformersEmbedding({
+        model: 'Xenova/broken-model-abc',
+        dimensions: 384,
+      });
 
       // First call fails
       await expect(invalidProvider.embed('first')).rejects.toThrow();

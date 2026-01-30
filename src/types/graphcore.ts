@@ -22,9 +22,12 @@ export interface SearchOptions {
 
 /** Orchestration hub. Zero functionality without providers. */
 export interface GraphCore {
-  // Provider registration
-  registerStore(provider: Store): void;
-  registerEmbedding(provider: Embedding): void;
+  // Provider registration (async for lifecycle hooks)
+  registerStore(provider: Store): Promise<void>;
+  registerEmbedding(provider: Embedding): Promise<void>;
+
+  // Lifecycle
+  destroy(): Promise<void>;
 
   // Unified operations (delegates to providers)
   search(query: string, options?: SearchOptions): Promise<Node[]>;

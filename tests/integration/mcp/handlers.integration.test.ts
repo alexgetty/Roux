@@ -43,10 +43,10 @@ describe('MCP Handlers Integration', () => {
     cacheDir = join(tempDir, 'cache');
     await mkdir(sourceDir, { recursive: true });
 
-    store = new DocStore(sourceDir, cacheDir);
+    store = new DocStore({ sourceRoot: sourceDir, cacheDir });
     core = new GraphCoreImpl();
-    core.registerStore(store);
-    core.registerEmbedding(embedding);
+    await core.registerStore(store);
+    await core.registerEmbedding(embedding);
 
     ctx = {
       core,
@@ -341,11 +341,11 @@ describe('MCP Handlers Integration', () => {
       const emptySourceDir = join(tempDir, 'empty');
       const emptyCacheDir = join(tempDir, 'empty-cache');
       await mkdir(emptySourceDir, { recursive: true });
-      const emptyStore = new DocStore(emptySourceDir, emptyCacheDir);
+      const emptyStore = new DocStore({ sourceRoot: emptySourceDir, cacheDir: emptyCacheDir });
       await emptyStore.sync();
 
       const emptyCore = new GraphCoreImpl();
-      emptyCore.registerStore(emptyStore);
+      await emptyCore.registerStore(emptyStore);
       const emptyCtx: HandlerContext = {
         core: emptyCore,
         store: emptyStore,

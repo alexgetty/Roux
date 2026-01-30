@@ -6,7 +6,7 @@ views:
     name: Table
     groupBy:
       property: phase
-      direction: ASC
+      direction: DESC
     order:
       - file.name
       - status
@@ -15,4 +15,4 @@ views:
       - parent
     sort:
       - property: priority
-        direction: DESC
+        direction: ASC

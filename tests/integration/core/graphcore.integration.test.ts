@@ -27,10 +27,10 @@ describe('GraphCore Integration', () => {
     cacheDir = join(tempDir, 'cache');
     await mkdir(sourceDir, { recursive: true });
 
-    store = new DocStore(sourceDir, cacheDir);
+    store = new DocStore({ sourceRoot: sourceDir, cacheDir });
     core = new GraphCoreImpl();
-    core.registerStore(store);
-    core.registerEmbedding(embedding);
+    await core.registerStore(store);
+    await core.registerEmbedding(embedding);
   });
 
   afterEach(async () => {
@@ -334,7 +334,7 @@ describe('GraphCore Integration', () => {
 
   describe('fromConfig factory', () => {
     it('creates working GraphCore from minimal config', async () => {
-      const configuredCore = GraphCoreImpl.fromConfig({
+      const configuredCore = await GraphCoreImpl.fromConfig({
         providers: {
           store: {
             type: 'docstore',
@@ -355,7 +355,7 @@ describe('GraphCore Integration', () => {
       );
 
       // Access the store directly for sync (normally CLI does this)
-      const configStore = new DocStore(sourceDir, cacheDir);
+      const configStore = new DocStore({ sourceRoot: sourceDir, cacheDir });
       await configStore.sync();
 
       const node = await configuredCore.getNode('config-test.md');

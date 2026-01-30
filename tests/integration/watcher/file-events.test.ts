@@ -88,7 +88,7 @@ describe('File Watcher Integration', () => {
     sourceDir = join(tempDir, 'source');
     cacheDir = join(tempDir, 'cache');
     await mkdir(sourceDir, { recursive: true });
-    store = new DocStore(sourceDir, cacheDir);
+    store = new DocStore({ sourceRoot: sourceDir, cacheDir });
     await store.sync();
   });
 
@@ -310,7 +310,7 @@ describe('File Watcher Integration', () => {
       const vectorCacheDir = join(tempDir, 'vector-cache');
       await mkdir(vectorCacheDir, { recursive: true });
       const vectorProvider = new SqliteVectorIndex(vectorCacheDir);
-      const storeWithVector = new DocStore(sourceDir, cacheDir, vectorProvider);
+      const storeWithVector = new DocStore({ sourceRoot: sourceDir, cacheDir, vectorIndex: vectorProvider });
 
       const filePath = await writeMarkdownFile(
         'with-embedding.md',

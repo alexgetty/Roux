@@ -16,6 +16,7 @@ export default defineConfig({
         'src/types/edge.ts',
         'src/types/graphcore.ts',
         'src/providers/docstore/types.ts',
+        'src/mcp/handlers/types.ts',
       ],
       thresholds: {
         lines: 100,

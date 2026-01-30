@@ -46,7 +46,16 @@ function createDefaultRegistry(): ReaderRegistry {
   return registry;
 }
 
+export interface DocStoreOptions {
+  sourceRoot: string;
+  cacheDir: string;
+  id?: string;
+  vectorIndex?: VectorIndex;
+  registry?: ReaderRegistry;
+}
+
 export class DocStore extends StoreProvider {
+  readonly id: string;
   private cache: Cache;
   private sourceRoot: string;
   private ownsVectorIndex: boolean;
@@ -55,18 +64,22 @@ export class DocStore extends StoreProvider {
   private fileWatcher: FileWatcher | null = null;
   private onChangeCallback: ((changedIds: string[]) => void) | undefined;
 
-  constructor(
-    sourceRoot: string,
-    cacheDir: string,
-    vectorIndex?: VectorIndex,
-    registry?: ReaderRegistry
-  ) {
+  constructor(options: DocStoreOptions) {
+    const {
+      sourceRoot,
+      cacheDir,
+      id = 'docstore',
+      vectorIndex,
+      registry,
+    } = options;
+
     const ownsVector = !vectorIndex;
     // Ensure cacheDir exists before SqliteVectorIndex tries to open a DB inside it
     if (!vectorIndex) mkdirSync(cacheDir, { recursive: true });
     const vi = vectorIndex ?? new SqliteVectorIndex(cacheDir);
     super({ vectorIndex: vi });
 
+    this.id = id;
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
     this.ownsVectorIndex = ownsVector;
@@ -272,6 +285,16 @@ export class DocStore extends StoreProvider {
     if (this.ownsVectorIndex && this.vectorIndex && 'close' in this.vectorIndex) {
       (this.vectorIndex as { close: () => void }).close();
     }
+  }
+
+  // Lifecycle hooks
+
+  async onRegister(): Promise<void> {
+    await this.sync();
+  }
+
+  async onUnregister(): Promise<void> {
+    this.close();
   }
 
   startWatching(onChange?: (changedIds: string[]) => void): Promise<void> {

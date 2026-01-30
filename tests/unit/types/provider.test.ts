@@ -108,7 +108,8 @@ describe('isVectorIndex', () => {
 describe('isStoreProvider', () => {
   // Note: Type guards use duck typing - extra properties are allowed.
   // This matches TypeScript's structural type system.
-  const validStore: Store = {
+  const validStore = {
+    id: 'test-store',
     createNode: async () => {},
     updateNode: async () => {},
     deleteNode: async () => {},
@@ -178,12 +179,59 @@ describe('isStoreProvider', () => {
       false
     );
   });
+
+  // ID validation tests (Phase 1 of plugin architecture prep)
+  describe('id validation', () => {
+    // Create a store with all methods for id tests
+    const storeWithAllMethods = {
+      createNode: async () => {},
+      updateNode: async () => {},
+      deleteNode: async () => {},
+      getNode: async () => null,
+      getNodes: async () => [],
+      getNeighbors: async () => [],
+      findPath: async () => null,
+      getHubs: async () => [],
+      storeEmbedding: async () => {},
+      searchByVector: async () => [],
+      searchByTags: async () => [],
+      getRandomNode: async () => null,
+      resolveTitles: async () => new Map(),
+      listNodes: async () => ({ nodes: [], total: 0 }),
+      resolveNodes: async () => [],
+      nodesExist: async () => new Map(),
+    };
+
+    it('returns false when id is missing', () => {
+      expect(isStoreProvider(storeWithAllMethods)).toBe(false);
+    });
+
+    it('returns false when id is empty string', () => {
+      expect(isStoreProvider({ ...storeWithAllMethods, id: '' })).toBe(false);
+    });
+
+    it('returns false when id is not a string', () => {
+      expect(isStoreProvider({ ...storeWithAllMethods, id: 123 })).toBe(false);
+      expect(isStoreProvider({ ...storeWithAllMethods, id: null })).toBe(false);
+      expect(isStoreProvider({ ...storeWithAllMethods, id: undefined })).toBe(false);
+    });
+
+    it('returns false when id is whitespace only', () => {
+      expect(isStoreProvider({ ...storeWithAllMethods, id: '   ' })).toBe(false);
+      expect(isStoreProvider({ ...storeWithAllMethods, id: '\t\n' })).toBe(false);
+    });
+
+    it('returns true when id is a non-empty string', () => {
+      expect(isStoreProvider({ ...storeWithAllMethods, id: 'my-store' })).toBe(true);
+    });
+  });
 });
 
 describe('isEmbeddingProvider', () => {
   // Note: Type guards use duck typing - extra properties are allowed.
   // This matches TypeScript's structural type system.
-  const validEmbedding: Embedding = {
+  const validEmbedding = {
+    id: 'test-embedding',
     embed: async () => [],
     embedBatch: async () => [],
     dimensions: () => 384,
@@ -223,5 +271,38 @@ describe('isEmbeddingProvider', () => {
     expect(
       isEmbeddingProvider({ ...validEmbedding, [method]: 'not-a-function' })
     ).toBe(false);
+  });
+
+  // ID validation tests (Phase 1 of plugin architecture prep)
+  describe('id validation', () => {
+    const embeddingWithAllMethods = {
+      embed: async () => [],
+      embedBatch: async () => [],
+      dimensions: () => 384,
+      modelId: () => 'test-model',
+    };
+
+    it('returns false when id is missing', () => {
+      expect(isEmbeddingProvider(embeddingWithAllMethods)).toBe(false);
+    });
+
+    it('returns false when id is empty string', () => {
+      expect(isEmbeddingProvider({ ...embeddingWithAllMethods, id: '' })).toBe(false);
+    });
+
+    it('returns false when id is not a string', () => {
+      expect(isEmbeddingProvider({ ...embeddingWithAllMethods, id: 123 })).toBe(false);
+      expect(isEmbeddingProvider({ ...embeddingWithAllMethods, id: null })).toBe(false);
+      expect(isEmbeddingProvider({ ...embeddingWithAllMethods, id: undefined })).toBe(false);
+    });
+
+    it('returns false when id is whitespace only', () => {
+      expect(isEmbeddingProvider({ ...embeddingWithAllMethods, id: '   ' })).toBe(false);
+      expect(isEmbeddingProvider({ ...embeddingWithAllMethods, id: '\t\n' })).toBe(false);
+    });
+
+    it('returns true when id is a non-empty string', () => {
+      expect(isEmbeddingProvider({ ...embeddingWithAllMethods, id: 'my-embedding' })).toBe(true);
+    });
   });
 });

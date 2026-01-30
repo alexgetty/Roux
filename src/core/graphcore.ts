@@ -15,6 +15,10 @@ import type {
   ResolveOptions,
   ResolveResult,
 } from '../types/provider.js';
+import {
+  isStoreProvider,
+  isEmbeddingProvider,
+} from '../types/provider.js';
 import type { RouxConfig } from '../types/config.js';
 import { DocStore } from '../providers/docstore/index.js';
 import { TransformersEmbedding } from '../providers/embedding/transformers.js';
@@ -24,18 +28,90 @@ export class GraphCoreImpl implements GraphCore {
   private store: Store | null = null;
   private embedding: Embedding | null = null;
 
-  registerStore(provider: Store): void {
+  async registerStore(provider: Store): Promise<void> {
     if (!provider) {
       throw new Error('Store provider is required');
     }
+    if (!isStoreProvider(provider)) {
+      throw new Error('Invalid Store provider: missing required methods or id');
+    }
+
+    // Unregister previous provider if exists
+    if (this.store?.onUnregister) {
+      try {
+        await this.store.onUnregister();
+      } catch (err) {
+        console.warn('Error during store onUnregister:', err);
+      }
+    }
+
+    // Set new provider (before calling onRegister so it can use the store)
     this.store = provider;
+
+    // Call lifecycle hook if exists
+    if (provider.onRegister) {
+      try {
+        await provider.onRegister();
+      } catch (err) {
+        // Rollback on failure
+        this.store = null;
+        throw err;
+      }
+    }
   }
 
-  registerEmbedding(provider: Embedding): void {
+  async registerEmbedding(provider: Embedding): Promise<void> {
     if (!provider) {
       throw new Error('Embedding provider is required');
     }
+    if (!isEmbeddingProvider(provider)) {
+      throw new Error('Invalid Embedding provider: missing required methods or id');
+    }
+
+    // Unregister previous provider if exists
+    if (this.embedding?.onUnregister) {
+      try {
+        await this.embedding.onUnregister();
+      } catch (err) {
+        console.warn('Error during embedding onUnregister:', err);
+      }
+    }
+
+    // Set new provider
     this.embedding = provider;
+
+    // Call lifecycle hook if exists
+    if (provider.onRegister) {
+      try {
+        await provider.onRegister();
+      } catch (err) {
+        // Rollback on failure
+        this.embedding = null;
+        throw err;
+      }
+    }
+  }
+
+  async destroy(): Promise<void> {
+    // Unregister in reverse order of typical registration
+    if (this.embedding?.onUnregister) {
+      try {
+        await this.embedding.onUnregister();
+      } catch (err) {
+        console.warn('Error during embedding onUnregister in destroy:', err);
+      }
+    }
+    if (this.store?.onUnregister) {
+      try {
+        await this.store.onUnregister();
+      } catch (err) {
+        console.warn('Error during store onUnregister in destroy:', err);
+      }
+    }
+
+    // Clear references
+    this.embedding = null;
+    this.store = null;
   }
 
   private requireStore(): Store {
@@ -256,37 +332,43 @@ export class GraphCoreImpl implements GraphCore {
     return store.resolveNodes(names, options);
   }
 
-  static fromConfig(config: RouxConfig): GraphCoreImpl {
+  static async fromConfig(config: RouxConfig): Promise<GraphCoreImpl> {
     if (!config.providers?.store) {
       throw new Error('Store configuration is required');
     }
 
     const core = new GraphCoreImpl();
 
-    // Create store based on config
-    if (config.providers.store.type === 'docstore') {
-      const sourcePath = config.source?.path ?? '.';
-      const cachePath = config.cache?.path ?? '.roux';
-      const store = new DocStore(sourcePath, cachePath);
-      core.registerStore(store);
-    } else {
-      throw new Error(
-        `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
-      );
-    }
+    try {
+      // Create store based on config
+      if (config.providers.store.type === 'docstore') {
+        const sourcePath = config.source?.path ?? '.';
+        const cachePath = config.cache?.path ?? '.roux';
+        const store = new DocStore({ sourceRoot: sourcePath, cacheDir: cachePath });
+        await core.registerStore(store);
+      } else {
+        throw new Error(
+          `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
+        );
+      }
 
-    // Create embedding provider (defaults to local transformers)
-    const embeddingConfig = config.providers.embedding;
-    if (!embeddingConfig || embeddingConfig.type === 'local') {
-      const model = embeddingConfig?.model;
-      const embedding = new TransformersEmbedding(model);
-      core.registerEmbedding(embedding);
-    } else {
-      throw new Error(
-        `Unsupported embedding provider type: ${embeddingConfig.type}. Supported: local`
-      );
-    }
+      // Create embedding provider (defaults to local transformers)
+      const embeddingConfig = config.providers.embedding;
+      if (!embeddingConfig || embeddingConfig.type === 'local') {
+        const model = embeddingConfig?.model;
+        const embedding = new TransformersEmbedding(model ? { model } : {});
+        await core.registerEmbedding(embedding);
+      } else {
+        throw new Error(
+          `Unsupported embedding provider type: ${embeddingConfig.type}. Supported: local`
+        );
+      }
 
-    return core;
+      return core;
+    } catch (err) {
+      // Clean up any registered providers on failure
+      await core.destroy();
+      throw err;
+    }
   }
 }

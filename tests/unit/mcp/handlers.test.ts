@@ -996,6 +996,17 @@ describe('handleCreateNode', () => {
     });
   });
 
+  it('throws INVALID_PARAMS when tags is not an array', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleCreateNode(ctx, { id: 'test.md', content: 'x', tags: 'not-an-array' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('only strings'),
+    });
+  });
+
   it('propagates path traversal error from core', async () => {
     const ctx = createContext();
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockRejectedValue(

@@ -27,7 +27,7 @@ describe('viz command', () => {
     await initCommand(testDir);
     await writeFile(join(testDir, 'test.md'), '# Test', 'utf-8');
 
-    const store = new DocStore(testDir, join(testDir, '.roux'));
+    const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
     store.close();
 
@@ -51,7 +51,7 @@ describe('viz command', () => {
     await initCommand(testDir);
     await writeFile(join(testDir, 'test.md'), '# Test', 'utf-8');
 
-    const store = new DocStore(testDir, join(testDir, '.roux'));
+    const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
     store.close();
 
@@ -68,7 +68,7 @@ describe('viz command', () => {
     await writeFile(join(testDir, 'a.md'), '---\ntitle: Node A\n---\n\nLinks to [[B]]', 'utf-8');
     await writeFile(join(testDir, 'b.md'), '---\ntitle: Node B\n---\n\nContent', 'utf-8');
 
-    const store = new DocStore(testDir, join(testDir, '.roux'));
+    const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
     store.close();
 
@@ -107,7 +107,7 @@ describe('viz command', () => {
     );
     await writeFile(join(testDir, 'b.md'), '---\ntitle: B\n---\n\nContent', 'utf-8');
 
-    const store = new DocStore(testDir, join(testDir, '.roux'));
+    const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
     store.close();
 
@@ -148,7 +148,7 @@ describe('viz command', () => {
         'utf-8'
       );
 
-      const store = new DocStore(testDir, join(testDir, '.roux'));
+      const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
       await store.sync();
       store.close();
 
@@ -177,7 +177,7 @@ describe('viz command', () => {
         'utf-8'
       );
 
-      const store = new DocStore(testDir, join(testDir, '.roux'));
+      const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
       await store.sync();
       store.close();
 

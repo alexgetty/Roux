@@ -113,7 +113,7 @@ describe('serve command', () => {
     await writeFile(join(testDir, 'b.md'), '---\ntitle: B\n---\n\nContent B', 'utf-8');
 
     // Pre-populate embedding for node A via DocStore
-    const store = new DocStore(testDir, join(testDir, '.roux'));
+    const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
     // Use a known embedding vector (384 dims for transformers default model)
     const preExistingVector = new Array(384).fill(0.1);
@@ -129,7 +129,7 @@ describe('serve command', () => {
     await handle.stop();
 
     // Verify A still has original model (not overwritten by serve)
-    const verifyStore = new DocStore(testDir, join(testDir, '.roux'));
+    const verifyStore = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     // hasEmbedding only tells us it exists, but getModel on vectorProvider can verify model name
     // Since DocStore doesn't expose getModel, we can check via SqliteVectorIndex directly
     const { SqliteVectorIndex } = await import('../../../src/providers/vector/sqlite.js');

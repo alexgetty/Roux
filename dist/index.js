@@ -88,7 +88,22 @@ function isNode(value) {
     return false;
   }
   const obj = value;
-  return typeof obj["id"] === "string" && typeof obj["title"] === "string" && typeof obj["content"] === "string" && Array.isArray(obj["tags"]) && obj["tags"].every((t) => typeof t === "string") && Array.isArray(obj["outgoingLinks"]) && obj["outgoingLinks"].every((l) => typeof l === "string") && typeof obj["properties"] === "object" && obj["properties"] !== null;
+  if (typeof obj["id"] !== "string" || typeof obj["title"] !== "string" || typeof obj["content"] !== "string") {
+    return false;
+  }
+  if (!Array.isArray(obj["tags"]) || !obj["tags"].every((t) => typeof t === "string")) {
+    return false;
+  }
+  if (!Array.isArray(obj["outgoingLinks"]) || !obj["outgoingLinks"].every((l) => typeof l === "string")) {
+    return false;
+  }
+  if (typeof obj["properties"] !== "object" || obj["properties"] === null || Array.isArray(obj["properties"])) {
+    return false;
+  }
+  if (obj["sourceRef"] !== void 0 && !isSourceRef(obj["sourceRef"])) {
+    return false;
+  }
+  return true;
 }
 function isSourceRef(value) {
   if (typeof value !== "object" || value === null) {
@@ -96,7 +111,21 @@ function isSourceRef(value) {
   }
   const obj = value;
   const validTypes = ["file", "api", "manual"];
-  return typeof obj["type"] === "string" && validTypes.includes(obj["type"]) && (obj["path"] === void 0 || typeof obj["path"] === "string") && (obj["lastModified"] === void 0 || obj["lastModified"] instanceof Date);
+  if (typeof obj["type"] !== "string" || !validTypes.includes(obj["type"])) {
+    return false;
+  }
+  if (obj["path"] !== void 0 && typeof obj["path"] !== "string") {
+    return false;
+  }
+  if (obj["lastModified"] !== void 0) {
+    if (!(obj["lastModified"] instanceof Date)) {
+      return false;
+    }
+    if (isNaN(obj["lastModified"].getTime())) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // src/types/provider.ts
@@ -106,6 +135,20 @@ function isVectorIndex(value) {
   }
   const obj = value;
   return typeof obj.store === "function" && typeof obj.search === "function" && typeof obj.delete === "function" && typeof obj.getModel === "function" && typeof obj.hasEmbedding === "function";
+}
+function isStoreProvider(value) {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const obj = value;
+  return typeof obj.id === "string" && obj.id.trim().length > 0 && typeof obj.createNode === "function" && typeof obj.updateNode === "function" && typeof obj.deleteNode === "function" && typeof obj.getNode === "function" && typeof obj.getNodes === "function" && typeof obj.getNeighbors === "function" && typeof obj.findPath === "function" && typeof obj.getHubs === "function" && typeof obj.storeEmbedding === "function" && typeof obj.searchByVector === "function" && typeof obj.searchByTags === "function" && typeof obj.getRandomNode === "function" && typeof obj.resolveTitles === "function" && typeof obj.listNodes === "function" && typeof obj.resolveNodes === "function" && typeof obj.nodesExist === "function";
+}
+function isEmbeddingProvider(value) {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const obj = value;
+  return typeof obj.id === "string" && obj.id.trim().length > 0 && typeof obj.embed === "function" && typeof obj.embedBatch === "function" && typeof obj.dimensions === "function" && typeof obj.modelId === "function";
 }
 
 // src/types/config.ts
@@ -271,7 +314,11 @@ function getHubs(graph, metric, limit) {
       heap.push([id, score]);
     }
   });
-  return heap.toArray().sort((a, b) => b[1] - a[1]);
+  return heap.toArray().sort((a, b) => {
+    const scoreDiff = b[1] - a[1];
+    if (scoreDiff !== 0) return scoreDiff;
+    return a[0].localeCompare(b[0]);
+  });
 }
 
 // src/graph/analysis.ts
@@ -413,7 +460,8 @@ var StoreProvider = class {
       nodes = nodes.filter((n) => n.tags.some((t) => t.toLowerCase() === lower));
     }
     if (filter.path) {
-      nodes = nodes.filter((n) => n.id.startsWith(filter.path));
+      const lowerPath = filter.path.toLowerCase();
+      nodes = nodes.filter((n) => n.id.startsWith(lowerPath));
     }
     const total = nodes.length;
     const offset = options?.offset ?? 0;
@@ -456,7 +504,8 @@ var StoreProvider = class {
       candidates = filtered.map((n) => ({ id: n.id, title: n.title }));
     }
     if (options?.path) {
-      candidates = candidates.filter((c) => c.id.startsWith(options.path));
+      const lowerPath = options.path.toLowerCase();
+      candidates = candidates.filter((c) => c.id.startsWith(lowerPath));
     }
     return resolveNames(names, candidates, {
       strategy,
@@ -477,33 +526,6 @@ var StoreProvider = class {
 import Database from "better-sqlite3";
 import { join } from "path";
 import { mkdirSync } from "fs";
-
-// src/providers/docstore/cache/embeddings.ts
-function storeEmbedding(db, nodeId, vector, model) {
-  const buffer = Buffer.from(new Float32Array(vector).buffer);
-  db.prepare(
-    `
-    INSERT INTO embeddings (node_id, model, vector)
-    VALUES (?, ?, ?)
-    ON CONFLICT(node_id) DO UPDATE SET
-      model = excluded.model,
-      vector = excluded.vector
-  `
-  ).run(nodeId, model, buffer);
-}
-function getEmbedding(db, nodeId) {
-  const row = db.prepare("SELECT model, vector FROM embeddings WHERE node_id = ?").get(nodeId);
-  if (!row) return null;
-  const float32 = new Float32Array(
-    row.vector.buffer,
-    row.vector.byteOffset,
-    row.vector.length / 4
-  );
-  return {
-    model: row.model,
-    vector: Array.from(float32)
-  };
-}
 
 // src/providers/docstore/cache/centrality.ts
 function storeCentrality(db, nodeId, pagerank, inDegree, outDegree, computedAt) {
@@ -552,13 +574,6 @@ var Cache = class {
         source_type TEXT,
         source_path TEXT,
         source_modified INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS embeddings (
-        node_id TEXT PRIMARY KEY,
-        model TEXT,
-        vector BLOB,
-        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS centrality (
@@ -700,7 +715,7 @@ var Cache = class {
       params.push(filter.tag);
     }
     if (filter.path) {
-      conditions.push("id LIKE ? || '%'");
+      conditions.push("LOWER(id) LIKE LOWER(?) || '%'");
       params.push(filter.path);
     }
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -725,12 +740,6 @@ var Cache = class {
   updateOutgoingLinks(nodeId, links) {
     this.db.prepare("UPDATE nodes SET outgoing_links = ? WHERE id = ?").run(JSON.stringify(links), nodeId);
   }
-  storeEmbedding(nodeId, vector, model) {
-    storeEmbedding(this.db, nodeId, vector, model);
-  }
-  getEmbedding(nodeId) {
-    return getEmbedding(this.db, nodeId);
-  }
   storeCentrality(nodeId, pagerank, inDegree, outDegree, computedAt) {
     storeCentrality(this.db, nodeId, pagerank, inDegree, outDegree, computedAt);
   }
@@ -739,17 +748,14 @@ var Cache = class {
   }
   getStats() {
     const nodeCount = this.db.prepare("SELECT COUNT(*) as count FROM nodes").get();
-    const embeddingCount = this.db.prepare("SELECT COUNT(*) as count FROM embeddings").get();
     const edgeSum = this.db.prepare("SELECT SUM(in_degree) as total FROM centrality").get();
     return {
       nodeCount: nodeCount.count,
-      embeddingCount: embeddingCount.count,
       edgeCount: edgeSum.total ?? 0
     };
   }
   clear() {
     this.db.exec("DELETE FROM centrality");
-    this.db.exec("DELETE FROM embeddings");
     this.db.exec("DELETE FROM nodes");
   }
   close() {
@@ -779,6 +785,12 @@ import { join as join2 } from "path";
 
 // src/utils/math.ts
 function cosineSimilarity(a, b) {
+  if (a.length === 0 || b.length === 0) {
+    throw new Error("Cannot compute similarity for empty vector");
+  }
+  if (a.length !== b.length) {
+    throw new Error(`Dimension mismatch: ${a.length} vs ${b.length}`);
+  }
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -859,29 +871,36 @@ var SqliteVectorIndex = class {
     if (limit <= 0) {
       return [];
     }
-    const rows = this.db.prepare("SELECT id, vector FROM vectors").all();
-    if (rows.length === 0) {
-      return [];
-    }
-    const firstStoredDim = rows[0].vector.byteLength / 4;
-    if (vector.length !== firstStoredDim) {
-      throw new Error(
-        `Dimension mismatch: query has ${vector.length} dimensions, stored vectors have ${firstStoredDim}`
-      );
-    }
     const queryVec = new Float32Array(vector);
-    const results = [];
-    for (const row of rows) {
+    const stmt = this.db.prepare("SELECT id, vector FROM vectors");
+    const heap = new MinHeap(
+      (a, b) => b.distance - a.distance
+    );
+    let dimensionChecked = false;
+    for (const row of stmt.iterate()) {
+      if (!dimensionChecked) {
+        const storedDim = row.vector.byteLength / 4;
+        if (vector.length !== storedDim) {
+          throw new Error(
+            `Dimension mismatch: query has ${vector.length} dimensions, stored vectors have ${storedDim}`
+          );
+        }
+        dimensionChecked = true;
+      }
       const storedVec = new Float32Array(
         row.vector.buffer,
         row.vector.byteOffset,
         row.vector.byteLength / 4
       );
       const distance = cosineDistance(queryVec, storedVec);
-      results.push({ id: row.id, distance });
+      if (heap.size() < limit) {
+        heap.push({ id: row.id, distance });
+      } else if (distance < heap.peek().distance) {
+        heap.pop();
+        heap.push({ id: row.id, distance });
+      }
     }
-    results.sort((a, b) => a.distance - b.distance);
-    return results.slice(0, limit);
+    return heap.toArray().sort((a, b) => a.distance - b.distance);
   }
   async delete(id) {
     this.db.prepare("DELETE FROM vectors WHERE id = ?").run(id);
@@ -1130,7 +1149,7 @@ function hasFileExtension(path) {
   return /[a-z]/i.test(match[1]);
 }
 function normalizeWikiLink(target) {
-  let normalized = target.toLowerCase().replace(/\\/g, "/");
+  let normalized = target.trim().toLowerCase().replace(/\\/g, "/");
   if (!hasFileExtension(normalized)) {
     normalized += ".md";
   }
@@ -1161,8 +1180,26 @@ function resolveLinks(outgoingLinks, filenameIndex, validNodeIds) {
     if (matches && matches.length > 0) {
       return matches[0];
     }
+    const variant = spaceDashVariant(link);
+    if (variant) {
+      const variantMatches = filenameIndex.get(variant);
+      if (variantMatches && variantMatches.length > 0) {
+        return variantMatches[0];
+      }
+    }
     return link;
   });
+}
+function spaceDashVariant(filename) {
+  const hasSpace = filename.includes(" ");
+  const hasDash = filename.includes("-");
+  if (hasSpace && !hasDash) {
+    return filename.replace(/ /g, "-");
+  }
+  if (hasDash && !hasSpace) {
+    return filename.replace(/-/g, " ");
+  }
+  return null;
 }
 
 // src/providers/docstore/file-operations.ts
@@ -1295,17 +1332,26 @@ function createDefaultRegistry() {
   return registry;
 }
 var DocStore = class extends StoreProvider {
+  id;
   cache;
   sourceRoot;
   ownsVectorIndex;
   registry;
   fileWatcher = null;
   onChangeCallback;
-  constructor(sourceRoot, cacheDir, vectorIndex, registry) {
+  constructor(options) {
+    const {
+      sourceRoot,
+      cacheDir,
+      id = "docstore",
+      vectorIndex,
+      registry
+    } = options;
     const ownsVector = !vectorIndex;
     if (!vectorIndex) mkdirSync2(cacheDir, { recursive: true });
     const vi = vectorIndex ?? new SqliteVectorIndex(cacheDir);
     super({ vectorIndex: vi });
+    this.id = id;
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
     this.ownsVectorIndex = ownsVector;
@@ -1367,7 +1413,7 @@ var DocStore = class extends StoreProvider {
       outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     }
     const mtime = await getFileMtime(filePath);
-    const normalizedNode = { ...node, id: normalizedId, outgoingLinks: outgoingLinks ?? [] };
+    const normalizedNode = { ...node, id: normalizedId, outgoingLinks };
     this.cache.upsertNode(normalizedNode, "file", filePath, mtime);
     this.resolveAllLinks();
     await this.syncGraph();
@@ -1378,17 +1424,14 @@ var DocStore = class extends StoreProvider {
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
-    let outgoingLinks = updates.outgoingLinks;
-    if (updates.content !== void 0 && outgoingLinks === void 0) {
-      const rawLinks = extractWikiLinks(updates.content);
-      outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
-    }
+    const contentForLinks = updates.content ?? existing.content;
+    const rawLinks = extractWikiLinks(contentForLinks);
+    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     const updated = {
       ...existing,
       ...updates,
-      outgoingLinks: outgoingLinks ?? existing.outgoingLinks,
+      outgoingLinks,
       id: existing.id
-      // ID cannot be changed
     };
     const filePath = join4(this.sourceRoot, existing.id);
     const parsed = {
@@ -1401,10 +1444,8 @@ var DocStore = class extends StoreProvider {
     await writeFile(filePath, markdown, "utf-8");
     const mtime = await getFileMtime(filePath);
     this.cache.upsertNode(updated, "file", filePath, mtime);
-    if (outgoingLinks !== void 0 || updates.outgoingLinks !== void 0) {
-      this.resolveAllLinks();
-      await this.syncGraph();
-    }
+    this.resolveAllLinks();
+    await this.syncGraph();
   }
   async deleteNode(id) {
     const normalizedId = normalizeId(id);
@@ -1460,6 +1501,13 @@ var DocStore = class extends StoreProvider {
     if (this.ownsVectorIndex && this.vectorIndex && "close" in this.vectorIndex) {
       this.vectorIndex.close();
     }
+  }
+  // Lifecycle hooks
+  async onRegister() {
+    await this.sync();
+  }
+  async onUnregister() {
+    this.close();
   }
   startWatching(onChange) {
     if (this.fileWatcher?.isWatching()) {
@@ -1569,10 +1617,17 @@ import { pipeline } from "@xenova/transformers";
 var DEFAULT_MODEL = "Xenova/all-MiniLM-L6-v2";
 var DEFAULT_DIMENSIONS = 384;
 var TransformersEmbedding = class {
+  id;
   model;
   dims;
   pipe = null;
-  constructor(model = DEFAULT_MODEL, dimensions = DEFAULT_DIMENSIONS) {
+  constructor(options = {}) {
+    const {
+      model = DEFAULT_MODEL,
+      dimensions = DEFAULT_DIMENSIONS,
+      id = "transformers-embedding"
+    } = options;
+    this.id = id;
     this.model = model;
     this.dims = dimensions;
   }
@@ -1599,23 +1654,83 @@ var TransformersEmbedding = class {
   modelId() {
     return this.model;
   }
+  // Lifecycle hooks
+  async onRegister() {
+  }
+  async onUnregister() {
+    this.pipe = null;
+  }
 };
 
 // src/core/graphcore.ts
 var GraphCoreImpl = class _GraphCoreImpl {
   store = null;
   embedding = null;
-  registerStore(provider) {
+  async registerStore(provider) {
     if (!provider) {
       throw new Error("Store provider is required");
     }
+    if (!isStoreProvider(provider)) {
+      throw new Error("Invalid Store provider: missing required methods or id");
+    }
+    if (this.store?.onUnregister) {
+      try {
+        await this.store.onUnregister();
+      } catch (err) {
+        console.warn("Error during store onUnregister:", err);
+      }
+    }
     this.store = provider;
+    if (provider.onRegister) {
+      try {
+        await provider.onRegister();
+      } catch (err) {
+        this.store = null;
+        throw err;
+      }
+    }
   }
-  registerEmbedding(provider) {
+  async registerEmbedding(provider) {
     if (!provider) {
       throw new Error("Embedding provider is required");
     }
+    if (!isEmbeddingProvider(provider)) {
+      throw new Error("Invalid Embedding provider: missing required methods or id");
+    }
+    if (this.embedding?.onUnregister) {
+      try {
+        await this.embedding.onUnregister();
+      } catch (err) {
+        console.warn("Error during embedding onUnregister:", err);
+      }
+    }
     this.embedding = provider;
+    if (provider.onRegister) {
+      try {
+        await provider.onRegister();
+      } catch (err) {
+        this.embedding = null;
+        throw err;
+      }
+    }
+  }
+  async destroy() {
+    if (this.embedding?.onUnregister) {
+      try {
+        await this.embedding.onUnregister();
+      } catch (err) {
+        console.warn("Error during embedding onUnregister in destroy:", err);
+      }
+    }
+    if (this.store?.onUnregister) {
+      try {
+        await this.store.onUnregister();
+      } catch (err) {
+        console.warn("Error during store onUnregister in destroy:", err);
+      }
+    }
+    this.embedding = null;
+    this.store = null;
   }
   requireStore() {
     if (!this.store) {
@@ -1773,32 +1888,37 @@ var GraphCoreImpl = class _GraphCoreImpl {
     }
     return store.resolveNodes(names, options);
   }
-  static fromConfig(config) {
+  static async fromConfig(config) {
     if (!config.providers?.store) {
       throw new Error("Store configuration is required");
     }
     const core = new _GraphCoreImpl();
-    if (config.providers.store.type === "docstore") {
-      const sourcePath = config.source?.path ?? ".";
-      const cachePath = config.cache?.path ?? ".roux";
-      const store = new DocStore(sourcePath, cachePath);
-      core.registerStore(store);
-    } else {
-      throw new Error(
-        `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
-      );
+    try {
+      if (config.providers.store.type === "docstore") {
+        const sourcePath = config.source?.path ?? ".";
+        const cachePath = config.cache?.path ?? ".roux";
+        const store = new DocStore({ sourceRoot: sourcePath, cacheDir: cachePath });
+        await core.registerStore(store);
+      } else {
+        throw new Error(
+          `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
+        );
+      }
+      const embeddingConfig = config.providers.embedding;
+      if (!embeddingConfig || embeddingConfig.type === "local") {
+        const model = embeddingConfig?.model;
+        const embedding = new TransformersEmbedding(model ? { model } : {});
+        await core.registerEmbedding(embedding);
+      } else {
+        throw new Error(
+          `Unsupported embedding provider type: ${embeddingConfig.type}. Supported: local`
+        );
+      }
+      return core;
+    } catch (err) {
+      await core.destroy();
+      throw err;
     }
-    const embeddingConfig = config.providers.embedding;
-    if (!embeddingConfig || embeddingConfig.type === "local") {
-      const model = embeddingConfig?.model;
-      const embedding = new TransformersEmbedding(model);
-      core.registerEmbedding(embedding);
-    } else {
-      throw new Error(
-        `Unsupported embedding provider type: ${embeddingConfig.type}. Supported: local`
-      );
-    }
-    return core;
   }
 };
 

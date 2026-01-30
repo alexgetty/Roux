@@ -69,8 +69,32 @@ export interface LinkInfo {
   title: string;
 }
 
+// ============================================================================
+// Provider Base Types
+// ============================================================================
+
+/** Base fields all providers must implement. */
+export interface ProviderBase {
+  /** Unique identifier for this provider instance. Must be non-empty. */
+  readonly id: string;
+}
+
+/**
+ * Optional lifecycle hooks for providers.
+ * - onRegister: Called after registration with GraphCore. Errors propagate to caller.
+ * - onUnregister: Called before provider is replaced or GraphCore is destroyed. Best-effort, errors logged.
+ */
+export interface ProviderLifecycle {
+  onRegister?(): Promise<void>;
+  onUnregister?(): Promise<void>;
+}
+
+// ============================================================================
+// Provider Interfaces
+// ============================================================================
+
 /** Data persistence and graph operations. Required provider. */
-export interface Store {
+export interface Store extends ProviderBase, ProviderLifecycle {
   // CRUD
   createNode(node: Node): Promise<void>;
   updateNode(id: string, updates: NodeUpdates): Promise<void>;
@@ -106,7 +130,7 @@ export interface Store {
 }
 
 /** Stateless vector generation. Storage handled by Store. */
-export interface Embedding {
+export interface Embedding extends ProviderBase, ProviderLifecycle {
   embed(text: string): Promise<number[]>;
   embedBatch(texts: string[]): Promise<number[][]>;
   /** For storage allocation */
@@ -140,7 +164,7 @@ export function isVectorIndex(value: unknown): value is VectorIndex {
 /**
  * Runtime type guard for Store interface.
  * IMPORTANT: Update this function when Store interface changes.
- * Current method count: 16
+ * Current method count: 16 + id field
  */
 export function isStoreProvider(value: unknown): value is Store {
   if (value === null || typeof value !== 'object') {
@@ -148,6 +172,8 @@ export function isStoreProvider(value: unknown): value is Store {
   }
   const obj = value as Record<string, unknown>;
   return (
+    typeof obj.id === 'string' &&
+    obj.id.trim().length > 0 &&
     typeof obj.createNode === 'function' &&
     typeof obj.updateNode === 'function' &&
     typeof obj.deleteNode === 'function' &&
@@ -170,7 +196,7 @@ export function isStoreProvider(value: unknown): value is Store {
 /**
  * Runtime type guard for Embedding interface.
  * IMPORTANT: Update this function when Embedding interface changes.
- * Current method count: 4
+ * Current method count: 4 + id field
  */
 export function isEmbeddingProvider(value: unknown): value is Embedding {
   if (value === null || typeof value !== 'object') {
@@ -178,6 +204,8 @@ export function isEmbeddingProvider(value: unknown): value is Embedding {
   }
   const obj = value as Record<string, unknown>;
   return (
+    typeof obj.id === 'string' &&
+    obj.id.trim().length > 0 &&
     typeof obj.embed === 'function' &&
     typeof obj.embedBatch === 'function' &&
     typeof obj.dimensions === 'function' &&

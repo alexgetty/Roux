@@ -8,6 +8,10 @@ var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -197,33 +201,6 @@ import Database from "better-sqlite3";
 import { join as join2 } from "path";
 import { mkdirSync } from "fs";
 
-// src/providers/docstore/cache/embeddings.ts
-function storeEmbedding(db, nodeId, vector, model) {
-  const buffer = Buffer.from(new Float32Array(vector).buffer);
-  db.prepare(
-    `
-    INSERT INTO embeddings (node_id, model, vector)
-    VALUES (?, ?, ?)
-    ON CONFLICT(node_id) DO UPDATE SET
-      model = excluded.model,
-      vector = excluded.vector
-  `
-  ).run(nodeId, model, buffer);
-}
-function getEmbedding(db, nodeId) {
-  const row = db.prepare("SELECT model, vector FROM embeddings WHERE node_id = ?").get(nodeId);
-  if (!row) return null;
-  const float32 = new Float32Array(
-    row.vector.buffer,
-    row.vector.byteOffset,
-    row.vector.length / 4
-  );
-  return {
-    model: row.model,
-    vector: Array.from(float32)
-  };
-}
-
 // src/providers/docstore/cache/centrality.ts
 function storeCentrality(db, nodeId, pagerank, inDegree, outDegree, computedAt) {
   db.prepare(
@@ -306,13 +283,6 @@ var Cache = class {
         source_type TEXT,
         source_path TEXT,
         source_modified INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS embeddings (
-        node_id TEXT PRIMARY KEY,
-        model TEXT,
-        vector BLOB,
-        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS centrality (
@@ -454,7 +424,7 @@ var Cache = class {
       params.push(filter.tag);
     }
     if (filter.path) {
-      conditions.push("id LIKE ? || '%'");
+      conditions.push("LOWER(id) LIKE LOWER(?) || '%'");
       params.push(filter.path);
     }
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -479,12 +449,6 @@ var Cache = class {
   updateOutgoingLinks(nodeId, links) {
     this.db.prepare("UPDATE nodes SET outgoing_links = ? WHERE id = ?").run(JSON.stringify(links), nodeId);
   }
-  storeEmbedding(nodeId, vector, model) {
-    storeEmbedding(this.db, nodeId, vector, model);
-  }
-  getEmbedding(nodeId) {
-    return getEmbedding(this.db, nodeId);
-  }
   storeCentrality(nodeId, pagerank, inDegree, outDegree, computedAt) {
     storeCentrality(this.db, nodeId, pagerank, inDegree, outDegree, computedAt);
   }
@@ -493,17 +457,14 @@ var Cache = class {
   }
   getStats() {
     const nodeCount = this.db.prepare("SELECT COUNT(*) as count FROM nodes").get();
-    const embeddingCount = this.db.prepare("SELECT COUNT(*) as count FROM embeddings").get();
     const edgeSum = this.db.prepare("SELECT SUM(in_degree) as total FROM centrality").get();
     return {
       nodeCount: nodeCount.count,
-      embeddingCount: embeddingCount.count,
       edgeCount: edgeSum.total ?? 0
     };
   }
   clear() {
     this.db.exec("DELETE FROM centrality");
-    this.db.exec("DELETE FROM embeddings");
     this.db.exec("DELETE FROM nodes");
   }
   close() {
@@ -531,8 +492,76 @@ var Cache = class {
 import Database2 from "better-sqlite3";
 import { join as join3 } from "path";
 
+// src/utils/heap.ts
+var MinHeap = class {
+  data = [];
+  compare;
+  constructor(comparator) {
+    this.compare = comparator;
+  }
+  size() {
+    return this.data.length;
+  }
+  peek() {
+    return this.data[0];
+  }
+  push(value) {
+    this.data.push(value);
+    this.bubbleUp(this.data.length - 1);
+  }
+  pop() {
+    if (this.data.length === 0) return void 0;
+    if (this.data.length === 1) return this.data.pop();
+    const min = this.data[0];
+    this.data[0] = this.data.pop();
+    this.bubbleDown(0);
+    return min;
+  }
+  toArray() {
+    return [...this.data];
+  }
+  bubbleUp(index) {
+    while (index > 0) {
+      const parentIndex = Math.floor((index - 1) / 2);
+      if (this.compare(this.data[index], this.data[parentIndex]) >= 0) {
+        break;
+      }
+      this.swap(index, parentIndex);
+      index = parentIndex;
+    }
+  }
+  bubbleDown(index) {
+    const length = this.data.length;
+    while (true) {
+      const leftChild = 2 * index + 1;
+      const rightChild = 2 * index + 2;
+      let smallest = index;
+      if (leftChild < length && this.compare(this.data[leftChild], this.data[smallest]) < 0) {
+        smallest = leftChild;
+      }
+      if (rightChild < length && this.compare(this.data[rightChild], this.data[smallest]) < 0) {
+        smallest = rightChild;
+      }
+      if (smallest === index) break;
+      this.swap(index, smallest);
+      index = smallest;
+    }
+  }
+  swap(i, j) {
+    const temp = this.data[i];
+    this.data[i] = this.data[j];
+    this.data[j] = temp;
+  }
+};
+
 // src/utils/math.ts
 function cosineSimilarity(a, b) {
+  if (a.length === 0 || b.length === 0) {
+    throw new Error("Cannot compute similarity for empty vector");
+  }
+  if (a.length !== b.length) {
+    throw new Error(`Dimension mismatch: ${a.length} vs ${b.length}`);
+  }
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -613,29 +642,36 @@ var SqliteVectorIndex = class {
     if (limit <= 0) {
       return [];
     }
-    const rows = this.db.prepare("SELECT id, vector FROM vectors").all();
-    if (rows.length === 0) {
-      return [];
-    }
-    const firstStoredDim = rows[0].vector.byteLength / 4;
-    if (vector.length !== firstStoredDim) {
-      throw new Error(
-        `Dimension mismatch: query has ${vector.length} dimensions, stored vectors have ${firstStoredDim}`
-      );
-    }
     const queryVec = new Float32Array(vector);
-    const results = [];
-    for (const row of rows) {
+    const stmt = this.db.prepare("SELECT id, vector FROM vectors");
+    const heap = new MinHeap(
+      (a, b) => b.distance - a.distance
+    );
+    let dimensionChecked = false;
+    for (const row of stmt.iterate()) {
+      if (!dimensionChecked) {
+        const storedDim = row.vector.byteLength / 4;
+        if (vector.length !== storedDim) {
+          throw new Error(
+            `Dimension mismatch: query has ${vector.length} dimensions, stored vectors have ${storedDim}`
+          );
+        }
+        dimensionChecked = true;
+      }
       const storedVec = new Float32Array(
         row.vector.buffer,
         row.vector.byteOffset,
         row.vector.byteLength / 4
       );
       const distance = cosineDistance(queryVec, storedVec);
-      results.push({ id: row.id, distance });
+      if (heap.size() < limit) {
+        heap.push({ id: row.id, distance });
+      } else if (distance < heap.peek().distance) {
+        heap.pop();
+        heap.push({ id: row.id, distance });
+      }
     }
-    results.sort((a, b) => a.distance - b.distance);
-    return results.slice(0, limit);
+    return heap.toArray().sort((a, b) => a.distance - b.distance);
   }
   async delete(id) {
     this.db.prepare("DELETE FROM vectors WHERE id = ?").run(id);
@@ -731,70 +767,6 @@ function buildGraph(nodes) {
 
 // src/graph/traversal.ts
 import { bidirectional } from "graphology-shortest-path";
-
-// src/utils/heap.ts
-var MinHeap = class {
-  data = [];
-  compare;
-  constructor(comparator) {
-    this.compare = comparator;
-  }
-  size() {
-    return this.data.length;
-  }
-  peek() {
-    return this.data[0];
-  }
-  push(value) {
-    this.data.push(value);
-    this.bubbleUp(this.data.length - 1);
-  }
-  pop() {
-    if (this.data.length === 0) return void 0;
-    if (this.data.length === 1) return this.data.pop();
-    const min = this.data[0];
-    this.data[0] = this.data.pop();
-    this.bubbleDown(0);
-    return min;
-  }
-  toArray() {
-    return [...this.data];
-  }
-  bubbleUp(index) {
-    while (index > 0) {
-      const parentIndex = Math.floor((index - 1) / 2);
-      if (this.compare(this.data[index], this.data[parentIndex]) >= 0) {
-        break;
-      }
-      this.swap(index, parentIndex);
-      index = parentIndex;
-    }
-  }
-  bubbleDown(index) {
-    const length = this.data.length;
-    while (true) {
-      const leftChild = 2 * index + 1;
-      const rightChild = 2 * index + 2;
-      let smallest = index;
-      if (leftChild < length && this.compare(this.data[leftChild], this.data[smallest]) < 0) {
-        smallest = leftChild;
-      }
-      if (rightChild < length && this.compare(this.data[rightChild], this.data[smallest]) < 0) {
-        smallest = rightChild;
-      }
-      if (smallest === index) break;
-      this.swap(index, smallest);
-      index = smallest;
-    }
-  }
-  swap(i, j) {
-    const temp = this.data[i];
-    this.data[i] = this.data[j];
-    this.data[j] = temp;
-  }
-};
-
-// src/graph/traversal.ts
 function getNeighborIds(graph, id, options) {
   if (!graph.hasNode(id)) {
     return [];
@@ -845,7 +817,11 @@ function getHubs(graph, metric, limit) {
       heap.push([id, score]);
     }
   });
-  return heap.toArray().sort((a, b) => b[1] - a[1]);
+  return heap.toArray().sort((a, b) => {
+    const scoreDiff = b[1] - a[1];
+    if (scoreDiff !== 0) return scoreDiff;
+    return a[0].localeCompare(b[0]);
+  });
 }
 
 // src/graph/analysis.ts
@@ -952,7 +928,8 @@ var StoreProvider = class {
       nodes = nodes.filter((n) => n.tags.some((t) => t.toLowerCase() === lower));
     }
     if (filter.path) {
-      nodes = nodes.filter((n) => n.id.startsWith(filter.path));
+      const lowerPath = filter.path.toLowerCase();
+      nodes = nodes.filter((n) => n.id.startsWith(lowerPath));
     }
     const total = nodes.length;
     const offset = options?.offset ?? 0;
@@ -995,7 +972,8 @@ var StoreProvider = class {
       candidates = filtered.map((n) => ({ id: n.id, title: n.title }));
     }
     if (options?.path) {
-      candidates = candidates.filter((c) => c.id.startsWith(options.path));
+      const lowerPath = options.path.toLowerCase();
+      candidates = candidates.filter((c) => c.id.startsWith(lowerPath));
     }
     return resolveNames(names, candidates, {
       strategy,
@@ -1226,7 +1204,7 @@ function hasFileExtension(path) {
   return /[a-z]/i.test(match[1]);
 }
 function normalizeWikiLink(target) {
-  let normalized = target.toLowerCase().replace(/\\/g, "/");
+  let normalized = target.trim().toLowerCase().replace(/\\/g, "/");
   if (!hasFileExtension(normalized)) {
     normalized += ".md";
   }
@@ -1257,8 +1235,26 @@ function resolveLinks(outgoingLinks, filenameIndex, validNodeIds) {
     if (matches && matches.length > 0) {
       return matches[0];
     }
+    const variant = spaceDashVariant(link);
+    if (variant) {
+      const variantMatches = filenameIndex.get(variant);
+      if (variantMatches && variantMatches.length > 0) {
+        return variantMatches[0];
+      }
+    }
     return link;
   });
+}
+function spaceDashVariant(filename) {
+  const hasSpace = filename.includes(" ");
+  const hasDash = filename.includes("-");
+  if (hasSpace && !hasDash) {
+    return filename.replace(/ /g, "-");
+  }
+  if (hasDash && !hasSpace) {
+    return filename.replace(/-/g, " ");
+  }
+  return null;
 }
 
 // src/providers/docstore/file-operations.ts
@@ -1391,17 +1387,26 @@ function createDefaultRegistry() {
   return registry;
 }
 var DocStore = class extends StoreProvider {
+  id;
   cache;
   sourceRoot;
   ownsVectorIndex;
   registry;
   fileWatcher = null;
   onChangeCallback;
-  constructor(sourceRoot, cacheDir, vectorIndex, registry) {
+  constructor(options) {
+    const {
+      sourceRoot,
+      cacheDir,
+      id = "docstore",
+      vectorIndex,
+      registry
+    } = options;
     const ownsVector = !vectorIndex;
     if (!vectorIndex) mkdirSync2(cacheDir, { recursive: true });
     const vi = vectorIndex ?? new SqliteVectorIndex(cacheDir);
     super({ vectorIndex: vi });
+    this.id = id;
     this.sourceRoot = sourceRoot;
     this.cache = new Cache(cacheDir);
     this.ownsVectorIndex = ownsVector;
@@ -1463,7 +1468,7 @@ var DocStore = class extends StoreProvider {
       outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     }
     const mtime = await getFileMtime(filePath);
-    const normalizedNode = { ...node, id: normalizedId, outgoingLinks: outgoingLinks ?? [] };
+    const normalizedNode = { ...node, id: normalizedId, outgoingLinks };
     this.cache.upsertNode(normalizedNode, "file", filePath, mtime);
     this.resolveAllLinks();
     await this.syncGraph();
@@ -1474,17 +1479,14 @@ var DocStore = class extends StoreProvider {
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
-    let outgoingLinks = updates.outgoingLinks;
-    if (updates.content !== void 0 && outgoingLinks === void 0) {
-      const rawLinks = extractWikiLinks(updates.content);
-      outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
-    }
+    const contentForLinks = updates.content ?? existing.content;
+    const rawLinks = extractWikiLinks(contentForLinks);
+    const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     const updated = {
       ...existing,
       ...updates,
-      outgoingLinks: outgoingLinks ?? existing.outgoingLinks,
+      outgoingLinks,
       id: existing.id
-      // ID cannot be changed
     };
     const filePath = join6(this.sourceRoot, existing.id);
     const parsed = {
@@ -1497,10 +1499,8 @@ var DocStore = class extends StoreProvider {
     await writeFile2(filePath, markdown, "utf-8");
     const mtime = await getFileMtime(filePath);
     this.cache.upsertNode(updated, "file", filePath, mtime);
-    if (outgoingLinks !== void 0 || updates.outgoingLinks !== void 0) {
-      this.resolveAllLinks();
-      await this.syncGraph();
-    }
+    this.resolveAllLinks();
+    await this.syncGraph();
   }
   async deleteNode(id) {
     const normalizedId = normalizeId(id);
@@ -1556,6 +1556,13 @@ var DocStore = class extends StoreProvider {
     if (this.ownsVectorIndex && this.vectorIndex && "close" in this.vectorIndex) {
       this.vectorIndex.close();
     }
+  }
+  // Lifecycle hooks
+  async onRegister() {
+    await this.sync();
+  }
+  async onUnregister() {
+    this.close();
   }
   startWatching(onChange) {
     if (this.fileWatcher?.isWatching()) {
@@ -1665,10 +1672,17 @@ import { pipeline } from "@xenova/transformers";
 var DEFAULT_MODEL = "Xenova/all-MiniLM-L6-v2";
 var DEFAULT_DIMENSIONS = 384;
 var TransformersEmbedding = class {
+  id;
   model;
   dims;
   pipe = null;
-  constructor(model = DEFAULT_MODEL, dimensions = DEFAULT_DIMENSIONS) {
+  constructor(options = {}) {
+    const {
+      model = DEFAULT_MODEL,
+      dimensions = DEFAULT_DIMENSIONS,
+      id = "transformers-embedding"
+    } = options;
+    this.id = id;
     this.model = model;
     this.dims = dimensions;
   }
@@ -1695,23 +1709,99 @@ var TransformersEmbedding = class {
   modelId() {
     return this.model;
   }
+  // Lifecycle hooks
+  async onRegister() {
+  }
+  async onUnregister() {
+    this.pipe = null;
+  }
 };
+
+// src/types/provider.ts
+function isStoreProvider(value) {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const obj = value;
+  return typeof obj.id === "string" && obj.id.trim().length > 0 && typeof obj.createNode === "function" && typeof obj.updateNode === "function" && typeof obj.deleteNode === "function" && typeof obj.getNode === "function" && typeof obj.getNodes === "function" && typeof obj.getNeighbors === "function" && typeof obj.findPath === "function" && typeof obj.getHubs === "function" && typeof obj.storeEmbedding === "function" && typeof obj.searchByVector === "function" && typeof obj.searchByTags === "function" && typeof obj.getRandomNode === "function" && typeof obj.resolveTitles === "function" && typeof obj.listNodes === "function" && typeof obj.resolveNodes === "function" && typeof obj.nodesExist === "function";
+}
+function isEmbeddingProvider(value) {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const obj = value;
+  return typeof obj.id === "string" && obj.id.trim().length > 0 && typeof obj.embed === "function" && typeof obj.embedBatch === "function" && typeof obj.dimensions === "function" && typeof obj.modelId === "function";
+}
 
 // src/core/graphcore.ts
 var GraphCoreImpl = class _GraphCoreImpl {
   store = null;
   embedding = null;
-  registerStore(provider) {
+  async registerStore(provider) {
     if (!provider) {
       throw new Error("Store provider is required");
     }
+    if (!isStoreProvider(provider)) {
+      throw new Error("Invalid Store provider: missing required methods or id");
+    }
+    if (this.store?.onUnregister) {
+      try {
+        await this.store.onUnregister();
+      } catch (err) {
+        console.warn("Error during store onUnregister:", err);
+      }
+    }
     this.store = provider;
+    if (provider.onRegister) {
+      try {
+        await provider.onRegister();
+      } catch (err) {
+        this.store = null;
+        throw err;
+      }
+    }
   }
-  registerEmbedding(provider) {
+  async registerEmbedding(provider) {
     if (!provider) {
       throw new Error("Embedding provider is required");
     }
+    if (!isEmbeddingProvider(provider)) {
+      throw new Error("Invalid Embedding provider: missing required methods or id");
+    }
+    if (this.embedding?.onUnregister) {
+      try {
+        await this.embedding.onUnregister();
+      } catch (err) {
+        console.warn("Error during embedding onUnregister:", err);
+      }
+    }
     this.embedding = provider;
+    if (provider.onRegister) {
+      try {
+        await provider.onRegister();
+      } catch (err) {
+        this.embedding = null;
+        throw err;
+      }
+    }
+  }
+  async destroy() {
+    if (this.embedding?.onUnregister) {
+      try {
+        await this.embedding.onUnregister();
+      } catch (err) {
+        console.warn("Error during embedding onUnregister in destroy:", err);
+      }
+    }
+    if (this.store?.onUnregister) {
+      try {
+        await this.store.onUnregister();
+      } catch (err) {
+        console.warn("Error during store onUnregister in destroy:", err);
+      }
+    }
+    this.embedding = null;
+    this.store = null;
   }
   requireStore() {
     if (!this.store) {
@@ -1869,32 +1959,37 @@ var GraphCoreImpl = class _GraphCoreImpl {
     }
     return store.resolveNodes(names, options);
   }
-  static fromConfig(config) {
+  static async fromConfig(config) {
     if (!config.providers?.store) {
       throw new Error("Store configuration is required");
     }
     const core = new _GraphCoreImpl();
-    if (config.providers.store.type === "docstore") {
-      const sourcePath = config.source?.path ?? ".";
-      const cachePath = config.cache?.path ?? ".roux";
-      const store = new DocStore(sourcePath, cachePath);
-      core.registerStore(store);
-    } else {
-      throw new Error(
-        `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
-      );
+    try {
+      if (config.providers.store.type === "docstore") {
+        const sourcePath = config.source?.path ?? ".";
+        const cachePath = config.cache?.path ?? ".roux";
+        const store = new DocStore({ sourceRoot: sourcePath, cacheDir: cachePath });
+        await core.registerStore(store);
+      } else {
+        throw new Error(
+          `Unsupported store provider type: ${config.providers.store.type}. Supported: docstore`
+        );
+      }
+      const embeddingConfig = config.providers.embedding;
+      if (!embeddingConfig || embeddingConfig.type === "local") {
+        const model = embeddingConfig?.model;
+        const embedding = new TransformersEmbedding(model ? { model } : {});
+        await core.registerEmbedding(embedding);
+      } else {
+        throw new Error(
+          `Unsupported embedding provider type: ${embeddingConfig.type}. Supported: local`
+        );
+      }
+      return core;
+    } catch (err) {
+      await core.destroy();
+      throw err;
     }
-    const embeddingConfig = config.providers.embedding;
-    if (!embeddingConfig || embeddingConfig.type === "local") {
-      const model = embeddingConfig?.model;
-      const embedding = new TransformersEmbedding(model);
-      core.registerEmbedding(embedding);
-    } else {
-      throw new Error(
-        `Unsupported embedding provider type: ${embeddingConfig.type}. Supported: local`
-      );
-    }
-    return core;
   }
 };
 
@@ -1905,6 +2000,12 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
+
+// src/types/config.ts
+var DEFAULT_NAMING = {
+  filename: "space",
+  title: "title"
+};
 
 // src/index.ts
 var VERSION = "0.1.3";
@@ -1926,6 +2027,93 @@ var McpError = class extends Error {
   }
 };
 
+// src/mcp/handlers/search.ts
+var search_exports = {};
+__export(search_exports, {
+  handler: () => handler,
+  schema: () => schema
+});
+
+// src/mcp/validation.ts
+function coerceInt(value, defaultValue, minValue, fieldName) {
+  if (value === void 0 || value === null) {
+    return defaultValue;
+  }
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return defaultValue;
+  }
+  const floored = Math.floor(num);
+  if (floored < minValue) {
+    throw new McpError("INVALID_PARAMS", `${fieldName} must be at least ${minValue}`);
+  }
+  return floored;
+}
+function coerceLimit(value, defaultValue) {
+  return coerceInt(value, defaultValue, 1, "limit");
+}
+function coerceOffset(value, defaultValue) {
+  return coerceInt(value, defaultValue, 0, "offset");
+}
+function coerceDepth(value) {
+  if (value === void 0 || value === null) {
+    return 0;
+  }
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return 0;
+  }
+  return num >= 1 ? 1 : 0;
+}
+function validateStringArray(value, fieldName) {
+  if (!Array.isArray(value)) {
+    throw new McpError("INVALID_PARAMS", `${fieldName} is required and must be an array`);
+  }
+  if (!value.every((item) => typeof item === "string")) {
+    throw new McpError("INVALID_PARAMS", `${fieldName} must contain only strings`);
+  }
+  return value;
+}
+function validateRequiredString(value, fieldName) {
+  if (value === void 0 || value === null || typeof value !== "string") {
+    throw new McpError("INVALID_PARAMS", `${fieldName} is required and must be a string`);
+  }
+  return value;
+}
+function validateEnum(value, validValues, fieldName, defaultValue) {
+  if (value === void 0 || value === null) {
+    return defaultValue;
+  }
+  if (!validValues.includes(value)) {
+    throw new McpError(
+      "INVALID_PARAMS",
+      `${fieldName} must be one of: ${validValues.join(", ")}`
+    );
+  }
+  return value;
+}
+function validateOptionalTags(value) {
+  if (value === void 0) {
+    return void 0;
+  }
+  if (!Array.isArray(value)) {
+    throw new McpError("INVALID_PARAMS", "tags must contain only strings");
+  }
+  if (!value.every((t) => typeof t === "string")) {
+    throw new McpError("INVALID_PARAMS", "tags must contain only strings");
+  }
+  return value;
+}
+function validateRequiredTags(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new McpError("INVALID_PARAMS", "tags is required and must be a non-empty array");
+  }
+  if (!value.every((t) => typeof t === "string")) {
+    throw new McpError("INVALID_PARAMS", "tags must contain only strings");
+  }
+  return value;
+}
+
 // src/mcp/truncate.ts
 var TRUNCATION_LIMITS = {
   /** Primary node (get_node, single result) */
@@ -1941,7 +2129,13 @@ function truncateContent(content, context) {
   if (content.length <= limit) {
     return content;
   }
-  const truncatedLength = Math.max(0, limit - TRUNCATION_SUFFIX.length);
+  let truncatedLength = Math.max(0, limit - TRUNCATION_SUFFIX.length);
+  if (truncatedLength > 0) {
+    const lastCharCode = content.charCodeAt(truncatedLength - 1);
+    if (lastCharCode >= 55296 && lastCharCode <= 56319) {
+      truncatedLength--;
+    }
+  }
   return content.slice(0, truncatedLength) + TRUNCATION_SUFFIX;
 }
 
@@ -2035,28 +2229,30 @@ function pathToResponse(path) {
   };
 }
 
-// src/mcp/handlers.ts
-function coerceInt(value, defaultValue, minValue, fieldName) {
-  if (value === void 0 || value === null) {
-    return defaultValue;
-  }
-  const num = Number(value);
-  if (Number.isNaN(num)) {
-    return defaultValue;
-  }
-  const floored = Math.floor(num);
-  if (floored < minValue) {
-    throw new McpError("INVALID_PARAMS", `${fieldName} must be at least ${minValue}`);
-  }
-  return floored;
-}
-function coerceLimit(value, defaultValue) {
-  return coerceInt(value, defaultValue, 1, "limit");
-}
-function coerceOffset(value, defaultValue) {
-  return coerceInt(value, defaultValue, 0, "offset");
-}
-async function handleSearch(ctx, args) {
+// src/mcp/handlers/search.ts
+var schema = {
+  type: "object",
+  properties: {
+    query: {
+      type: "string",
+      description: "Natural language search query"
+    },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      default: 10,
+      description: "Maximum results to return"
+    },
+    include_content: {
+      type: "boolean",
+      default: false,
+      description: "Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content."
+    }
+  },
+  required: ["query"]
+};
+async function handler(ctx, args) {
   if (!ctx.hasEmbedding) {
     throw new McpError("PROVIDER_ERROR", "Search requires embedding provider");
   }
@@ -2073,22 +2269,33 @@ async function handleSearch(ctx, args) {
   });
   return nodesToSearchResults(nodes, scores, ctx.store, includeContent);
 }
-function coerceDepth(value) {
-  if (value === void 0 || value === null) {
-    return 0;
-  }
-  const num = Number(value);
-  if (Number.isNaN(num)) {
-    return 0;
-  }
-  return num >= 1 ? 1 : 0;
-}
-async function handleGetNode(ctx, args) {
-  const id = args.id;
+
+// src/mcp/handlers/get_node.ts
+var get_node_exports = {};
+__export(get_node_exports, {
+  handler: () => handler2,
+  schema: () => schema2
+});
+var schema2 = {
+  type: "object",
+  properties: {
+    id: {
+      type: "string",
+      description: 'Node ID (file path for DocStore). ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
+    },
+    depth: {
+      type: "integer",
+      minimum: 0,
+      maximum: 1,
+      default: 0,
+      description: "0 = node only, 1 = include neighbors"
+    }
+  },
+  required: ["id"]
+};
+async function handler2(ctx, args) {
+  const id = validateRequiredString(args.id, "id");
   const depth = coerceDepth(args.depth);
-  if (!id || typeof id !== "string") {
-    throw new McpError("INVALID_PARAMS", "id is required and must be a string");
-  }
   const node = await ctx.core.getNode(id, depth);
   if (!node) {
     return null;
@@ -2102,119 +2309,254 @@ async function handleGetNode(ctx, args) {
   ]);
   return nodeToContextResponse(node, incomingNeighbors, outgoingNeighbors, ctx.store);
 }
+
+// src/mcp/handlers/get_neighbors.ts
+var get_neighbors_exports = {};
+__export(get_neighbors_exports, {
+  handler: () => handler3,
+  schema: () => schema3
+});
 var VALID_DIRECTIONS = ["in", "out", "both"];
-async function handleGetNeighbors(ctx, args) {
-  const id = args.id;
-  const directionRaw = args.direction ?? "both";
+var schema3 = {
+  type: "object",
+  properties: {
+    id: {
+      type: "string",
+      description: 'Source node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
+    },
+    direction: {
+      type: "string",
+      enum: ["in", "out", "both"],
+      default: "both",
+      description: "in = nodes linking here, out = nodes linked to, both = all"
+    },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      default: 20,
+      description: "Maximum neighbors to return"
+    },
+    include_content: {
+      type: "boolean",
+      default: false,
+      description: "Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content."
+    }
+  },
+  required: ["id"]
+};
+async function handler3(ctx, args) {
+  const id = validateRequiredString(args.id, "id");
   const limit = coerceLimit(args.limit, 20);
   const includeContent = args.include_content === true;
-  if (!id || typeof id !== "string") {
-    throw new McpError("INVALID_PARAMS", "id is required and must be a string");
-  }
-  if (!VALID_DIRECTIONS.includes(directionRaw)) {
-    throw new McpError(
-      "INVALID_PARAMS",
-      `direction must be one of: ${VALID_DIRECTIONS.join(", ")}`
-    );
-  }
-  const direction = directionRaw;
+  const direction = validateEnum(args.direction, VALID_DIRECTIONS, "direction", "both");
   const neighbors = await ctx.core.getNeighbors(id, { direction, limit });
   return nodesToResponses(neighbors, ctx.store, "list", includeContent);
 }
-async function handleFindPath(ctx, args) {
-  const source = args.source;
-  const target = args.target;
-  if (!source || typeof source !== "string") {
-    throw new McpError("INVALID_PARAMS", "source is required and must be a string");
-  }
-  if (!target || typeof target !== "string") {
-    throw new McpError("INVALID_PARAMS", "target is required and must be a string");
-  }
+
+// src/mcp/handlers/find_path.ts
+var find_path_exports = {};
+__export(find_path_exports, {
+  handler: () => handler4,
+  schema: () => schema4
+});
+var schema4 = {
+  type: "object",
+  properties: {
+    source: {
+      type: "string",
+      description: 'Start node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
+    },
+    target: {
+      type: "string",
+      description: 'End node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
+    }
+  },
+  required: ["source", "target"]
+};
+async function handler4(ctx, args) {
+  const source = validateRequiredString(args.source, "source");
+  const target = validateRequiredString(args.target, "target");
   const path = await ctx.core.findPath(source, target);
   if (!path) {
     return null;
   }
   return pathToResponse(path);
 }
+
+// src/mcp/handlers/get_hubs.ts
+var get_hubs_exports = {};
+__export(get_hubs_exports, {
+  handler: () => handler5,
+  schema: () => schema5
+});
 var VALID_METRICS = ["in_degree", "out_degree"];
-async function handleGetHubs(ctx, args) {
-  const metricRaw = args.metric ?? "in_degree";
-  const limit = coerceLimit(args.limit, 10);
-  if (!VALID_METRICS.includes(metricRaw)) {
-    throw new McpError(
-      "INVALID_PARAMS",
-      `metric must be one of: ${VALID_METRICS.join(", ")}`
-    );
+var schema5 = {
+  type: "object",
+  properties: {
+    metric: {
+      type: "string",
+      enum: ["in_degree", "out_degree"],
+      default: "in_degree",
+      description: "Centrality metric"
+    },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      default: 10,
+      description: "Maximum results"
+    }
   }
-  const metric = metricRaw;
+};
+async function handler5(ctx, args) {
+  const limit = coerceLimit(args.limit, 10);
+  const metric = validateEnum(args.metric, VALID_METRICS, "metric", "in_degree");
   const hubs = await ctx.core.getHubs(metric, limit);
   return hubsToResponses(hubs, ctx.store);
 }
+
+// src/mcp/handlers/search_by_tags.ts
+var search_by_tags_exports = {};
+__export(search_by_tags_exports, {
+  handler: () => handler6,
+  schema: () => schema6
+});
 var VALID_TAG_MODES = ["any", "all"];
-async function handleSearchByTags(ctx, args) {
-  const tags = args.tags;
-  const modeRaw = args.mode ?? "any";
+var schema6 = {
+  type: "object",
+  properties: {
+    tags: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 1,
+      description: "Tags to match"
+    },
+    mode: {
+      type: "string",
+      enum: ["any", "all"],
+      default: "any",
+      description: "any = OR matching, all = AND matching"
+    },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: 100,
+      default: 20,
+      description: "Maximum results"
+    },
+    include_content: {
+      type: "boolean",
+      default: false,
+      description: "Include node content in results. Default false returns metadata only."
+    }
+  },
+  required: ["tags"]
+};
+async function handler6(ctx, args) {
+  const tags = validateRequiredTags(args.tags);
   const limit = coerceLimit(args.limit, 20);
-  if (!Array.isArray(tags) || tags.length === 0) {
-    throw new McpError("INVALID_PARAMS", "tags is required and must be a non-empty array");
-  }
-  if (!tags.every((t) => typeof t === "string")) {
-    throw new McpError("INVALID_PARAMS", "tags must contain only strings");
-  }
-  if (!VALID_TAG_MODES.includes(modeRaw)) {
-    throw new McpError(
-      "INVALID_PARAMS",
-      `mode must be one of: ${VALID_TAG_MODES.join(", ")}`
-    );
-  }
-  const mode = modeRaw;
+  const includeContent = args.include_content === true;
+  const mode = validateEnum(args.mode, VALID_TAG_MODES, "mode", "any");
   const nodes = await ctx.core.searchByTags(tags, mode, limit);
-  return nodesToResponses(nodes, ctx.store, "list", true);
+  return nodesToResponses(nodes, ctx.store, "list", includeContent);
 }
-async function handleRandomNode(ctx, args) {
-  const tags = args.tags;
-  if (tags !== void 0) {
-    if (!Array.isArray(tags) || !tags.every((t) => typeof t === "string")) {
-      throw new McpError("INVALID_PARAMS", "tags must contain only strings");
+
+// src/mcp/handlers/random_node.ts
+var random_node_exports = {};
+__export(random_node_exports, {
+  handler: () => handler7,
+  schema: () => schema7
+});
+var schema7 = {
+  type: "object",
+  properties: {
+    tags: {
+      type: "array",
+      items: { type: "string" },
+      description: "Optional: limit to nodes with these tags (any match)"
     }
   }
+};
+async function handler7(ctx, args) {
+  const tags = validateOptionalTags(args.tags);
   const node = await ctx.core.getRandomNode(tags);
   if (!node) {
     return null;
   }
   return nodeToResponse(node, ctx.store, "primary");
 }
-function deriveTitle(id) {
+
+// src/mcp/handlers/create_node.ts
+var create_node_exports = {};
+__export(create_node_exports, {
+  deriveTitle: () => deriveTitle,
+  handler: () => handler8,
+  normalizeCreateId: () => normalizeCreateId,
+  schema: () => schema8
+});
+var schema8 = {
+  type: "object",
+  properties: {
+    id: {
+      type: "string",
+      description: 'Full path for new node (must end in .md). Will be lowercased (spaces and special characters preserved). Example: "notes/My Note.md" creates "notes/my note.md"'
+    },
+    title: {
+      type: "string",
+      description: "Optional display title. Defaults to filename without .md extension."
+    },
+    content: {
+      type: "string",
+      description: "Full text content (markdown)"
+    },
+    tags: {
+      type: "array",
+      items: { type: "string" },
+      default: [],
+      description: "Classification tags"
+    }
+  },
+  required: ["id", "content"]
+};
+function normalizeCreateId(rawId, naming = DEFAULT_NAMING) {
+  let normalized = rawId.replace(/\\/g, "/").toLowerCase();
+  if (naming.filename === "space") {
+    normalized = normalized.replace(/-/g, " ");
+  } else {
+    normalized = normalized.replace(/ /g, "-");
+  }
+  return normalized;
+}
+function deriveTitle(id, naming) {
   const basename = id.split("/").pop() || "";
   const rawTitle = basename.replace(/\.md$/i, "");
   if (!rawTitle || !/[a-zA-Z0-9]/.test(rawTitle)) {
     return "Untitled";
   }
-  return rawTitle;
-}
-async function handleCreateNode(ctx, args) {
-  const idRaw = args.id;
-  const titleRaw = args.title;
-  const content = args.content;
-  const tagsRaw = args.tags;
-  if (!idRaw || typeof idRaw !== "string") {
-    throw new McpError("INVALID_PARAMS", "id is required and must be a string");
+  if (!naming) {
+    return rawTitle;
   }
+  const spaced = naming.filename === "dash" ? rawTitle.replace(/-/g, " ") : rawTitle;
+  switch (naming.title) {
+    case "title":
+      return spaced.replace(/\b\w/g, (c) => c.toUpperCase());
+    case "sentence":
+      return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+    case "as-is":
+      return rawTitle;
+  }
+}
+async function handler8(ctx, args) {
+  const idRaw = validateRequiredString(args.id, "id");
   if (!idRaw.toLowerCase().endsWith(".md")) {
     throw new McpError("INVALID_PARAMS", "id must end with .md extension");
   }
-  if (content === void 0 || typeof content !== "string") {
-    throw new McpError("INVALID_PARAMS", "content is required and must be a string");
-  }
-  let tags = [];
-  if (tagsRaw !== void 0) {
-    if (!Array.isArray(tagsRaw) || !tagsRaw.every((t) => typeof t === "string")) {
-      throw new McpError("INVALID_PARAMS", "tags must contain only strings");
-    }
-    tags = tagsRaw;
-  }
-  const id = idRaw.toLowerCase();
-  const title = titleRaw ?? deriveTitle(idRaw);
+  const content = validateRequiredString(args.content, "content");
+  const titleRaw = args.title;
+  const tags = validateOptionalTags(args.tags) ?? [];
+  const id = normalizeCreateId(idRaw, ctx.naming);
+  const title = titleRaw ?? deriveTitle(id, ctx.naming);
   const existing = await ctx.core.getNode(id);
   if (existing) {
     throw new McpError("NODE_EXISTS", `Node already exists: ${id}`);
@@ -2227,26 +2569,46 @@ async function handleCreateNode(ctx, args) {
   });
   return nodeToResponse(node, ctx.store, "primary");
 }
-async function handleUpdateNode(ctx, args) {
-  const id = args.id;
+
+// src/mcp/handlers/update_node.ts
+var update_node_exports = {};
+__export(update_node_exports, {
+  handler: () => handler9,
+  schema: () => schema9
+});
+var schema9 = {
+  type: "object",
+  properties: {
+    id: {
+      type: "string",
+      description: 'Node ID to update. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
+    },
+    title: {
+      type: "string",
+      description: "New title (renames file for DocStore)"
+    },
+    content: {
+      type: "string",
+      description: "New content (replaces entirely)"
+    },
+    tags: {
+      type: "array",
+      items: { type: "string" },
+      description: "New tags (replaces existing)"
+    }
+  },
+  required: ["id"]
+};
+async function handler9(ctx, args) {
+  const id = validateRequiredString(args.id, "id");
   const title = args.title;
   const content = args.content;
-  const tagsRaw = args.tags;
-  if (!id || typeof id !== "string") {
-    throw new McpError("INVALID_PARAMS", "id is required and must be a string");
-  }
-  if (title === void 0 && content === void 0 && tagsRaw === void 0) {
+  const tags = validateOptionalTags(args.tags);
+  if (title === void 0 && content === void 0 && tags === void 0) {
     throw new McpError(
       "INVALID_PARAMS",
       "At least one of title, content, or tags must be provided"
     );
-  }
-  let tags;
-  if (tagsRaw !== void 0) {
-    if (!Array.isArray(tagsRaw) || !tagsRaw.every((t) => typeof t === "string")) {
-      throw new McpError("INVALID_PARAMS", "tags must contain only strings");
-    }
-    tags = tagsRaw;
   }
   const existing = await ctx.core.getNode(id);
   if (!existing) {
@@ -2268,16 +2630,62 @@ async function handleUpdateNode(ctx, args) {
   const updated = await ctx.core.updateNode(id, updates);
   return nodeToResponse(updated, ctx.store, "primary");
 }
-async function handleDeleteNode(ctx, args) {
-  const id = args.id;
-  if (!id || typeof id !== "string") {
-    throw new McpError("INVALID_PARAMS", "id is required and must be a string");
-  }
+
+// src/mcp/handlers/delete_node.ts
+var delete_node_exports = {};
+__export(delete_node_exports, {
+  handler: () => handler10,
+  schema: () => schema10
+});
+var schema10 = {
+  type: "object",
+  properties: {
+    id: {
+      type: "string",
+      description: 'Node ID to delete. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
+    }
+  },
+  required: ["id"]
+};
+async function handler10(ctx, args) {
+  const id = validateRequiredString(args.id, "id");
   const deleted = await ctx.core.deleteNode(id);
   return { deleted };
 }
-var VALID_STRATEGIES = ["exact", "fuzzy", "semantic"];
-async function handleListNodes(ctx, args) {
+
+// src/mcp/handlers/list_nodes.ts
+var list_nodes_exports = {};
+__export(list_nodes_exports, {
+  handler: () => handler11,
+  schema: () => schema11
+});
+var schema11 = {
+  type: "object",
+  properties: {
+    tag: {
+      type: "string",
+      description: 'Filter by tag from the "tags" frontmatter array (case-insensitive). Does NOT search other frontmatter fields like "type" or "category".'
+    },
+    path: {
+      type: "string",
+      description: "Filter by path prefix (startsWith, case-insensitive)"
+    },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: 1e3,
+      default: 100,
+      description: "Maximum results to return"
+    },
+    offset: {
+      type: "integer",
+      minimum: 0,
+      default: 0,
+      description: "Skip this many results (for pagination)"
+    }
+  }
+};
+async function handler11(ctx, args) {
   const tag = args.tag;
   const path = args.path;
   const limit = coerceLimit(args.limit, 100);
@@ -2287,36 +2695,86 @@ async function handleListNodes(ctx, args) {
   if (path) filter.path = path;
   return ctx.core.listNodes(filter, { limit, offset });
 }
-async function handleResolveNodes(ctx, args) {
-  const names = args.names;
-  const strategy = args.strategy;
+
+// src/mcp/handlers/resolve_nodes.ts
+var resolve_nodes_exports = {};
+__export(resolve_nodes_exports, {
+  handler: () => handler12,
+  schema: () => schema12
+});
+var VALID_STRATEGIES = ["exact", "fuzzy", "semantic"];
+var schema12 = {
+  type: "object",
+  properties: {
+    names: {
+      type: "array",
+      items: { type: "string" },
+      description: "Names to resolve to existing nodes"
+    },
+    strategy: {
+      type: "string",
+      enum: ["exact", "fuzzy", "semantic"],
+      default: "fuzzy",
+      description: 'How to match names to nodes. "exact": case-insensitive title equality. "fuzzy": string similarity (Dice coefficient) \u2014 use for typos, misspellings, partial matches. "semantic": embedding cosine similarity \u2014 use for synonyms or related concepts (NOT typos). Misspellings embed poorly because they produce unrelated vectors.'
+    },
+    threshold: {
+      type: "number",
+      minimum: 0,
+      maximum: 1,
+      default: 0.7,
+      description: "Minimum similarity score (0-1). Lower values match more loosely. For typo tolerance, use fuzzy with threshold 0.5-0.6. Ignored for exact strategy."
+    },
+    tag: {
+      type: "string",
+      description: 'Filter candidates by tag from "tags" frontmatter array (case-insensitive)'
+    },
+    path: {
+      type: "string",
+      description: "Filter candidates by path prefix (case-insensitive)"
+    }
+  },
+  required: ["names"]
+};
+async function handler12(ctx, args) {
+  const names = validateStringArray(args.names, "names");
   const threshold = args.threshold;
   const tag = args.tag;
   const path = args.path;
-  if (!Array.isArray(names)) {
-    throw new McpError("INVALID_PARAMS", "names is required and must be an array");
-  }
-  if (strategy !== void 0 && !VALID_STRATEGIES.includes(strategy)) {
-    throw new McpError(
-      "INVALID_PARAMS",
-      `strategy must be one of: ${VALID_STRATEGIES.join(", ")}`
-    );
-  }
+  const strategy = validateEnum(
+    args.strategy,
+    VALID_STRATEGIES,
+    "strategy",
+    "fuzzy"
+  );
   if (strategy === "semantic" && !ctx.hasEmbedding) {
     throw new McpError("PROVIDER_ERROR", "Semantic resolution requires embedding provider");
   }
-  const options = {};
-  if (strategy) options.strategy = strategy;
+  const options = { strategy };
   if (threshold !== void 0) options.threshold = threshold;
   if (tag) options.tag = tag;
   if (path) options.path = path;
   return ctx.core.resolveNodes(names, options);
 }
-async function handleNodesExist(ctx, args) {
-  const ids = args.ids;
-  if (!Array.isArray(ids)) {
-    throw new McpError("INVALID_PARAMS", "ids is required and must be an array");
-  }
+
+// src/mcp/handlers/nodes_exist.ts
+var nodes_exist_exports = {};
+__export(nodes_exist_exports, {
+  handler: () => handler13,
+  schema: () => schema13
+});
+var schema13 = {
+  type: "object",
+  properties: {
+    ids: {
+      type: "array",
+      items: { type: "string" },
+      description: 'Node IDs to check existence. IDs are normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
+    }
+  },
+  required: ["ids"]
+};
+async function handler13(ctx, args) {
+  const ids = validateStringArray(args.ids, "ids");
   const result = await ctx.store.nodesExist(ids);
   const response = {};
   for (const [id, exists] of result) {
@@ -2324,375 +2782,77 @@ async function handleNodesExist(ctx, args) {
   }
   return response;
 }
-async function dispatchTool(ctx, name, args) {
-  switch (name) {
-    case "search":
-      return handleSearch(ctx, args);
-    case "get_node":
-      return handleGetNode(ctx, args);
-    case "get_neighbors":
-      return handleGetNeighbors(ctx, args);
-    case "find_path":
-      return handleFindPath(ctx, args);
-    case "get_hubs":
-      return handleGetHubs(ctx, args);
-    case "search_by_tags":
-      return handleSearchByTags(ctx, args);
-    case "random_node":
-      return handleRandomNode(ctx, args);
-    case "create_node":
-      return handleCreateNode(ctx, args);
-    case "update_node":
-      return handleUpdateNode(ctx, args);
-    case "delete_node":
-      return handleDeleteNode(ctx, args);
-    case "list_nodes":
-      return handleListNodes(ctx, args);
-    case "resolve_nodes":
-      return handleResolveNodes(ctx, args);
-    case "nodes_exist":
-      return handleNodesExist(ctx, args);
-    default:
-      throw new McpError("INVALID_PARAMS", `Unknown tool: ${name}`);
-  }
-}
 
-// src/mcp/server.ts
-var TOOL_SCHEMAS = {
-  search: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "Natural language search query"
-      },
-      limit: {
-        type: "integer",
-        minimum: 1,
-        maximum: 50,
-        default: 10,
-        description: "Maximum results to return"
-      },
-      include_content: {
-        type: "boolean",
-        default: false,
-        description: "Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content."
-      }
-    },
-    required: ["query"]
-  },
-  get_node: {
-    type: "object",
-    properties: {
-      id: {
-        type: "string",
-        description: 'Node ID (file path for DocStore). ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
-      },
-      depth: {
-        type: "integer",
-        minimum: 0,
-        maximum: 1,
-        default: 0,
-        description: "0 = node only, 1 = include neighbors"
-      }
-    },
-    required: ["id"]
-  },
-  get_neighbors: {
-    type: "object",
-    properties: {
-      id: {
-        type: "string",
-        description: 'Source node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
-      },
-      direction: {
-        type: "string",
-        enum: ["in", "out", "both"],
-        default: "both",
-        description: "in = nodes linking here, out = nodes linked to, both = all"
-      },
-      limit: {
-        type: "integer",
-        minimum: 1,
-        maximum: 50,
-        default: 20,
-        description: "Maximum neighbors to return"
-      },
-      include_content: {
-        type: "boolean",
-        default: false,
-        description: "Include node content in results. Default false returns metadata only (id, title, tags, properties, links). Set true to include truncated content."
-      }
-    },
-    required: ["id"]
-  },
-  find_path: {
-    type: "object",
-    properties: {
-      source: {
-        type: "string",
-        description: 'Start node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
-      },
-      target: {
-        type: "string",
-        description: 'End node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
-      }
-    },
-    required: ["source", "target"]
-  },
-  get_hubs: {
-    type: "object",
-    properties: {
-      metric: {
-        type: "string",
-        enum: ["in_degree", "out_degree"],
-        default: "in_degree",
-        description: "Centrality metric"
-      },
-      limit: {
-        type: "integer",
-        minimum: 1,
-        maximum: 50,
-        default: 10,
-        description: "Maximum results"
-      }
-    }
-  },
-  search_by_tags: {
-    type: "object",
-    properties: {
-      tags: {
-        type: "array",
-        items: { type: "string" },
-        minItems: 1,
-        description: "Tags to match"
-      },
-      mode: {
-        type: "string",
-        enum: ["any", "all"],
-        default: "any",
-        description: "any = OR matching, all = AND matching"
-      },
-      limit: {
-        type: "integer",
-        minimum: 1,
-        maximum: 100,
-        default: 20,
-        description: "Maximum results"
-      }
-    },
-    required: ["tags"]
-  },
-  random_node: {
-    type: "object",
-    properties: {
-      tags: {
-        type: "array",
-        items: { type: "string" },
-        description: "Optional: limit to nodes with these tags (any match)"
-      }
-    }
-  },
-  create_node: {
-    type: "object",
-    properties: {
-      id: {
-        type: "string",
-        description: 'Full path for new node (must end in .md). Will be lowercased (spaces and special characters preserved). Example: "notes/My Note.md" creates "notes/my note.md"'
-      },
-      title: {
-        type: "string",
-        description: "Optional display title. Defaults to filename without .md extension."
-      },
-      content: {
-        type: "string",
-        description: "Full text content (markdown)"
-      },
-      tags: {
-        type: "array",
-        items: { type: "string" },
-        default: [],
-        description: "Classification tags"
-      }
-    },
-    required: ["id", "content"]
-  },
-  update_node: {
-    type: "object",
-    properties: {
-      id: {
-        type: "string",
-        description: 'Node ID to update. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
-      },
-      title: {
-        type: "string",
-        description: "New title (renames file for DocStore)"
-      },
-      content: {
-        type: "string",
-        description: "New content (replaces entirely)"
-      },
-      tags: {
-        type: "array",
-        items: { type: "string" },
-        description: "New tags (replaces existing)"
-      }
-    },
-    required: ["id"]
-  },
-  delete_node: {
-    type: "object",
-    properties: {
-      id: {
-        type: "string",
-        description: 'Node ID to delete. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
-      }
-    },
-    required: ["id"]
-  },
-  list_nodes: {
-    type: "object",
-    properties: {
-      tag: {
-        type: "string",
-        description: 'Filter by tag from the "tags" frontmatter array (case-insensitive). Does NOT search other frontmatter fields like "type" or "category".'
-      },
-      path: {
-        type: "string",
-        description: "Filter by path prefix (startsWith, case-insensitive)"
-      },
-      limit: {
-        type: "integer",
-        minimum: 1,
-        maximum: 1e3,
-        default: 100,
-        description: "Maximum results to return"
-      },
-      offset: {
-        type: "integer",
-        minimum: 0,
-        default: 0,
-        description: "Skip this many results (for pagination)"
-      }
-    }
-  },
-  resolve_nodes: {
-    type: "object",
-    properties: {
-      names: {
-        type: "array",
-        items: { type: "string" },
-        description: "Names to resolve to existing nodes"
-      },
-      strategy: {
-        type: "string",
-        enum: ["exact", "fuzzy", "semantic"],
-        default: "fuzzy",
-        description: 'How to match names to nodes. "exact": case-insensitive title equality. "fuzzy": string similarity (Dice coefficient) \u2014 use for typos, misspellings, partial matches. "semantic": embedding cosine similarity \u2014 use for synonyms or related concepts (NOT typos). Misspellings embed poorly because they produce unrelated vectors.'
-      },
-      threshold: {
-        type: "number",
-        minimum: 0,
-        maximum: 1,
-        default: 0.7,
-        description: "Minimum similarity score (0-1). Lower values match more loosely. For typo tolerance, use fuzzy with threshold 0.5-0.6. Ignored for exact strategy."
-      },
-      tag: {
-        type: "string",
-        description: 'Filter candidates by tag from "tags" frontmatter array (case-insensitive)'
-      },
-      path: {
-        type: "string",
-        description: "Filter candidates by path prefix (case-insensitive)"
-      }
-    },
-    required: ["names"]
-  },
-  nodes_exist: {
-    type: "object",
-    properties: {
-      ids: {
-        type: "array",
-        items: { type: "string" },
-        description: 'Node IDs to check existence. IDs are normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").'
-      }
-    },
-    required: ["ids"]
-  }
+// src/mcp/handlers/index.ts
+var handlers = {
+  search: search_exports,
+  get_node: get_node_exports,
+  get_neighbors: get_neighbors_exports,
+  find_path: find_path_exports,
+  get_hubs: get_hubs_exports,
+  search_by_tags: search_by_tags_exports,
+  random_node: random_node_exports,
+  create_node: create_node_exports,
+  update_node: update_node_exports,
+  delete_node: delete_node_exports,
+  list_nodes: list_nodes_exports,
+  resolve_nodes: resolve_nodes_exports,
+  nodes_exist: nodes_exist_exports
+};
+var TOOL_DESCRIPTIONS = {
+  search: "Semantic similarity search across all nodes",
+  get_node: "Retrieve a single node by ID with optional neighbor context",
+  get_neighbors: "Get nodes linked to or from a specific node",
+  find_path: "Find the shortest path between two nodes",
+  get_hubs: "Get the most central nodes by graph metric",
+  search_by_tags: "Filter nodes by tags (AND or OR matching)",
+  random_node: "Get a random node for discovery, optionally filtered by tags",
+  create_node: "Create a new node (writes file for DocStore)",
+  update_node: "Update an existing node. Title changes rejected if incoming links exist.",
+  delete_node: "Delete a node by ID",
+  list_nodes: 'List nodes with optional filters and pagination. Tag filter searches the "tags" frontmatter array only. All IDs returned are lowercase.',
+  resolve_nodes: 'Batch resolve names to existing node IDs. Strategy selection: "exact" for known titles, "fuzzy" for typos/misspellings (e.g., "chikken" -> "chicken"), "semantic" for synonyms/concepts (e.g., "poultry leg meat" -> "chicken thigh"). Semantic does NOT handle typos \u2014 misspellings produce garbage embeddings.',
+  nodes_exist: "Batch check if node IDs exist. IDs are normalized to lowercase before checking."
 };
 var asSchema = (s) => s;
 function getToolDefinitions(hasEmbedding) {
-  const tools = [
-    {
-      name: "get_node",
-      description: "Retrieve a single node by ID with optional neighbor context",
-      inputSchema: asSchema(TOOL_SCHEMAS.get_node)
-    },
-    {
-      name: "get_neighbors",
-      description: "Get nodes linked to or from a specific node",
-      inputSchema: asSchema(TOOL_SCHEMAS.get_neighbors)
-    },
-    {
-      name: "find_path",
-      description: "Find the shortest path between two nodes",
-      inputSchema: asSchema(TOOL_SCHEMAS.find_path)
-    },
-    {
-      name: "get_hubs",
-      description: "Get the most central nodes by graph metric",
-      inputSchema: asSchema(TOOL_SCHEMAS.get_hubs)
-    },
-    {
-      name: "search_by_tags",
-      description: "Filter nodes by tags (AND or OR matching)",
-      inputSchema: asSchema(TOOL_SCHEMAS.search_by_tags)
-    },
-    {
-      name: "random_node",
-      description: "Get a random node for discovery, optionally filtered by tags",
-      inputSchema: asSchema(TOOL_SCHEMAS.random_node)
-    },
-    {
-      name: "create_node",
-      description: "Create a new node (writes file for DocStore)",
-      inputSchema: asSchema(TOOL_SCHEMAS.create_node)
-    },
-    {
-      name: "update_node",
-      description: "Update an existing node. Title changes rejected if incoming links exist.",
-      inputSchema: asSchema(TOOL_SCHEMAS.update_node)
-    },
-    {
-      name: "delete_node",
-      description: "Delete a node by ID",
-      inputSchema: asSchema(TOOL_SCHEMAS.delete_node)
-    },
-    {
-      name: "list_nodes",
-      description: 'List nodes with optional filters and pagination. Tag filter searches the "tags" frontmatter array only. All IDs returned are lowercase.',
-      inputSchema: asSchema(TOOL_SCHEMAS.list_nodes)
-    },
-    {
-      name: "resolve_nodes",
-      description: 'Batch resolve names to existing node IDs. Strategy selection: "exact" for known titles, "fuzzy" for typos/misspellings (e.g., "chikken" -> "chicken"), "semantic" for synonyms/concepts (e.g., "poultry leg meat" -> "chicken thigh"). Semantic does NOT handle typos \u2014 misspellings produce garbage embeddings.',
-      inputSchema: asSchema(TOOL_SCHEMAS.resolve_nodes)
-    },
-    {
-      name: "nodes_exist",
-      description: "Batch check if node IDs exist. IDs are normalized to lowercase before checking.",
-      inputSchema: asSchema(TOOL_SCHEMAS.nodes_exist)
-    }
+  const toolOrder = [
+    "get_node",
+    "get_neighbors",
+    "find_path",
+    "get_hubs",
+    "search_by_tags",
+    "random_node",
+    "create_node",
+    "update_node",
+    "delete_node",
+    "list_nodes",
+    "resolve_nodes",
+    "nodes_exist"
   ];
+  const tools = toolOrder.map((name) => ({
+    name,
+    description: TOOL_DESCRIPTIONS[name],
+    inputSchema: asSchema(handlers[name].schema)
+  }));
   if (hasEmbedding) {
     tools.unshift({
       name: "search",
-      description: "Semantic similarity search across all nodes",
-      inputSchema: asSchema(TOOL_SCHEMAS.search)
+      description: TOOL_DESCRIPTIONS.search,
+      inputSchema: asSchema(handlers.search.schema)
     });
   }
   return tools;
 }
+async function dispatchTool(ctx, name, args) {
+  const h = handlers[name];
+  if (!h) {
+    throw new McpError("INVALID_PARAMS", `Unknown tool: ${name}`);
+  }
+  return h.handler(ctx, args);
+}
+
+// src/mcp/server.ts
 function formatToolResponse(result) {
   return {
     content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
@@ -2729,7 +2889,8 @@ var McpServer = class {
     this.ctx = {
       core: options.core,
       store: options.store,
-      hasEmbedding: options.hasEmbedding
+      hasEmbedding: options.hasEmbedding,
+      naming: options.naming ?? DEFAULT_NAMING
     };
     this.server = new Server(
       { name: "roux", version: VERSION },
@@ -2774,11 +2935,14 @@ async function serveCommand(directory, options = {}) {
   const resolvedSourcePath = join7(directory, sourcePath);
   const cachePath = config.cache?.path ?? ".roux";
   const resolvedCachePath = join7(directory, cachePath);
-  const store = new DocStore(resolvedSourcePath, resolvedCachePath);
+  const store = new DocStore({ sourceRoot: resolvedSourcePath, cacheDir: resolvedCachePath });
+  const embeddingModel = config.providers?.embedding?.type === "local" ? config.providers.embedding.model : void 0;
   const embedding = new TransformersEmbedding(
-    config.providers?.embedding?.type === "local" ? config.providers.embedding.model : void 0
+    embeddingModel ? { model: embeddingModel } : {}
   );
-  await store.sync();
+  const core = new GraphCoreImpl();
+  await core.registerStore(store);
+  await core.registerEmbedding(embedding);
   const allNodeIds = await store.getAllNodeIds();
   const total = allNodeIds.length;
   for (let i = 0; i < allNodeIds.length; i++) {
@@ -2794,23 +2958,36 @@ async function serveCommand(directory, options = {}) {
       onProgress(i + 1, total);
     }
   }
-  const core = new GraphCoreImpl();
-  core.registerStore(store);
-  core.registerEmbedding(embedding);
+  const naming = { ...DEFAULT_NAMING, ...config.naming };
   const mcpServer = new McpServer({
     core,
     store,
-    hasEmbedding: true
+    hasEmbedding: true,
+    naming
   });
-  await mcpServer.start(transportFactory);
+  try {
+    await mcpServer.start(transportFactory);
+  } catch (err) {
+    await core.destroy();
+    throw err;
+  }
   if (watch2) {
     try {
       await store.startWatching(async (changedIds) => {
         for (const id of changedIds) {
-          const node = await store.getNode(id);
-          if (node && node.content) {
-            const vector = await embedding.embed(node.content);
-            await store.storeEmbedding(id, vector, embedding.modelId());
+          try {
+            const node = await store.getNode(id);
+            if (node && node.content) {
+              const vector = await embedding.embed(node.content);
+              await store.storeEmbedding(id, vector, embedding.modelId());
+            }
+          } catch (err) {
+            console.warn(
+              "Failed to generate embedding for",
+              id,
+              ":",
+              err.message || "Unknown error"
+            );
           }
         }
       });
@@ -2823,8 +3000,7 @@ async function serveCommand(directory, options = {}) {
   }
   return {
     stop: async () => {
-      store.stopWatching();
-      store.close();
+      await core.destroy();
       await mcpServer.close();
     },
     isWatching: store.isWatching(),
@@ -2986,13 +3162,23 @@ function generateHtml(nodes, edges) {
       .attr("dy", 4)
       .text(d => d.title.length > 20 ? d.title.slice(0, 17) + "..." : d.title);
 
+    // HTML escape function for XSS prevention
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     // Tooltip
     const tooltip = d3.select("#tooltip");
     node
       .on("mouseover", (event, d) => {
         tooltip
           .style("opacity", 1)
-          .html(\`<strong>\${d.title}</strong><br>ID: \${d.id}<br>Incoming links: \${d.inDegree}\`);
+          .html(\`<strong>\${escapeHtml(d.title)}</strong><br>ID: \${escapeHtml(d.id)}<br>Incoming links: \${d.inDegree}\`);
       })
       .on("mousemove", (event) => {
         tooltip

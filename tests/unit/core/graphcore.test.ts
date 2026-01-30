@@ -26,8 +26,13 @@ const createMockNode = (id: string, overrides?: Partial<Node>): Node => ({
 });
 
 const createMockStore = (
-  overrides?: Partial<Store>
+  overrides?: Partial<Store> & {
+    id?: string;
+    onRegister?: () => Promise<void>;
+    onUnregister?: () => Promise<void>;
+  }
 ): Store => ({
+  id: overrides?.id ?? 'test-store',
   createNode: vi.fn().mockResolvedValue(undefined),
   updateNode: vi.fn().mockResolvedValue(undefined),
   deleteNode: vi.fn().mockResolvedValue(undefined),
@@ -48,8 +53,13 @@ const createMockStore = (
 });
 
 const createMockEmbedding = (
-  overrides?: Partial<Embedding>
+  overrides?: Partial<Embedding> & {
+    id?: string;
+    onRegister?: () => Promise<void>;
+    onUnregister?: () => Promise<void>;
+  }
 ): Embedding => ({
+  id: overrides?.id ?? 'test-embedding',
   embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
   embedBatch: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
   dimensions: vi.fn().mockReturnValue(384),
@@ -67,56 +77,68 @@ describe('GraphCore', () => {
   });
 
   describe('provider registration', () => {
-    it('registerStore sets the store provider', () => {
+    it('registerStore sets the store provider', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       // Verify by attempting an operation that uses the store
-      expect(() => core.registerStore(mockStore)).not.toThrow();
+      await expect(core.registerStore(mockStore)).resolves.not.toThrow();
     });
 
-    it('registerEmbedding sets the embedding provider', () => {
+    it('registerEmbedding sets the embedding provider', async () => {
       const core = new GraphCoreImpl();
-      core.registerEmbedding(mockEmbedding);
+      await core.registerEmbedding(mockEmbedding);
 
-      expect(() => core.registerEmbedding(mockEmbedding)).not.toThrow();
+      await expect(core.registerEmbedding(mockEmbedding)).resolves.not.toThrow();
     });
 
     it('throws on operations without store registered', async () => {
       const core = new GraphCoreImpl();
-      core.registerEmbedding(mockEmbedding);
+      await core.registerEmbedding(mockEmbedding);
 
       await expect(core.getNode('test.md')).rejects.toThrow(/store/i);
     });
 
-    it('throws when registering null store', () => {
+    it('throws when registering null store', async () => {
       const core = new GraphCoreImpl();
-      expect(() => core.registerStore(null as unknown as Store)).toThrow(/store provider is required/i);
+      await expect(core.registerStore(null as unknown as Store)).rejects.toThrow(/store provider is required/i);
     });
 
-    it('throws when registering undefined store', () => {
+    it('throws when registering undefined store', async () => {
       const core = new GraphCoreImpl();
-      expect(() => core.registerStore(undefined as unknown as Store)).toThrow(/store provider is required/i);
+      await expect(core.registerStore(undefined as unknown as Store)).rejects.toThrow(/store provider is required/i);
     });
 
-    it('throws when registering null embedding provider', () => {
+    it('throws when registering null embedding provider', async () => {
       const core = new GraphCoreImpl();
-      expect(() => core.registerEmbedding(null as unknown as Embedding)).toThrow(/embedding provider is required/i);
+      await expect(core.registerEmbedding(null as unknown as Embedding)).rejects.toThrow(/embedding provider is required/i);
     });
 
-    it('throws when registering undefined embedding provider', () => {
+    it('throws when registering undefined embedding provider', async () => {
       const core = new GraphCoreImpl();
-      expect(() => core.registerEmbedding(undefined as unknown as Embedding)).toThrow(/embedding provider is required/i);
+      await expect(core.registerEmbedding(undefined as unknown as Embedding)).rejects.toThrow(/embedding provider is required/i);
+    });
+
+    it('throws when registering invalid store (missing required methods)', async () => {
+      const invalidStore = { id: 'invalid', createNode: vi.fn() } as unknown as Store;
+      const core = new GraphCoreImpl();
+      await expect(core.registerStore(invalidStore)).rejects.toThrow(/invalid store provider/i);
+    });
+
+    it('throws when registering invalid embedding (missing required methods)', async () => {
+      const invalidEmbedding = { id: 'invalid', embed: vi.fn() } as unknown as Embedding;
+      const core = new GraphCoreImpl();
+      await expect(core.registerEmbedding(invalidEmbedding)).rejects.toThrow(/invalid embedding provider/i);
     });
 
     it('uses most recently registered store', async () => {
-      const store1 = createMockStore();
-      const store2 = createMockStore();
+      const store1 = createMockStore({ id: 'store-1' });
+      const store2 = createMockStore({ id: 'store-2' });
       vi.mocked(store2.getNode).mockResolvedValue(createMockNode('from-store2'));
 
       const core = new GraphCoreImpl();
-      core.registerStore(store1);
-      core.registerStore(store2);
+      await core.registerStore(store1);
+      await core.registerStore(store2);
 
       await core.getNode('test');
 
@@ -125,19 +147,247 @@ describe('GraphCore', () => {
     });
 
     it('uses most recently registered embedding provider', async () => {
-      const embedding1 = createMockEmbedding();
-      const embedding2 = createMockEmbedding();
+      const embedding1 = createMockEmbedding({ id: 'embedding-1' });
+      const embedding2 = createMockEmbedding({ id: 'embedding-2' });
       vi.mocked(embedding2.embed).mockResolvedValue([0.5, 0.5, 0.5]);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(embedding1);
-      core.registerEmbedding(embedding2);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(embedding1);
+      await core.registerEmbedding(embedding2);
 
       await core.search('test');
 
       expect(embedding2.embed).toHaveBeenCalled();
       expect(embedding1.embed).not.toHaveBeenCalled();
+    });
+
+    describe('lifecycle hooks', () => {
+      it('calls onRegister when registering store', async () => {
+        const onRegister = vi.fn().mockResolvedValue(undefined);
+        const store = createMockStore({ onRegister });
+
+        const core = new GraphCoreImpl();
+        await core.registerStore(store);
+
+        expect(onRegister).toHaveBeenCalledOnce();
+      });
+
+      it('calls onRegister when registering embedding', async () => {
+        const onRegister = vi.fn().mockResolvedValue(undefined);
+        const embedding = createMockEmbedding({ onRegister });
+
+        const core = new GraphCoreImpl();
+        await core.registerEmbedding(embedding);
+
+        expect(onRegister).toHaveBeenCalledOnce();
+      });
+
+      it('calls onUnregister on previous store when replacing', async () => {
+        const onUnregister = vi.fn().mockResolvedValue(undefined);
+        const store1 = createMockStore({ id: 'store-1', onUnregister });
+        const store2 = createMockStore({ id: 'store-2' });
+
+        const core = new GraphCoreImpl();
+        await core.registerStore(store1);
+        await core.registerStore(store2);
+
+        expect(onUnregister).toHaveBeenCalledOnce();
+      });
+
+      it('logs but continues when store onUnregister throws during re-registration', async () => {
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const onUnregister = vi.fn().mockRejectedValue(new Error('Store cleanup failed'));
+        const store1 = createMockStore({ id: 'store-1', onUnregister });
+        const store2 = createMockStore({ id: 'store-2' });
+
+        const core = new GraphCoreImpl();
+        await core.registerStore(store1);
+
+        // Should not throw, new store should still register
+        await expect(core.registerStore(store2)).resolves.not.toThrow();
+
+        // Warning should be logged
+        expect(consoleSpy).toHaveBeenCalled();
+
+        consoleSpy.mockRestore();
+      });
+
+      it('calls onUnregister on previous embedding when replacing', async () => {
+        const onUnregister = vi.fn().mockResolvedValue(undefined);
+        const embedding1 = createMockEmbedding({ id: 'embedding-1', onUnregister });
+        const embedding2 = createMockEmbedding({ id: 'embedding-2' });
+
+        const core = new GraphCoreImpl();
+        await core.registerEmbedding(embedding1);
+        await core.registerEmbedding(embedding2);
+
+        expect(onUnregister).toHaveBeenCalledOnce();
+      });
+
+      it('logs but continues when embedding onUnregister throws during re-registration', async () => {
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const onUnregister = vi.fn().mockRejectedValue(new Error('Embedding cleanup failed'));
+        const embedding1 = createMockEmbedding({ id: 'embedding-1', onUnregister });
+        const embedding2 = createMockEmbedding({ id: 'embedding-2' });
+
+        const core = new GraphCoreImpl();
+        await core.registerEmbedding(embedding1);
+
+        // Should not throw, new embedding should still register
+        await expect(core.registerEmbedding(embedding2)).resolves.not.toThrow();
+
+        // Warning should be logged
+        expect(consoleSpy).toHaveBeenCalled();
+
+        consoleSpy.mockRestore();
+      });
+
+      it('works with providers that have no lifecycle hooks', async () => {
+        const store = createMockStore();
+        // Explicitly remove lifecycle hooks
+        delete (store as { onRegister?: unknown }).onRegister;
+        delete (store as { onUnregister?: unknown }).onUnregister;
+
+        const core = new GraphCoreImpl();
+        // Should not throw
+        await expect(core.registerStore(store)).resolves.not.toThrow();
+      });
+
+      it('propagates onRegister errors', async () => {
+        const onRegister = vi.fn().mockRejectedValue(new Error('Init failed'));
+        const store = createMockStore({ onRegister });
+
+        const core = new GraphCoreImpl();
+
+        await expect(core.registerStore(store)).rejects.toThrow('Init failed');
+      });
+
+      it('rolls back registration when onRegister fails', async () => {
+        const onRegister = vi.fn().mockRejectedValue(new Error('Init failed'));
+        const store = createMockStore({ onRegister });
+
+        const core = new GraphCoreImpl();
+
+        try {
+          await core.registerStore(store);
+        } catch {
+          // Expected
+        }
+
+        // Store should not be registered after failure
+        await expect(core.getNode('test')).rejects.toThrow(/store not registered/i);
+      });
+
+      it('propagates onRegister errors for embedding', async () => {
+        const onRegister = vi.fn().mockRejectedValue(new Error('Model load failed'));
+        const embedding = createMockEmbedding({ onRegister });
+
+        const core = new GraphCoreImpl();
+
+        await expect(core.registerEmbedding(embedding)).rejects.toThrow('Model load failed');
+      });
+
+      it('rolls back embedding registration when onRegister fails', async () => {
+        const onRegister = vi.fn().mockRejectedValue(new Error('Model load failed'));
+        const embedding = createMockEmbedding({ onRegister });
+
+        const core = new GraphCoreImpl();
+        await core.registerStore(mockStore);
+
+        try {
+          await core.registerEmbedding(embedding);
+        } catch {
+          // Expected
+        }
+
+        // Embedding should not be registered after failure
+        await expect(core.search('test')).rejects.toThrow(/embedding not registered/i);
+      });
+    });
+
+    describe('destroy', () => {
+      it('calls onUnregister on store', async () => {
+        const onUnregister = vi.fn().mockResolvedValue(undefined);
+        const store = createMockStore({ onUnregister });
+
+        const core = new GraphCoreImpl();
+        await core.registerStore(store);
+
+        await core.destroy();
+
+        expect(onUnregister).toHaveBeenCalledOnce();
+      });
+
+      it('calls onUnregister on embedding', async () => {
+        const onUnregister = vi.fn().mockResolvedValue(undefined);
+        const embedding = createMockEmbedding({ onUnregister });
+
+        const core = new GraphCoreImpl();
+        await core.registerEmbedding(embedding);
+
+        await core.destroy();
+
+        expect(onUnregister).toHaveBeenCalledOnce();
+      });
+
+      it('clears provider references after destroy', async () => {
+        const core = new GraphCoreImpl();
+        await core.registerStore(mockStore);
+        await core.registerEmbedding(mockEmbedding);
+
+        await core.destroy();
+
+        await expect(core.getNode('test')).rejects.toThrow(/store not registered/i);
+      });
+
+      it('is idempotent - safe to call multiple times', async () => {
+        const onUnregister = vi.fn().mockResolvedValue(undefined);
+        const store = createMockStore({ onUnregister });
+
+        const core = new GraphCoreImpl();
+        await core.registerStore(store);
+
+        await core.destroy();
+        await core.destroy(); // Second call should not throw
+
+        // onUnregister should only be called once
+        expect(onUnregister).toHaveBeenCalledOnce();
+      });
+
+      it('logs but does not throw on store onUnregister errors', async () => {
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const onUnregister = vi.fn().mockRejectedValue(new Error('Cleanup failed'));
+        const store = createMockStore({ onUnregister });
+
+        const core = new GraphCoreImpl();
+        await core.registerStore(store);
+
+        // destroy should not throw even if onUnregister fails
+        await expect(core.destroy()).resolves.not.toThrow();
+
+        // Warning should be logged
+        expect(consoleSpy).toHaveBeenCalled();
+
+        consoleSpy.mockRestore();
+      });
+
+      it('logs but does not throw on embedding onUnregister errors', async () => {
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const onUnregister = vi.fn().mockRejectedValue(new Error('Embedding cleanup failed'));
+        const embedding = createMockEmbedding({ onUnregister });
+
+        const core = new GraphCoreImpl();
+        await core.registerEmbedding(embedding);
+
+        // destroy should not throw even if onUnregister fails
+        await expect(core.destroy()).resolves.not.toThrow();
+
+        // Warning should be logged
+        expect(consoleSpy).toHaveBeenCalled();
+
+        consoleSpy.mockRestore();
+      });
     });
   });
 
@@ -155,8 +405,8 @@ describe('GraphCore', () => {
 
     it('embeds query and searches vectors', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       await core.search('test query');
 
@@ -166,8 +416,8 @@ describe('GraphCore', () => {
 
     it('converts distance to score (higher = better)', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       const results = await core.search('test');
 
@@ -190,8 +440,8 @@ describe('GraphCore', () => {
 
     it('hydrates nodes from IDs', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       await core.search('test');
 
@@ -200,8 +450,8 @@ describe('GraphCore', () => {
 
     it('respects limit option', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       await core.search('test', { limit: 5 });
 
@@ -213,8 +463,8 @@ describe('GraphCore', () => {
 
     it('uses default limit of 10', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       await core.search('test');
 
@@ -226,7 +476,7 @@ describe('GraphCore', () => {
 
     it('throws without embedding provider', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(core.search('test')).rejects.toThrow(/embedding/i);
     });
@@ -238,7 +488,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getNode).mockResolvedValue(node);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.getNode('test.md');
 
@@ -250,7 +500,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getNode).mockResolvedValue(null);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.getNode('missing.md');
       expect(result).toBeNull();
@@ -264,7 +514,7 @@ describe('GraphCore', () => {
         .mockResolvedValueOnce([createMockNode('out1.md')]); // outgoing
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = (await core.getNode('test.md', 1)) as NodeWithContext;
 
@@ -283,7 +533,7 @@ describe('GraphCore', () => {
         .mockResolvedValueOnce([outNeighbor]);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = (await core.getNode('test.md', 1)) as NodeWithContext;
 
@@ -304,7 +554,7 @@ describe('GraphCore', () => {
         .mockResolvedValueOnce([bidirectional]); // outgoing
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = (await core.getNode('test.md', 1)) as NodeWithContext;
 
@@ -317,7 +567,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getNode).mockResolvedValue(node);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await core.getNode('test.md');
       await core.getNode('test.md', 0);
@@ -329,7 +579,7 @@ describe('GraphCore', () => {
   describe('createNode', () => {
     it('delegates to store and returns created node', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const input: Partial<Node> = {
         id: 'new.md',
@@ -349,7 +599,7 @@ describe('GraphCore', () => {
 
     it('fills in default values for optional fields', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const input: Partial<Node> = {
         id: 'minimal.md',
@@ -367,7 +617,7 @@ describe('GraphCore', () => {
 
     it('preserves provided optional fields', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const input: Partial<Node> = {
         id: 'full.md',
@@ -389,7 +639,7 @@ describe('GraphCore', () => {
 
     it('preserves sourceRef when provided', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const input: Partial<Node> = {
         id: 'with-source.md',
@@ -409,7 +659,7 @@ describe('GraphCore', () => {
 
     it('throws if id is missing', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(
         core.createNode({ title: 'No ID', content: '' })
@@ -418,7 +668,7 @@ describe('GraphCore', () => {
 
     it('throws if id is empty string', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(
         core.createNode({ id: '', title: 'Empty ID', content: '' })
@@ -427,7 +677,7 @@ describe('GraphCore', () => {
 
     it('throws if id is whitespace only', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(
         core.createNode({ id: '   ', title: 'Whitespace ID', content: '' })
@@ -436,7 +686,7 @@ describe('GraphCore', () => {
 
     it('throws if id is whitespace variants', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(
         core.createNode({ id: '\t\n', title: 'Tab Newline ID', content: '' })
@@ -445,7 +695,7 @@ describe('GraphCore', () => {
 
     it('throws if title is missing', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(
         core.createNode({ id: 'no-title.md', content: '' })
@@ -459,7 +709,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getNode).mockResolvedValue(updated);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.updateNode('test.md', { title: 'Updated' });
 
@@ -473,7 +723,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getNode).mockResolvedValue(null);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(
         core.updateNode('vanished.md', { title: 'Ghost' })
@@ -484,7 +734,7 @@ describe('GraphCore', () => {
   describe('deleteNode', () => {
     it('delegates to store and returns true on success', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.deleteNode('test.md');
 
@@ -498,7 +748,7 @@ describe('GraphCore', () => {
       );
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.deleteNode('missing.md');
       expect(result).toBe(false);
@@ -509,7 +759,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.deleteNode).mockRejectedValue(permissionError);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(core.deleteNode('protected.md')).rejects.toThrow('EACCES');
     });
@@ -519,7 +769,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.deleteNode).mockRejectedValue(diskError);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(core.deleteNode('file.md')).rejects.toThrow('ENOSPC');
     });
@@ -529,7 +779,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.deleteNode).mockRejectedValue(genericError);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(core.deleteNode('file.md')).rejects.toThrow('Database connection failed');
     });
@@ -541,7 +791,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getNeighbors).mockResolvedValue(neighbors);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.getNeighbors('test.md', { direction: 'out' });
 
@@ -557,7 +807,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.findPath).mockResolvedValue(['a.md', 'b.md', 'c.md']);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.findPath('a.md', 'c.md');
 
@@ -569,7 +819,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.findPath).mockResolvedValue(null);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.findPath('a.md', 'z.md');
       expect(result).toBeNull();
@@ -584,7 +834,7 @@ describe('GraphCore', () => {
       ]);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.getHubs('in_degree', 5);
 
@@ -602,7 +852,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.searchByTags).mockResolvedValue(tagged);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.searchByTags(['test'], 'any');
 
@@ -618,7 +868,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.searchByTags).mockResolvedValue(nodes);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await core.searchByTags(['test'], 'any', 2);
 
@@ -635,7 +885,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.searchByTags).mockResolvedValue(nodes);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.searchByTags(['test'], 'any', 2);
 
@@ -650,7 +900,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getRandomNode).mockResolvedValue(node);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.getRandomNode();
 
@@ -663,7 +913,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getRandomNode).mockResolvedValue(node);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.getRandomNode(['special']);
 
@@ -675,7 +925,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.getRandomNode).mockResolvedValue(null);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.getRandomNode();
       expect(result).toBeNull();
@@ -694,7 +944,7 @@ describe('GraphCore', () => {
       });
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.listNodes({ tag: 'test' }, { limit: 50 });
 
@@ -709,7 +959,7 @@ describe('GraphCore', () => {
       });
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.listNodes({});
 
@@ -724,7 +974,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.resolveNodes).mockResolvedValue(results);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.resolveNodes(['beef'], { strategy: 'exact' });
 
@@ -737,7 +987,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.resolveNodes).mockResolvedValue(results);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       const result = await core.resolveNodes(['bef'], { strategy: 'fuzzy', threshold: 0.5 });
 
@@ -749,7 +999,7 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.resolveNodes).mockResolvedValue([]);
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await core.resolveNodes(['test']);
 
@@ -758,7 +1008,7 @@ describe('GraphCore', () => {
 
     it('throws for semantic strategy without embedding provider', async () => {
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
+      await core.registerStore(mockStore);
 
       await expect(
         core.resolveNodes(['test'], { strategy: 'semantic' })
@@ -776,8 +1026,8 @@ describe('GraphCore', () => {
         .mockResolvedValueOnce([[0.9, 0.1, 0.1], [0.1, 0.9, 0.1]]); // candidate embeddings
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       const result = await core.resolveNodes(['beef'], { strategy: 'semantic' });
 
@@ -795,8 +1045,8 @@ describe('GraphCore', () => {
         .mockResolvedValueOnce([[0, 1, 0]]); // candidate - orthogonal = 0 similarity
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       const result = await core.resolveNodes(['test'], { strategy: 'semantic', threshold: 0.5 });
 
@@ -808,8 +1058,8 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: [], total: 0 });
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       await core.resolveNodes(['test'], { strategy: 'semantic', tag: 'ingredient' });
 
@@ -823,8 +1073,8 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: [], total: 0 });
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       await core.resolveNodes(['test'], { strategy: 'semantic', path: 'ingredients/' });
 
@@ -838,8 +1088,8 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: [{ id: 'a.md', title: 'A' }], total: 1 });
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       const result = await core.resolveNodes([], { strategy: 'semantic' });
 
@@ -850,8 +1100,8 @@ describe('GraphCore', () => {
       vi.mocked(mockStore.listNodes).mockResolvedValue({ nodes: [], total: 0 });
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       const result = await core.resolveNodes(['test'], { strategy: 'semantic' });
 
@@ -866,8 +1116,8 @@ describe('GraphCore', () => {
         .mockResolvedValueOnce([[1, 0, 0]]); // candidate is normal
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       const result = await core.resolveNodes(['test'], { strategy: 'semantic' });
 
@@ -886,8 +1136,8 @@ describe('GraphCore', () => {
         .mockResolvedValueOnce([[0.1, 0.2, 0.3, 0.4]]); // 4-dim candidate
 
       const core = new GraphCoreImpl();
-      core.registerStore(mockStore);
-      core.registerEmbedding(mockEmbedding);
+      await core.registerStore(mockStore);
+      await core.registerEmbedding(mockEmbedding);
 
       await expect(
         core.resolveNodes(['test'], { strategy: 'semantic' })
@@ -907,13 +1157,13 @@ describe('GraphCore', () => {
       await rm(tempDir, { recursive: true, force: true });
     });
 
-    it('throws if store config missing', () => {
+    it('throws if store config missing', async () => {
       const config = { providers: {} } as RouxConfig;
 
-      expect(() => GraphCoreImpl.fromConfig(config)).toThrow(/store/i);
+      await expect(GraphCoreImpl.fromConfig(config)).rejects.toThrow(/store/i);
     });
 
-    it('accepts docstore config', () => {
+    it('accepts docstore config', async () => {
       const config: RouxConfig = {
         providers: {
           store: { type: 'docstore' },
@@ -923,11 +1173,12 @@ describe('GraphCore', () => {
       };
 
       // This should not throw - it creates the DocStore
-      const core = GraphCoreImpl.fromConfig(config);
+      const core = await GraphCoreImpl.fromConfig(config);
       expect(core).toBeDefined();
+      await core.destroy();
     });
 
-    it('uses default paths when source and cache not specified', () => {
+    it('uses default paths when source and cache not specified', async () => {
       // Need to run from a temp dir for this test
       const originalCwd = process.cwd();
       process.chdir(tempDir);
@@ -939,14 +1190,15 @@ describe('GraphCore', () => {
           },
         };
 
-        const core = GraphCoreImpl.fromConfig(config);
+        const core = await GraphCoreImpl.fromConfig(config);
         expect(core).toBeDefined();
+        await core.destroy();
       } finally {
         process.chdir(originalCwd);
       }
     });
 
-    it('uses local embedding with custom model', () => {
+    it('uses local embedding with custom model', async () => {
       const config: RouxConfig = {
         providers: {
           store: { type: 'docstore' },
@@ -956,11 +1208,12 @@ describe('GraphCore', () => {
         cache: { path: join(tempDir, 'cache2') },
       };
 
-      const core = GraphCoreImpl.fromConfig(config);
+      const core = await GraphCoreImpl.fromConfig(config);
       expect(core).toBeDefined();
+      await core.destroy();
     });
 
-    it('throws on unsupported embedding type', () => {
+    it('throws on unsupported embedding type', async () => {
       const config: RouxConfig = {
         providers: {
           store: { type: 'docstore' },
@@ -970,10 +1223,10 @@ describe('GraphCore', () => {
         cache: { path: join(tempDir, 'cache3') },
       };
 
-      expect(() => GraphCoreImpl.fromConfig(config)).toThrow(/unsupported/i);
+      await expect(GraphCoreImpl.fromConfig(config)).rejects.toThrow(/unsupported/i);
     });
 
-    it('throws on unsupported store type', () => {
+    it('throws on unsupported store type', async () => {
       const config: RouxConfig = {
         providers: {
           store: { type: 'memory' as 'docstore' },
@@ -982,7 +1235,39 @@ describe('GraphCore', () => {
         cache: { path: join(tempDir, 'cache4') },
       };
 
-      expect(() => GraphCoreImpl.fromConfig(config)).toThrow(/unsupported.*store/i);
+      await expect(GraphCoreImpl.fromConfig(config)).rejects.toThrow(/unsupported.*store/i);
+    });
+
+    it('cleans up store when embedding registration fails', async () => {
+      // Mock TransformersEmbedding to fail on registration
+      const { TransformersEmbedding } = await import('../../../src/providers/embedding/transformers.js');
+      const originalOnRegister = TransformersEmbedding.prototype.onRegister;
+      TransformersEmbedding.prototype.onRegister = vi.fn().mockRejectedValue(
+        new Error('Model load failed')
+      );
+
+      const config: RouxConfig = {
+        providers: {
+          store: { type: 'docstore' },
+        },
+        source: { path: join(tempDir, 'source'), include: ['*.md'], exclude: [] },
+        cache: { path: join(tempDir, 'cache5') },
+      };
+
+      try {
+        await expect(GraphCoreImpl.fromConfig(config)).rejects.toThrow('Model load failed');
+      } finally {
+        TransformersEmbedding.prototype.onRegister = originalOnRegister;
+      }
+
+      // Verify the store was cleaned up by checking we can create a new one
+      // at the same cache path without file locking issues
+      const { DocStore } = await import('../../../src/providers/docstore/index.js');
+      const verifyStore = new DocStore({
+        sourceRoot: join(tempDir, 'source'),
+        cacheDir: join(tempDir, 'cache5'),
+      });
+      verifyStore.close();
     });
   });
 });

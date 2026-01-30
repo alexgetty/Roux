@@ -26,7 +26,7 @@ describe('status command', () => {
   it('returns zero counts for empty graph', async () => {
     await initCommand(testDir);
     // Create empty cache by syncing empty dir
-    const store = new DocStore(testDir, join(testDir, '.roux'));
+    const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
     store.close();
 
@@ -47,7 +47,7 @@ describe('status command', () => {
     await writeFile(join(testDir, 'c.md'), '---\ntitle: C\n---\n\nContent only', 'utf-8');
 
     // Sync to create cache
-    const store = new DocStore(testDir, join(testDir, '.roux'));
+    const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
 
     // Verify actual edges exist via neighbor queries
@@ -73,7 +73,7 @@ describe('status command', () => {
     await writeFile(join(testDir, 'a.md'), '---\ntitle: A\n---\n\nContent', 'utf-8');
     await writeFile(join(testDir, 'b.md'), '---\ntitle: B\n---\n\nContent', 'utf-8');
 
-    const store = new DocStore(testDir, join(testDir, '.roux'));
+    const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
 
     // Store embedding for one node

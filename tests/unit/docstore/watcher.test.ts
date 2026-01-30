@@ -66,7 +66,7 @@ describe('DocStore watcher integration', () => {
     sourceDir = join(tempDir, 'source');
     cacheDir = join(tempDir, 'cache');
     await mkdir(sourceDir, { recursive: true });
-    store = new DocStore(sourceDir, cacheDir);
+    store = new DocStore({ sourceRoot: sourceDir, cacheDir });
   });
 
   afterEach(async () => {
@@ -352,7 +352,7 @@ describe('DocStore watcher integration', () => {
       };
 
       const customCacheDir = join(tempDir, 'vector-test-cache');
-      const customStore = new DocStore(sourceDir, customCacheDir, mockVector);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir: customCacheDir, vectorIndex: mockVector });
 
       await writeMarkdownFile('with-embedding.md', '# Has embedding');
       await customStore.sync();
@@ -388,11 +388,11 @@ describe('DocStore watcher integration', () => {
         '../../../src/providers/vector/sqlite.js'
       );
       const realVectorProvider = new SqliteVectorIndex(integrationCacheDir);
-      const integrationStore = new DocStore(
-        sourceDir,
-        integrationCacheDir,
-        realVectorProvider
-      );
+      const integrationStore = new DocStore({
+        sourceRoot: sourceDir,
+        cacheDir: integrationCacheDir,
+        vectorIndex: realVectorProvider,
+      });
 
       // Create file and sync
       await writeMarkdownFile('embedded-doc.md', '# Document with embedding');
@@ -475,7 +475,7 @@ describe('DocStore watcher integration', () => {
       };
 
       const customCacheDir = join(tempDir, 'vector-fail-test');
-      const customStore = new DocStore(sourceDir, customCacheDir, failingVector);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir: customCacheDir, vectorIndex: failingVector });
 
       // Create and sync a file
       await writeMarkdownFile('to-delete.md', '# To Delete');
@@ -521,7 +521,7 @@ describe('DocStore watcher integration', () => {
       };
 
       const customCacheDir = join(tempDir, 'cache-still-deletes');
-      const customStore = new DocStore(sourceDir, customCacheDir, failingVector);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir: customCacheDir, vectorIndex: failingVector });
 
       await writeMarkdownFile('will-be-orphaned.md', '# Orphan');
       await customStore.sync();
@@ -555,7 +555,7 @@ describe('DocStore watcher integration', () => {
       };
 
       const customCacheDir = join(tempDir, 'batch-continues');
-      const customStore = new DocStore(sourceDir, customCacheDir, failOnceVector);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir: customCacheDir, vectorIndex: failOnceVector });
 
       await writeMarkdownFile('fail.md', '# Fail');
       await writeMarkdownFile('succeed.md', '# Succeed');

@@ -18,7 +18,7 @@ describe('DocStore', () => {
     sourceDir = join(tempDir, 'source');
     cacheDir = join(tempDir, 'cache');
     await mkdir(sourceDir, { recursive: true });
-    store = new DocStore(sourceDir, cacheDir);
+    store = new DocStore({ sourceRoot: sourceDir, cacheDir });
   });
 
   afterEach(async () => {
@@ -441,7 +441,7 @@ Original content`
           getModel: vi.fn().mockResolvedValue(null),
         };
 
-        const customStore = new DocStore(sourceDir, cacheDir, mockVector);
+        const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir, vectorIndex: mockVector });
         await writeMarkdownFile('to-delete.md', '# Will be deleted');
         await customStore.sync();
 
@@ -597,7 +597,7 @@ Original content`
     describe('getNeighbors', () => {
       it('returns empty array when graph not ready (graceful degradation)', async () => {
         // Create new store without syncing
-        const unsyncedStore = new DocStore(sourceDir, join(tempDir, 'unsynced-cache'));
+        const unsyncedStore = new DocStore({ sourceRoot: sourceDir, cacheDir: join(tempDir, 'unsynced-cache') });
         const neighbors = await unsyncedStore.getNeighbors('any.md', { direction: 'out' });
         expect(neighbors).toEqual([]);
         unsyncedStore.close();
@@ -643,7 +643,7 @@ Original content`
 
     describe('findPath', () => {
       it('returns null when graph not ready (graceful degradation)', async () => {
-        const unsyncedStore = new DocStore(sourceDir, join(tempDir, 'unsynced-cache-path'));
+        const unsyncedStore = new DocStore({ sourceRoot: sourceDir, cacheDir: join(tempDir, 'unsynced-cache-path') });
         const path = await unsyncedStore.findPath('a.md', 'b.md');
         expect(path).toBeNull();
         unsyncedStore.close();
@@ -685,7 +685,7 @@ Original content`
 
     describe('getHubs', () => {
       it('returns empty array when graph not ready (graceful degradation)', async () => {
-        const unsyncedStore = new DocStore(sourceDir, join(tempDir, 'unsynced-cache-hubs'));
+        const unsyncedStore = new DocStore({ sourceRoot: sourceDir, cacheDir: join(tempDir, 'unsynced-cache-hubs') });
         const hubs = await unsyncedStore.getHubs('in_degree', 10);
         expect(hubs).toEqual([]);
         unsyncedStore.close();
@@ -707,10 +707,10 @@ Original content`
       });
 
       it('returns empty for empty store', async () => {
-        const emptyStore = new DocStore(
-          join(tempDir, 'empty-source'),
-          join(tempDir, 'empty-cache')
-        );
+        const emptyStore = new DocStore({
+          sourceRoot: join(tempDir, 'empty-source'),
+          cacheDir: join(tempDir, 'empty-cache'),
+        });
         await mkdir(join(tempDir, 'empty-source'), { recursive: true });
         await emptyStore.sync();
 
@@ -721,10 +721,10 @@ Original content`
       });
 
       it('handles non-existent source directory gracefully', async () => {
-        const missingStore = new DocStore(
-          join(tempDir, 'does-not-exist'),
-          join(tempDir, 'missing-cache')
-        );
+        const missingStore = new DocStore({
+          sourceRoot: join(tempDir, 'does-not-exist'),
+          cacheDir: join(tempDir, 'missing-cache'),
+        });
         // sync() should not throw when source directory doesn't exist
         await missingStore.sync();
 
@@ -766,7 +766,7 @@ Original content`
         getModel: vi.fn().mockResolvedValue(null),
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir, vectorIndex: mockVectorIndex });
 
       await customStore.storeEmbedding('doc.md', [1, 2, 3], 'custom-model');
       expect(mockVectorIndex.store).toHaveBeenCalledWith(
@@ -786,7 +786,7 @@ Original content`
         getModel: vi.fn().mockResolvedValue(null),
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir, vectorIndex: mockVectorIndex });
 
       await customStore.storeEmbedding('node-id', [0.5, 0.6, 0.7], 'embedding-model');
 
@@ -813,7 +813,7 @@ Original content`
         getModel: vi.fn().mockResolvedValue(null),
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir, vectorIndex: mockVectorIndex });
 
       const results = await customStore.searchByVector([0.1, 0.2], 5);
 
@@ -833,14 +833,14 @@ Original content`
         hasEmbedding: vi.fn().mockReturnValue(true),
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir, vectorIndex: mockVectorIndex });
       expect(customStore.hasEmbedding('doc.md')).toBe(true);
       expect(mockVectorIndex.hasEmbedding).toHaveBeenCalledWith('doc.md');
       customStore.close();
     });
 
     it('hasEmbedding returns false when vectorIndex is null', async () => {
-      const customStore = new DocStore(sourceDir, cacheDir);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir });
       // Force vectorIndex to null to cover the guard branch
       Object.defineProperty(customStore, 'vectorIndex', { value: null });
       expect(customStore.hasEmbedding('doc.md')).toBe(false);
@@ -856,7 +856,7 @@ Original content`
         close: closeMock,
       };
 
-      const customStore = new DocStore(sourceDir, cacheDir, mockVectorIndex);
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir, vectorIndex: mockVectorIndex });
       customStore.close();
 
       expect(closeMock).not.toHaveBeenCalled();
@@ -865,7 +865,7 @@ Original content`
     it('close() closes owned VectorIndex when DocStore created it', async () => {
       // Create a new store with a separate cache dir to get fresh VectorIndex
       const ownedCacheDir = join(tempDir, 'owned-vector-cache');
-      const ownedStore = new DocStore(sourceDir, ownedCacheDir);
+      const ownedStore = new DocStore({ sourceRoot: sourceDir, cacheDir: ownedCacheDir });
 
       // Store something to ensure vector DB is created
       await ownedStore.storeEmbedding('test.md', [0.1, 0.2, 0.3], 'model');
@@ -876,9 +876,23 @@ Original content`
 
       // Verify the VectorIndex was closed by trying to create a new one
       // at the same path - if old one wasn't closed, this might fail on some systems
-      const newStore = new DocStore(sourceDir, ownedCacheDir);
+      const newStore = new DocStore({ sourceRoot: sourceDir, cacheDir: ownedCacheDir });
       await newStore.storeEmbedding('test2.md', [0.4, 0.5, 0.6], 'model');
       newStore.close();
+    });
+
+    it('close() is idempotent - safe to call multiple times', () => {
+      const idempotentCacheDir = join(tempDir, 'idempotent-cache');
+      const idempotentStore = new DocStore({ sourceRoot: sourceDir, cacheDir: idempotentCacheDir });
+
+      // First close
+      idempotentStore.close();
+
+      // Second close should not throw
+      expect(() => idempotentStore.close()).not.toThrow();
+
+      // Third close should also not throw
+      expect(() => idempotentStore.close()).not.toThrow();
     });
   });
 
@@ -1052,7 +1066,7 @@ No links yet`
       );
 
       // Use a fresh store
-      const racyStore = new DocStore(sourceDir, join(tempDir, 'racy-cache'));
+      const racyStore = new DocStore({ sourceRoot: sourceDir, cacheDir: join(tempDir, 'racy-cache') });
 
       try {
         // Sync should not throw - ENOENT should be caught and file skipped
@@ -1085,7 +1099,7 @@ No links yet`
       );
 
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const errorStore = new DocStore(sourceDir, join(tempDir, 'error-cache'));
+      const errorStore = new DocStore({ sourceRoot: sourceDir, cacheDir: join(tempDir, 'error-cache') });
 
       try {
         // Sync should NOT throw - graceful degradation
@@ -1560,12 +1574,11 @@ Content with [[Link]]`
         customRegistry.register(throwingReader);
 
         // Create store with custom registry
-        const customStore = new DocStore(
-          sourceDir,
-          join(tempDir, 'graceful-cache'),
-          undefined, // vectorProvider
-          customRegistry
-        );
+        const customStore = new DocStore({
+          sourceRoot: sourceDir,
+          cacheDir: join(tempDir, 'graceful-cache'),
+          registry: customRegistry,
+        });
 
         const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -1607,12 +1620,11 @@ Content with [[Link]]`
         const customRegistry = new ReaderRegistry();
         customRegistry.register(alwaysThrowsReader);
 
-        const customStore = new DocStore(
-          sourceDir,
-          join(tempDir, 'logging-cache'),
-          undefined,
-          customRegistry
-        );
+        const customStore = new DocStore({
+          sourceRoot: sourceDir,
+          cacheDir: join(tempDir, 'logging-cache'),
+          registry: customRegistry,
+        });
 
         const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

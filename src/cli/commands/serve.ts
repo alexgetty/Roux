@@ -44,15 +44,19 @@ export async function serveCommand(
   const cachePath = config.cache?.path ?? '.roux';
   const resolvedCachePath = join(directory, cachePath);
 
-  const store = new DocStore(resolvedSourcePath, resolvedCachePath);
-  const embedding = new TransformersEmbedding(
+  const store = new DocStore({ sourceRoot: resolvedSourcePath, cacheDir: resolvedCachePath });
+  const embeddingModel =
     config.providers?.embedding?.type === 'local'
       ? config.providers.embedding.model
-      : undefined
+      : undefined;
+  const embedding = new TransformersEmbedding(
+    embeddingModel ? { model: embeddingModel } : {}
   );
 
-  // Sync cache
-  await store.sync();
+  // Create GraphCore and register providers (store.onRegister calls sync)
+  const core = new GraphCoreImpl();
+  await core.registerStore(store);
+  await core.registerEmbedding(embedding);
 
   // Generate embeddings for nodes without them
   const allNodeIds = await store.getAllNodeIds();
@@ -74,11 +78,6 @@ export async function serveCommand(
     }
   }
 
-  // Create GraphCore
-  const core = new GraphCoreImpl();
-  core.registerStore(store);
-  core.registerEmbedding(embedding);
-
   // Resolve naming conventions
   const naming = { ...DEFAULT_NAMING, ...config.naming };
 
@@ -93,8 +92,8 @@ export async function serveCommand(
   try {
     await mcpServer.start(transportFactory);
   } catch (err) {
-    // Clean up store on MCP server start failure
-    store.close();
+    // Clean up providers on MCP server start failure
+    await core.destroy();
     throw err;
   }
 
@@ -131,8 +130,7 @@ export async function serveCommand(
 
   return {
     stop: async () => {
-      store.stopWatching();
-      store.close();
+      await core.destroy();
       await mcpServer.close();
     },
     isWatching: store.isWatching(),
