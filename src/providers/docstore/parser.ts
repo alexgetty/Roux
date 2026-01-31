@@ -5,6 +5,8 @@ export interface ParsedMarkdown {
   tags: string[];
   properties: Record<string, unknown>;
   content: string;
+  /** Raw wiki-link targets before normalization (e.g., ["Other Note", "folder/file"]) */
+  rawLinks: string[];
 }
 
 /**
@@ -22,6 +24,7 @@ export function parseMarkdown(raw: string): ParsedMarkdown {
       tags: [],
       properties: {},
       content: raw,
+      rawLinks: extractWikiLinks(raw),
     };
   }
 
@@ -44,11 +47,14 @@ export function parseMarkdown(raw: string): ParsedMarkdown {
     }
   }
 
+  const content = parsed.content.trim();
+
   return {
     title,
     tags,
     properties,
-    content: parsed.content.trim(),
+    content,
+    rawLinks: extractWikiLinks(content),
   };
 }
 

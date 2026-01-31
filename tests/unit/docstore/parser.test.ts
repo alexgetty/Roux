@@ -23,6 +23,19 @@ tags:
       expect(result.title).toBe('My Note');
       expect(result.tags).toEqual(['test', 'example']);
       expect(result.content).toBe('# Content here');
+      expect(result.rawLinks).toEqual([]);
+    });
+
+    it('extracts rawLinks from content', () => {
+      const content = `---
+title: Linked Note
+tags: []
+---
+See [[Other Note]] and [[folder/file]] for details.`;
+
+      const result = parseMarkdown(content);
+      expect(result.title).toBe('Linked Note');
+      expect(result.rawLinks).toEqual(['Other Note', 'folder/file']);
     });
 
     it('parses frontmatter with inline tags array', () => {

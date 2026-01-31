@@ -1,163 +1,79 @@
 ---
-title: Plugin   Schema.Org Validator
+title: Plugin   Schema.Org Provider
 tags:
   - roadmap
   - plugin
   - schema
   - ontology
-  - priority
+  - provider
 ---
-# Plugin: Schema.org Validator
+# Plugin: Schema.org Provider
 
-First plugin implementation. Stress-tests the plugin architecture while delivering real value.
+Implementation of SchemaProvider wrapping the schema.org vocabulary. Ships with core as the default type system.
+
+> **Note:** This was originally conceived as a standalone "validator plugin." The architecture has evolved — see [[1.0 Vision - Ontology System]] for the full SchemaProvider abstraction. This document now describes the schema.org *implementation* of that interface.
 
 ## Purpose
 
-Validate nodes against schema.org types. Auto-detect types. Proactively scaffold metadata fields.
+Provide schema.org types as the baseline vocabulary for Roux's ontology system:
+- Type definitions for 800+ schema.org types
+- Validation against type specifications
+- Scaffolding of expected properties
+- Type inference from content
 
-## Key Design Decisions
-
-### 1. schema.org is behind-the-scenes
-
-schema.org is the validation engine, **not a user-facing namespace**. Users don't write `schema-org.validated: true`. They write their data in their context namespace, and the validator works invisibly.
-
-### 2. `type` is a core Node field
-
-See [[1.0 Vision - Node Schema]]. Type is structural, same level as `id` and `title`.
-
-### 3. Proactive metadata scaffolding
-
-When a node's type is detected/declared, the validator can:
-1. Auto-detect type from content (if not declared)
-2. Validate against schema.org definition
-3. **Add placeholder fields** for that type's expected properties
-4. User or LLM fills them in later
-
-```yaml
-# Before (user creates)
----
-title: Bulgogi
-type: Recipe
-recipes:
-  source: Maangchi
----
-
-# After (validator scaffolds)
----
-title: Bulgogi
-type: Recipe
-recipes:
-  source: Maangchi
-  prepTime:      # placeholder - Recipe expects this
-  cookTime:      # placeholder
-  ingredients: []  # placeholder
----
-```
-
-This prompts completeness without blocking creation.
-
-## Validation Trigger
-
-Hook into DocStore file watcher pipeline:
-
-```
-file change → watcher → parser → [validate + scaffold] → node emitted
-```
-
-No separate hook system needed for MVP.
-
-## Plugin Manifest
+## Implements SchemaProvider
 
 ```typescript
-const schemaOrgPlugin: RouxPlugin = {
+const schemaOrgProvider: SchemaProvider = {
   id: 'schema-org',
-  name: 'Schema.org Validator',
-  version: '0.1.0',
   
-  requires: [],
-  needs: {
-    storage: 'readwrite',
-  },
-  wants: {
-    embedding: true,  // For type inference
-  },
-  provides: {
-    typeValidator: true,  // Registers as a type validator
+  listTypes(): TypeDefinition[] {
+    // Return all cached schema.org types
   },
   
-  // Internal tracking (not user-facing)
-  internalSchema: {
-    lastValidated: 'date-time',
-    validationErrors: 'string[]',
-    inferredType: 'string',
-    confidence: 'number',
+  getType(name: string): TypeDefinition | null {
+    // Lookup Recipe, Article, Person, etc.
   },
   
-  mcpTools: [
-    {
-      name: 'schema_validate',
-      description: 'Validate a node against its declared type',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          nodeId: { type: 'string' },
-          scaffold: { type: 'boolean', description: 'Add placeholder fields' },
-        },
-        required: ['nodeId'],
-      },
-    },
-    {
-      name: 'schema_infer',
-      description: 'Infer type from node content',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          nodeId: { type: 'string' },
-          apply: { type: 'boolean', description: 'Apply inferred type' },
-        },
-        required: ['nodeId'],
-      },
-    },
-    {
-      name: 'schema_lookup',
-      description: 'Get type definition and expected properties',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          type: { type: 'string' },
-        },
-        required: ['type'],
-      },
-    },
-    {
-      name: 'schema_scaffold',
-      description: 'Add placeholder properties for a type',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          nodeId: { type: 'string' },
-          type: { type: 'string', description: 'Override detected type' },
-        },
-        required: ['nodeId'],
-      },
-    },
-  ],
+  inferType(content: string): TypeMatch[] {
+    // Semantic match against type descriptions
+  },
+  
+  extractProperties(content: string, type: string): Record<string, unknown> {
+    // Pull structured data from raw content
+  },
+  
+  validate(node: Node): ValidationResult {
+    // Check node against type definition
+  },
+  
+  scaffold(type: string): Partial<Node> {
+    // Return placeholder fields for type
+  },
 };
 ```
 
-## Where Validation State Lives
+## Schema Cache
 
-The validator needs to track state (last validated, errors, etc.). Options:
+Downloaded and cached locally:
 
-1. **Internal cache** - not persisted in node, rebuilt on startup
-2. **Hidden context** - `_schema-org` namespace (underscore = internal)
-3. **Separate index** - plugin maintains its own database
+```
+~/.roux/schema/
+  schema-org/
+    types/
+      Recipe.json
+      Article.json
+      Person.json
+      ...
+    index.json
+    embeddings.bin  # Type description embeddings for inference
+```
 
-**Leaning:** Internal cache for MVP. Validation is cheap to recompute. No need to clutter nodes with validation metadata.
+Source: https://schema.org/version/latest/schemaorg-current-https.jsonld
 
 ## Property Mapping
 
-Map node fields to schema.org property names:
+Map Roux node fields to schema.org property names:
 
 | Node Field | schema.org Property |
 |------------|---------------------|
@@ -167,7 +83,7 @@ Map node fields to schema.org property names:
 | `[context].author` | `author` |
 | `[context].prepTime` | `prepTime` |
 
-The validator understands that user data lives in their context namespace.
+The provider understands that user data lives in context namespaces.
 
 ## Type Inference
 
@@ -176,33 +92,34 @@ Semantic matching of node content against type descriptions:
 1. Embed node content
 2. Compare against cached type description embeddings
 3. Return top matches with confidence scores
-4. Optionally apply highest-confidence type
 
-## Schema Cache
+Requires EmbeddingProvider to be available (graceful degradation if not).
 
-```
-~/.roux/plugins/schema-org/
-  schemas/
-    Recipe.json
-    Article.json
-    ...
-  index.json
-  embeddings.bin  # Type description embeddings
-```
+## MCP Tools
 
-Source: https://schema.org/version/latest/schemaorg-current-https.jsonld
+Exposed via the schema service namespace:
+
+| Tool | Description |
+|------|-------------|
+| `schema.lookup` | Get type definition and properties |
+| `schema.infer` | Infer type from content |
+| `schema.validate` | Check node against type |
+| `schema.scaffold` | Get placeholder fields for type |
+| `schema.extract` | Pull structured data from content |
+
+These are the schema.org implementations of the generic SchemaProvider capabilities.
 
 ## Implementation Phases
 
-1. **Schema cache** - download, parse, cache schema.org
-2. **Type lookup** - `schema_lookup` tool
-3. **Validation** - `schema_validate` tool
-4. **Scaffolding** - `schema_scaffold` tool, proactive placeholders
-5. **Type inference** - `schema_infer` with embeddings
-6. **Pipeline integration** - auto-validate on file→node
+1. **Schema cache** — download, parse, cache schema.org
+2. **Type lookup** — `getType()` implementation
+3. **Validation** — `validate()` implementation
+4. **Scaffolding** — `scaffold()` implementation
+5. **Type inference** — `inferType()` with embeddings
+6. **Extraction** — `extractProperties()` implementation
 
 ## Dependencies
 
-- [[Plugin System]] — core plugin infrastructure
-- [[1.0 Vision - Node Schema]] — context-based namespacing
-- [[1.0 Vision - Ontology System]] — this implements the ontology layer
+- [[1.0 Vision - Ontology System]] — defines the SchemaProvider interface
+- [[Plugin System]] — if shipped as optional plugin vs bundled
+- EmbeddingProvider — for type inference (optional)

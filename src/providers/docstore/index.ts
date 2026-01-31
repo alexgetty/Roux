@@ -148,11 +148,13 @@ export class DocStore extends StoreProvider {
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true });
 
+    const rawLinks = extractWikiLinks(node.content);
     const parsed = {
       title: node.title,
       tags: node.tags,
       properties: node.properties,
       content: node.content,
+      rawLinks,
     };
     const markdown = serializeToMarkdown(parsed);
     await writeFile(filePath, markdown, 'utf-8');
@@ -160,7 +162,6 @@ export class DocStore extends StoreProvider {
     // Extract wikilinks from content
     let outgoingLinks = node.outgoingLinks;
     if (node.content && (!outgoingLinks || outgoingLinks.length === 0)) {
-      const rawLinks = extractWikiLinks(node.content);
       outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     }
 
@@ -198,6 +199,7 @@ export class DocStore extends StoreProvider {
       tags: updated.tags,
       properties: updated.properties,
       content: updated.content,
+      rawLinks,
     };
     const markdown = serializeToMarkdown(parsed);
     await writeFile(filePath, markdown, 'utf-8');
