@@ -13,6 +13,4 @@ views:
       - priority
       - phase
       - parent
-    sort:
-      - property: priority
-        direction: ASC
+    sort: []
