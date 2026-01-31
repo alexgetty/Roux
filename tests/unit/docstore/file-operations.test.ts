@@ -8,7 +8,7 @@ import {
   collectFiles,
   readFileContent,
 } from '../../../src/providers/docstore/file-operations.js';
-import { EXCLUDED_DIRS } from '../../../src/providers/docstore/watcher.js';
+import { EXCLUDED_DIRS } from '../../../src/providers/docstore/constants.js';
 
 describe('file-operations', () => {
   let tempDir: string;

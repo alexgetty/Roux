@@ -3,33 +3,22 @@
  * Extracted from DocStore to reduce file size and improve testability.
  */
 
+import {
+  hasFileExtension as hasFileExtensionImpl,
+  normalizeLinkTarget,
+} from './normalize.js';
+
 /**
  * Check if a path has a file extension.
- * Extension must be 1-4 chars and contain at least one letter
- * (excludes numeric-only like .2024, .123).
+ * @deprecated Use hasFileExtension from './normalize.js' directly.
  */
-export function hasFileExtension(path: string): boolean {
-  const match = path.match(/\.([a-z0-9]{1,4})$/i);
-  if (!match?.[1]) return false;
-  return /[a-z]/i.test(match[1]);
-}
+export const hasFileExtension = hasFileExtensionImpl;
 
 /**
  * Normalize a wiki-link target to an ID.
- * - Trim leading/trailing whitespace
- * - Lowercase
- * - Backslashes to forward slashes
- * - Add .md if no file extension present
+ * @deprecated Use normalizeLinkTarget from './normalize.js' directly.
  */
-export function normalizeWikiLink(target: string): string {
-  let normalized = target.trim().toLowerCase().replace(/\\/g, '/');
-
-  if (!hasFileExtension(normalized)) {
-    normalized += '.md';
-  }
-
-  return normalized;
-}
+export const normalizeWikiLink = normalizeLinkTarget;
 
 /**
  * Build an index mapping basenames to full node IDs.

@@ -102,7 +102,7 @@ export class DocStore extends StoreProvider {
         const cachedMtime = this.cache.getModifiedTime(filePath);
 
         if (cachedMtime === null || mtime > cachedMtime) {
-          const node = await this.parseFile(filePath);
+          const node = await this.parseFile(filePath, mtime);
           this.cache.upsertNode(node, 'file', filePath, mtime);
         }
       } catch (err) {
@@ -411,18 +411,20 @@ export class DocStore extends StoreProvider {
 
   /**
    * Parse a file into a Node using the appropriate FormatReader.
+   * @param filePath Absolute path to the file
+   * @param mtime Optional mtime in ms. If provided, avoids redundant stat call.
    */
-  private async parseFile(filePath: string): Promise<Node> {
+  private async parseFile(filePath: string, mtime?: number): Promise<Node> {
     const content = await readFileContent(filePath);
     const relativePath = relative(this.sourceRoot, filePath);
     const ext = extname(filePath).toLowerCase();
-    const mtime = new Date(await getFileMtime(filePath));
+    const actualMtime = new Date(mtime ?? await getFileMtime(filePath));
 
     const context: FileContext = {
       absolutePath: filePath,
       relativePath,
       extension: ext,
-      mtime,
+      mtime: actualMtime,
     };
 
     return this.registry.parse(content, context);

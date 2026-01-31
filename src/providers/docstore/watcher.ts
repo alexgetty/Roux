@@ -11,6 +11,10 @@
 
 import { watch, type FSWatcher } from 'chokidar';
 import { relative, extname } from 'node:path';
+import { EXCLUDED_DIRS } from './constants.js';
+
+// Re-export for backwards compatibility
+export { EXCLUDED_DIRS } from './constants.js';
 
 export type FileEventType = 'add' | 'change' | 'unlink';
 
@@ -23,13 +27,6 @@ export interface FileWatcherOptions {
    *  logged and swallowed; watcher continues operating. */
   onBatch: (events: Map<string, FileEventType>) => void | Promise<void>;
 }
-
-export const EXCLUDED_DIRS: ReadonlySet<string> = new Set([
-  '.roux',
-  'node_modules',
-  '.git',
-  '.obsidian',
-]);
 
 const DEFAULT_DEBOUNCE_MS = 1000;
 

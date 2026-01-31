@@ -12,6 +12,7 @@ import type {
 } from '../../types/provider.js';
 import {
   type CentralityRecord,
+  initCentralitySchema,
   storeCentrality,
   getCentrality,
   resolveNames,
@@ -44,6 +45,7 @@ export class Cache {
   }
 
   private initSchema(): void {
+    // Create nodes table (core schema owned by Cache)
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS nodes (
         id TEXT PRIMARY KEY,
@@ -57,17 +59,12 @@ export class Cache {
         source_modified INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS centrality (
-        node_id TEXT PRIMARY KEY,
-        pagerank REAL,
-        in_degree INTEGER,
-        out_degree INTEGER,
-        computed_at INTEGER,
-        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
-      );
-
       CREATE INDEX IF NOT EXISTS idx_nodes_source_path ON nodes(source_path);
     `);
+
+    // Delegate centrality schema to its module
+    initCentralitySchema(this.db);
+
     // Enable foreign key enforcement for cascade deletes
     this.db.pragma('foreign_keys = ON');
   }

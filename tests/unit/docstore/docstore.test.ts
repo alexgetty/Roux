@@ -26,6 +26,22 @@ describe('DocStore', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  describe('id configuration', () => {
+    it('defaults id to "docstore" when not provided', async () => {
+      const idCacheDir = join(tempDir, 'id-default-cache');
+      const defaultStore = new DocStore({ sourceRoot: sourceDir, cacheDir: idCacheDir });
+      expect(defaultStore.id).toBe('docstore');
+      defaultStore.close();
+    });
+
+    it('uses provided id when specified', async () => {
+      const idCacheDir = join(tempDir, 'id-custom-cache');
+      const customStore = new DocStore({ sourceRoot: sourceDir, cacheDir: idCacheDir, id: 'custom-store' });
+      expect(customStore.id).toBe('custom-store');
+      customStore.close();
+    });
+  });
+
   const writeMarkdownFile = async (
     relativePath: string,
     content: string
@@ -1119,6 +1135,33 @@ No links yet`
         mockGetFileMtime.mockRestore();
         consoleSpy.mockRestore();
         errorStore.close();
+      }
+    });
+
+    it('sync passes mtime to parseFile, avoiding redundant getFileMtime call', async () => {
+      await writeMarkdownFile('test.md', '---\ntitle: Test\n---\nContent');
+
+      const originalGetFileMtime = fileOps.getFileMtime;
+      const mtimeCalls: string[] = [];
+      const mockGetFileMtime = vi.spyOn(fileOps, 'getFileMtime').mockImplementation(
+        async (filePath: string) => {
+          mtimeCalls.push(filePath);
+          return originalGetFileMtime(filePath);
+        }
+      );
+
+      const syncStore = new DocStore({ sourceRoot: sourceDir, cacheDir: join(tempDir, 'mtime-opt-cache') });
+
+      try {
+        await syncStore.sync();
+
+        // getFileMtime should only be called ONCE per file during sync
+        // (for cache comparison), not twice (once for comparison, once in parseFile)
+        const testMdCalls = mtimeCalls.filter(p => p.includes('test.md'));
+        expect(testMdCalls).toHaveLength(1);
+      } finally {
+        mockGetFileMtime.mockRestore();
+        syncStore.close();
       }
     });
 

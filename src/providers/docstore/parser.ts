@@ -81,15 +81,13 @@ export function extractWikiLinks(content: string): string[] {
   return links;
 }
 
+import { normalizePath } from './normalize.js';
+
 /**
  * Normalize a file path to a consistent ID format.
- * - Lowercased
- * - Forward slashes only
- * - Preserves extension
+ * @deprecated Use normalizePath from './normalize.js' directly.
  */
-export function normalizeId(path: string): string {
-  return path.toLowerCase().replace(/\\/g, '/');
-}
+export const normalizeId = normalizePath;
 
 /**
  * Derive a human-readable title from a file path.

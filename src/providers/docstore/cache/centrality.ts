@@ -7,6 +7,19 @@ export interface CentralityRecord {
   computedAt: number;
 }
 
+export function initCentralitySchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS centrality (
+      node_id TEXT PRIMARY KEY,
+      pagerank REAL,
+      in_degree INTEGER,
+      out_degree INTEGER,
+      computed_at INTEGER,
+      FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+    )
+  `);
+}
+
 interface CentralityRow {
   node_id: string;
   pagerank: number;

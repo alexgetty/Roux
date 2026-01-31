@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { storeCentrality, getCentrality } from '../../../../src/providers/docstore/cache/centrality.js';
+import { storeCentrality, getCentrality, initCentralitySchema } from '../../../../src/providers/docstore/cache/centrality.js';
 
 describe('centrality', () => {
   let db: Database.Database;
@@ -11,15 +11,9 @@ describe('centrality', () => {
       CREATE TABLE nodes (
         id TEXT PRIMARY KEY
       );
-      CREATE TABLE centrality (
-        node_id TEXT PRIMARY KEY,
-        pagerank REAL,
-        in_degree INTEGER,
-        out_degree INTEGER,
-        computed_at INTEGER,
-        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
-      );
     `);
+    // Use initCentralitySchema to create the centrality table
+    initCentralitySchema(db);
     db.pragma('foreign_keys = ON');
     // Insert a node to satisfy foreign key
     db.prepare('INSERT INTO nodes (id) VALUES (?)').run('test.md');
@@ -27,6 +21,78 @@ describe('centrality', () => {
 
   afterEach(() => {
     db.close();
+  });
+
+  describe('initCentralitySchema', () => {
+    it('creates centrality table with correct columns', () => {
+      const freshDb = new Database(':memory:');
+      freshDb.exec('CREATE TABLE nodes (id TEXT PRIMARY KEY)');
+
+      initCentralitySchema(freshDb);
+
+      const tables = freshDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='centrality'")
+        .all() as { name: string }[];
+      expect(tables).toHaveLength(1);
+
+      // Verify columns exist by inserting a row
+      freshDb.prepare('INSERT INTO nodes (id) VALUES (?)').run('test.md');
+      freshDb.pragma('foreign_keys = ON');
+      freshDb.prepare(`
+        INSERT INTO centrality (node_id, pagerank, in_degree, out_degree, computed_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('test.md', 0.5, 1, 2, 1000);
+
+      const row = freshDb.prepare('SELECT * FROM centrality WHERE node_id = ?').get('test.md') as {
+        node_id: string;
+        pagerank: number;
+        in_degree: number;
+        out_degree: number;
+        computed_at: number;
+      };
+      expect(row.node_id).toBe('test.md');
+      expect(row.pagerank).toBe(0.5);
+
+      freshDb.close();
+    });
+
+    it('is idempotent (can be called multiple times)', () => {
+      const freshDb = new Database(':memory:');
+      freshDb.exec('CREATE TABLE nodes (id TEXT PRIMARY KEY)');
+
+      // Call twice - should not throw
+      initCentralitySchema(freshDb);
+      initCentralitySchema(freshDb);
+
+      const tables = freshDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='centrality'")
+        .all() as { name: string }[];
+      expect(tables).toHaveLength(1);
+
+      freshDb.close();
+    });
+
+    it('creates foreign key constraint to nodes table', () => {
+      const freshDb = new Database(':memory:');
+      freshDb.exec('CREATE TABLE nodes (id TEXT PRIMARY KEY)');
+      initCentralitySchema(freshDb);
+      freshDb.pragma('foreign_keys = ON');
+
+      // Insert a node, then centrality, then delete node
+      freshDb.prepare('INSERT INTO nodes (id) VALUES (?)').run('test.md');
+      freshDb.prepare(`
+        INSERT INTO centrality (node_id, pagerank, in_degree, out_degree, computed_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('test.md', 0.5, 1, 2, 1000);
+
+      // Delete node should cascade to centrality
+      freshDb.prepare('DELETE FROM nodes WHERE id = ?').run('test.md');
+
+      const row = freshDb.prepare('SELECT * FROM centrality WHERE node_id = ?').get('test.md');
+      expect(row).toBeUndefined();
+
+      freshDb.close();
+    });
   });
 
   describe('storeCentrality', () => {

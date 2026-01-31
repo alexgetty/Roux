@@ -388,6 +388,26 @@ describe('GraphCore', () => {
 
         consoleSpy.mockRestore();
       });
+
+      it('allows re-registration after destroy', async () => {
+        const core = new GraphCoreImpl();
+        await core.registerStore(mockStore);
+        await core.registerEmbedding(mockEmbedding);
+
+        await core.destroy();
+
+        // Should be able to register fresh providers
+        const newStore = createMockStore({ id: 'new-store' });
+        const newEmbedding = createMockEmbedding({ id: 'new-embedding' });
+
+        await core.registerStore(newStore);
+        await core.registerEmbedding(newEmbedding);
+
+        // Verify new providers are active
+        await core.search('test');
+        expect(newEmbedding.embed).toHaveBeenCalled();
+        expect(newStore.searchByVector).toHaveBeenCalled();
+      });
     });
   });
 

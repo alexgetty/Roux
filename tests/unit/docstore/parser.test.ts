@@ -204,6 +204,28 @@ Another [[real]] link.`;
     const links = extractWikiLinks(content);
     expect(links).toEqual(['spaced target']);
   });
+
+  it('ignores links inside code blocks with language specifiers', () => {
+    const content = `Real [[link]] here.
+
+\`\`\`typescript
+[[code-link]]
+\`\`\`
+
+Another [[real]] link.`;
+
+    const links = extractWikiLinks(content);
+    expect(links).toContain('link');
+    expect(links).toContain('real');
+    expect(links).not.toContain('code-link');
+  });
+
+  it('ignores escaped brackets', () => {
+    const content = '\\[\\[escaped\\]\\] and [[real]]';
+    const links = extractWikiLinks(content);
+    expect(links).toEqual(['real']);
+    expect(links).not.toContain('escaped');
+  });
 });
 
 describe('normalizeId', () => {
@@ -390,5 +412,21 @@ Body text with [[links]].`;
     expect(reparsed.properties['custom']).toBe(parsed.properties['custom']);
     // Content might have minor whitespace differences
     expect(reparsed.content).toContain('Body text with [[links]]');
+  });
+
+  it('preserves content with frontmatter-like separators', () => {
+    const parsed: ParsedMarkdown = {
+      title: 'Test',
+      tags: [],
+      properties: {},
+      content: 'Before\n---\nAfter',
+    };
+
+    const serialized = serializeToMarkdown(parsed);
+    const reparsed = parseMarkdown(serialized);
+
+    expect(reparsed.content).toContain('Before');
+    expect(reparsed.content).toContain('After');
+    expect(reparsed.content).toContain('---');
   });
 });

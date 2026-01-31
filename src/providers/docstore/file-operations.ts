@@ -7,7 +7,7 @@
 
 import { readFile, stat, readdir } from 'node:fs/promises';
 import { join, resolve, extname } from 'node:path';
-import { EXCLUDED_DIRS } from './watcher.js';
+import { EXCLUDED_DIRS } from './constants.js';
 
 /**
  * Get file modification time in milliseconds

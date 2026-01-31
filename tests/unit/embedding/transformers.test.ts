@@ -25,6 +25,18 @@ describe('TransformersEmbedding', () => {
     });
   });
 
+  describe('id configuration', () => {
+    it('defaults to "transformers-embedding" when not provided', () => {
+      const p = new TransformersEmbedding();
+      expect(p.id).toBe('transformers-embedding');
+    });
+
+    it('uses provided id when specified', () => {
+      const p = new TransformersEmbedding({ id: 'custom-embedding' });
+      expect(p.id).toBe('custom-embedding');
+    });
+  });
+
   describe('modelId()', () => {
     it('returns default model identifier', () => {
       expect(provider.modelId()).toBe('Xenova/all-MiniLM-L6-v2');
