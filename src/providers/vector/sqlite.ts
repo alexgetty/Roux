@@ -8,6 +8,7 @@ import { cosineDistance } from '../../utils/math.js';
 export class SqliteVectorIndex implements VectorIndex {
   private db: DatabaseType;
   private ownsDb: boolean;
+  private modelMismatchWarned = false;
 
   constructor(pathOrDb: string | DatabaseType) {
     if (typeof pathOrDb === 'string') {
@@ -70,6 +71,20 @@ export class SqliteVectorIndex implements VectorIndex {
     }
     if (limit <= 0) {
       return [];
+    }
+
+    // Warn once if index contains mixed models
+    if (!this.modelMismatchWarned) {
+      const models = this.db
+        .prepare('SELECT DISTINCT model FROM vectors')
+        .all() as Array<{ model: string }>;
+      if (models.length > 1) {
+        console.warn(
+          `Vector index contains embeddings from multiple models: ${models.map((m) => m.model).join(', ')}. ` +
+            'Search results may be unreliable. Re-sync to re-embed all documents with current model.'
+        );
+        this.modelMismatchWarned = true;
+      }
     }
 
     const queryVec = new Float32Array(vector);

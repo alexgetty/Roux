@@ -820,6 +820,7 @@ function isZeroVector(v) {
 var SqliteVectorIndex = class {
   db;
   ownsDb;
+  modelMismatchWarned = false;
   constructor(pathOrDb) {
     if (typeof pathOrDb === "string") {
       this.db = new Database2(join2(pathOrDb, "vectors.db"));
@@ -870,6 +871,15 @@ var SqliteVectorIndex = class {
     }
     if (limit <= 0) {
       return [];
+    }
+    if (!this.modelMismatchWarned) {
+      const models = this.db.prepare("SELECT DISTINCT model FROM vectors").all();
+      if (models.length > 1) {
+        console.warn(
+          `Vector index contains embeddings from multiple models: ${models.map((m) => m.model).join(", ")}. Search results may be unreliable. Re-sync to re-embed all documents with current model.`
+        );
+        this.modelMismatchWarned = true;
+      }
     }
     const queryVec = new Float32Array(vector);
     const stmt = this.db.prepare("SELECT id, vector FROM vectors");

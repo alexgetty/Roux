@@ -176,6 +176,39 @@ describe('SqliteVectorIndex', () => {
       expect(results[0]!.id).toBe('openai1');
       expect(results[0]!.distance).toBeCloseTo(0, 5);
     });
+
+    it('warns once when index contains mixed models', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await provider.store('doc1', [1, 0, 0], 'model-v1');
+      await provider.store('doc2', [0.9, 0.1, 0], 'model-v2'); // Different model
+
+      // First search should warn
+      await provider.search([1, 0, 0], 10);
+      expect(consoleSpy).toHaveBeenCalledOnce();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('multiple models')
+      );
+
+      // Second search should NOT warn again
+      consoleSpy.mockClear();
+      await provider.search([1, 0, 0], 10);
+      expect(consoleSpy).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+
+    it('does not warn when all vectors use same model', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await provider.store('doc1', [1, 0, 0], 'model-v1');
+      await provider.store('doc2', [0.9, 0.1, 0], 'model-v1'); // Same model
+
+      await provider.search([1, 0, 0], 10);
+      expect(consoleSpy).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
   });
 
   describe('delete', () => {

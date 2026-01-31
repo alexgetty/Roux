@@ -454,6 +454,7 @@ declare class TransformersEmbedding implements Embedding {
 declare class SqliteVectorIndex implements VectorIndex {
     private db;
     private ownsDb;
+    private modelMismatchWarned;
     constructor(pathOrDb: string | Database);
     private init;
     store(id: string, vector: number[], model: string): Promise<void>;
