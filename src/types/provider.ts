@@ -164,7 +164,7 @@ export function isVectorIndex(value: unknown): value is VectorIndex {
 /**
  * Runtime type guard for Store interface.
  * IMPORTANT: Update this function when Store interface changes.
- * Current method count: 16 + id field
+ * Checks: id field (required, non-empty string) + 16 methods
  */
 export function isStoreProvider(value: unknown): value is Store {
   if (value === null || typeof value !== 'object') {

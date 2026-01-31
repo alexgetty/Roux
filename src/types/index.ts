@@ -24,6 +24,10 @@ export type {
 } from './provider.js';
 export { isVectorIndex } from './provider.js';
 
+// Generic guard utility
+export type { PropertyType, PropertySchema, Schema } from './guards.js';
+export { createGuard } from './guards.js';
+
 // GraphCore types
 export type { GraphCore, SearchOptions } from './graphcore.js';
 
