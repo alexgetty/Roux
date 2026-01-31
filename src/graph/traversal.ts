@@ -6,6 +6,7 @@ import { MinHeap } from '../utils/heap.js';
 /**
  * Get neighbor IDs based on direction.
  * Returns empty array if node doesn't exist.
+ * Uses iterator-based traversal for early termination when limit is specified.
  */
 export function getNeighborIds(
   graph: DirectedGraph,
@@ -16,27 +17,34 @@ export function getNeighborIds(
     return [];
   }
 
-  let neighbors: string[];
-
-  switch (options.direction) {
-    case 'in':
-      neighbors = graph.inNeighbors(id);
-      break;
-    case 'out':
-      neighbors = graph.outNeighbors(id);
-      break;
-    case 'both':
-      neighbors = graph.neighbors(id);
-      break;
+  const limit = options.limit;
+  if (limit !== undefined && limit <= 0) {
+    return [];
   }
 
-  if (options.limit !== undefined) {
-    if (options.limit <= 0) {
-      return [];
+  const maxCount = limit ?? Infinity;
+  const direction = options.direction;
+
+  // For 'both' direction, use graphology's neighborEntries which deduplicates
+  if (direction === 'both') {
+    const neighbors: string[] = [];
+    for (const entry of graph.neighborEntries(id)) {
+      if (neighbors.length >= maxCount) break;
+      neighbors.push(entry.neighbor);
     }
-    if (options.limit < neighbors.length) {
-      return neighbors.slice(0, options.limit);
-    }
+    return neighbors;
+  }
+
+  // For single direction, iterate directly
+  const neighbors: string[] = [];
+  const iterator =
+    direction === 'in'
+      ? graph.inNeighborEntries(id)
+      : graph.outNeighborEntries(id);
+
+  for (const entry of iterator) {
+    if (neighbors.length >= maxCount) break;
+    neighbors.push(entry.neighbor);
   }
 
   return neighbors;

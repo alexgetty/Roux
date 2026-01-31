@@ -120,6 +120,57 @@ describe('graph traversal', () => {
       // graphology.neighbors() returns unique neighbors
       expect(result).toEqual(['b']);
     });
+
+    it('early-terminates iteration when limit reached (performance)', () => {
+      // Create a hub with 100 outgoing edges
+      const hubGraph = new DirectedGraph();
+      hubGraph.addNode('hub');
+      for (let i = 0; i < 100; i++) {
+        hubGraph.addNode(`target-${i}`);
+        hubGraph.addDirectedEdge('hub', `target-${i}`);
+      }
+
+      // Track how many times the iterator is accessed
+      let iterationCount = 0;
+      const originalOutNeighbors = hubGraph.outNeighborEntries.bind(hubGraph);
+      hubGraph.outNeighborEntries = function* (node: string) {
+        for (const entry of originalOutNeighbors(node)) {
+          iterationCount++;
+          yield entry;
+        }
+      };
+
+      const result = getNeighborIds(hubGraph, 'hub', { direction: 'out', limit: 5 });
+
+      expect(result).toHaveLength(5);
+      // Should iterate limit+1 times at most (one extra to detect termination condition)
+      // The key assertion: we don't iterate all 100 edges
+      expect(iterationCount).toBeLessThanOrEqual(6);
+      expect(iterationCount).toBeGreaterThan(0);
+    });
+
+    it('early-terminates for direction "both" when limit reached', () => {
+      // Create a node with many neighbors in both directions
+      const hubGraph = new DirectedGraph();
+      hubGraph.addNode('center');
+      for (let i = 0; i < 50; i++) {
+        hubGraph.addNode(`in-${i}`);
+        hubGraph.addNode(`out-${i}`);
+        hubGraph.addDirectedEdge(`in-${i}`, 'center');
+        hubGraph.addDirectedEdge('center', `out-${i}`);
+      }
+      // center has 50 incoming + 50 outgoing = 100 total neighbors
+
+      const result = getNeighborIds(hubGraph, 'center', { direction: 'both', limit: 5 });
+
+      expect(result).toHaveLength(5);
+      // Each returned neighbor should be a valid neighbor
+      for (const neighbor of result) {
+        expect(hubGraph.hasEdge('center', neighbor) || hubGraph.hasEdge(neighbor, 'center')).toBe(
+          true
+        );
+      }
+    });
   });
 
   describe('findPath', () => {
