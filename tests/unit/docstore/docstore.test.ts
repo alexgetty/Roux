@@ -1645,4 +1645,63 @@ Content with [[Link]]`
       });
     });
   });
+
+  describe('FileWatcher injection', () => {
+    it('uses injected FileWatcher instead of creating one', async () => {
+      let isWatchingState = false;
+      const mockFileWatcher = {
+        start: vi.fn().mockImplementation(() => {
+          isWatchingState = true;
+          return Promise.resolve();
+        }),
+        stop: vi.fn().mockImplementation(() => {
+          isWatchingState = false;
+        }),
+        isWatching: vi.fn().mockImplementation(() => isWatchingState),
+        flush: vi.fn(),
+      };
+
+      const customStore = new DocStore({
+        sourceRoot: sourceDir,
+        cacheDir: join(tempDir, 'watcher-inject-cache'),
+        fileWatcher: mockFileWatcher as unknown as import('../../../src/providers/docstore/watcher.js').FileWatcher,
+      });
+
+      // FileWatcher was injected, not created
+      await customStore.startWatching();
+
+      // Verify injected watcher's start() was called
+      expect(mockFileWatcher.start).toHaveBeenCalled();
+      expect(customStore.isWatching()).toBe(true);
+
+      // Verify injected watcher's stop() is called
+      customStore.stopWatching();
+      expect(mockFileWatcher.stop).toHaveBeenCalled();
+
+      customStore.close();
+    });
+
+    it('does not create new FileWatcher when one is injected', async () => {
+      const mockFileWatcher = {
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn(),
+        isWatching: vi.fn().mockReturnValue(false),
+        flush: vi.fn(),
+      };
+
+      const customStore = new DocStore({
+        sourceRoot: sourceDir,
+        cacheDir: join(tempDir, 'watcher-no-create-cache'),
+        fileWatcher: mockFileWatcher as unknown as import('../../../src/providers/docstore/watcher.js').FileWatcher,
+      });
+
+      // Call startWatching - should use injected, not create new
+      await customStore.startWatching();
+
+      // The injected watcher's start should be called
+      expect(mockFileWatcher.start).toHaveBeenCalledTimes(1);
+
+      customStore.close();
+    });
+  });
 });

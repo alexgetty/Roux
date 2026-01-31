@@ -582,4 +582,91 @@ describe('DocStore watcher integration', () => {
     });
   });
 
+  describe('event coalescing cache state', () => {
+    it('add + change = add → node exists in cache with correct content', async () => {
+      // Write file with initial content
+      await writeMarkdownFile('coalesce-add-change.md', '---\ntitle: Initial\n---\nInitial content');
+
+      store.startWatching();
+
+      // Simulate rapid add + change (both events before flush)
+      triggerEvent('add', join(sourceDir, 'coalesce-add-change.md'));
+      // Update file content before debounce fires
+      await writeMarkdownFile('coalesce-add-change.md', '---\ntitle: Updated\n---\nUpdated content');
+      triggerEvent('change', join(sourceDir, 'coalesce-add-change.md'));
+
+      await vi.waitFor(
+        async () => {
+          const node = await store.getNode('coalesce-add-change.md');
+          expect(node).not.toBeNull();
+        },
+        { timeout: 2000 }
+      );
+
+      // Cache should have the node with updated content (add event reads latest file)
+      const node = await store.getNode('coalesce-add-change.md');
+      expect(node?.title).toBe('Updated');
+      expect(node?.content).toBe('Updated content');
+    });
+
+    it('change + change = change → node has latest content in cache', async () => {
+      // Initial file
+      await writeMarkdownFile('coalesce-change-change.md', '---\ntitle: V1\n---\nVersion 1');
+      await store.sync();
+
+      const originalNode = await store.getNode('coalesce-change-change.md');
+      expect(originalNode?.title).toBe('V1');
+
+      store.startWatching();
+
+      // First change
+      await writeMarkdownFile('coalesce-change-change.md', '---\ntitle: V2\n---\nVersion 2');
+      triggerEvent('change', join(sourceDir, 'coalesce-change-change.md'));
+
+      // Second change (before debounce)
+      await writeMarkdownFile('coalesce-change-change.md', '---\ntitle: V3\n---\nVersion 3 final');
+      triggerEvent('change', join(sourceDir, 'coalesce-change-change.md'));
+
+      await vi.waitFor(
+        async () => {
+          const node = await store.getNode('coalesce-change-change.md');
+          expect(node?.title).toBe('V3');
+        },
+        { timeout: 2000 }
+      );
+
+      // Cache should have the latest content
+      const node = await store.getNode('coalesce-change-change.md');
+      expect(node?.content).toBe('Version 3 final');
+    });
+
+    it('add + unlink = nothing → node does NOT exist in cache', async () => {
+      // Ensure node doesn't exist initially
+      expect(await store.getNode('coalesce-add-unlink.md')).toBeNull();
+
+      // Write and immediately delete (transient file)
+      await writeMarkdownFile('coalesce-add-unlink.md', '---\ntitle: Transient\n---\nContent');
+
+      const onChange = vi.fn();
+      store.startWatching(onChange);
+
+      // add + unlink cancels out
+      triggerEvent('add', join(sourceDir, 'coalesce-add-unlink.md'));
+      triggerEvent('unlink', join(sourceDir, 'coalesce-add-unlink.md'));
+
+      // Wait a bit for any processing
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Node should NOT exist in cache - the events cancelled out
+      expect(await store.getNode('coalesce-add-unlink.md')).toBeNull();
+
+      // onChange should not have been called with this node
+      // (empty batch means no callback)
+      if (onChange.mock.calls.length > 0) {
+        const calledIds = onChange.mock.calls.flat(2) as string[];
+        expect(calledIds).not.toContain('coalesce-add-unlink.md');
+      }
+    });
+  });
+
 });

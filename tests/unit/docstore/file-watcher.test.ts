@@ -436,6 +436,7 @@ describe('FileWatcher', () => {
         new Map([['folder/subfolder/deep.md', 'add']])
       );
     });
+
   });
 
   describe('event coalescing', () => {
@@ -472,6 +473,37 @@ describe('FileWatcher', () => {
       watcher.flush();
       // No events emitted - file was created then deleted in same window
       expect(onBatch).not.toHaveBeenCalled();
+    });
+
+    it('add + unlink clears debounce timer (no wasted flush call)', async () => {
+      vi.useFakeTimers();
+
+      const onBatch = vi.fn();
+      const watcher = new FileWatcher({
+        root: sourceDir,
+        extensions: new Set(['.md']),
+        debounceMs: 100,
+        onBatch,
+      });
+      watcher.start();
+      triggerReady();
+
+      // Spy on flush to verify it's not called when timer expires
+      const flushSpy = vi.spyOn(watcher, 'flush');
+
+      // add + unlink cancels out, timer should be cleared
+      triggerEvent('add', join(sourceDir, 'transient.md'));
+      triggerEvent('unlink', join(sourceDir, 'transient.md'));
+
+      // Let debounce timer expire
+      await vi.advanceTimersByTimeAsync(200);
+
+      // flush should NOT be called - timer should have been cleared, not just guarded
+      expect(flushSpy).not.toHaveBeenCalled();
+      expect(onBatch).not.toHaveBeenCalled();
+
+      watcher.stop();
+      vi.useRealTimers();
     });
 
     it('change + change = change', () => {

@@ -166,6 +166,14 @@ export class FileWatcher {
       } else if (existing === 'add' && event === 'unlink') {
         // add + unlink = remove from queue
         this.pendingChanges.delete(id);
+        // If queue is now empty, clear timer and return early (no wasted flush)
+        if (this.pendingChanges.size === 0) {
+          if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = null;
+          }
+          return;
+        }
       } else if (existing === 'change' && event === 'unlink') {
         // change + unlink = unlink
         this.pendingChanges.set(id, 'unlink');

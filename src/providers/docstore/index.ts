@@ -52,6 +52,8 @@ export interface DocStoreOptions {
   id?: string;
   vectorIndex?: VectorIndex;
   registry?: ReaderRegistry;
+  /** Optional FileWatcher instance. If provided, DocStore uses it instead of creating one. */
+  fileWatcher?: FileWatcher;
 }
 
 export class DocStore extends StoreProvider {
@@ -71,6 +73,7 @@ export class DocStore extends StoreProvider {
       id = 'docstore',
       vectorIndex,
       registry,
+      fileWatcher,
     } = options;
 
     const ownsVector = !vectorIndex;
@@ -84,6 +87,7 @@ export class DocStore extends StoreProvider {
     this.cache = new Cache(cacheDir);
     this.ownsVectorIndex = ownsVector;
     this.registry = registry ?? createDefaultRegistry();
+    this.fileWatcher = fileWatcher ?? null;
   }
 
   async sync(): Promise<void> {
