@@ -1,4 +1,7 @@
 ---
+title: Node Versioning
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: L
 phase: Future
 category: Storage & Providers
 ---
-
 # Feature - Node Versioning
 
 Track history of node changes.

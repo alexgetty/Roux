@@ -52,6 +52,16 @@ describe('GraphCore Integration', () => {
     await writeFile(fullPath, content, 'utf-8');
   };
 
+  /**
+   * Get the stable nanoid for a node by its path.
+   * With stable frontmatter IDs, node.id is a nanoid, not a path.
+   */
+  const getIdByPath = async (relativePath: string): Promise<string> => {
+    const node = await store.getNode(relativePath);
+    if (!node) throw new Error(`Node not found: ${relativePath}`);
+    return node.id;
+  };
+
   describe('search flow', () => {
     it('embeds, stores, and retrieves via semantic search', async () => {
       // Create a node about machine learning
@@ -72,7 +82,8 @@ describe('GraphCore Integration', () => {
       const results = await core.search('AI and neural networks', { limit: 5 });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.id).toBe('ml-basics.md');
+      // IDs are now stable nanoids, verify via lookup
+      expect(results[0]!.id).toBe(node!.id);
       expect(results[0]!.title).toBe('Machine Learning Basics');
     });
 
@@ -92,6 +103,8 @@ describe('GraphCore Integration', () => {
       );
       await store.sync();
 
+      const deepLearningId = await getIdByPath('deep-learning.md');
+
       // Generate embeddings for all nodes
       const allIds = await store.getAllNodeIds();
       for (const id of allIds) {
@@ -107,7 +120,7 @@ describe('GraphCore Integration', () => {
 
       expect(results.length).toBeGreaterThan(0);
       // Deep learning should rank highest for AI query
-      expect(results[0]!.id).toBe('deep-learning.md');
+      expect(results[0]!.id).toBe(deepLearningId);
     });
 
     it('respects limit parameter', async () => {
@@ -171,7 +184,8 @@ describe('GraphCore Integration', () => {
         tags: ['physics', 'computing'],
       });
 
-      expect(created.id).toBe('new-note.md');
+      // ID is now a stable nanoid, not a path
+      expect(created.id).toMatch(/^[a-zA-Z0-9_-]{12}$/);
       expect(created.title).toBe('New Note');
 
       // Embed the new node
@@ -180,7 +194,7 @@ describe('GraphCore Integration', () => {
 
       // Should be searchable
       const results = await core.search('quantum physics', { limit: 5 });
-      expect(results.some((r) => r.id === 'new-note.md')).toBe(true);
+      expect(results.some((r) => r.id === created.id)).toBe(true);
     });
 
     it('updates node content and remains searchable', async () => {
@@ -202,12 +216,13 @@ describe('GraphCore Integration', () => {
 
       // Re-embed (in real usage, serve layer handles this)
       node = await store.getNode('updateable.md');
+      const nodeId = node!.id;
       vector = await embedding.embed(node!.content);
-      await store.storeEmbedding(node!.id, vector, embedding.modelId());
+      await store.storeEmbedding(nodeId, vector, embedding.modelId());
 
       // Search should find updated content
       const results = await core.search('dogs puppies', { limit: 5 });
-      expect(results.some((r) => r.id === 'updateable.md')).toBe(true);
+      expect(results.some((r) => r.id === nodeId)).toBe(true);
     });
 
     it('deleted node is not searchable', async () => {
@@ -219,12 +234,13 @@ describe('GraphCore Integration', () => {
 
       // Embed
       const node = await store.getNode('deleteme.md');
+      const nodeId = node!.id;
       const vector = await embedding.embed(node!.content);
-      await store.storeEmbedding(node!.id, vector, embedding.modelId());
+      await store.storeEmbedding(nodeId, vector, embedding.modelId());
 
       // Verify searchable
       let results = await core.search('elephants', { limit: 5 });
-      expect(results.some((r) => r.id === 'deleteme.md')).toBe(true);
+      expect(results.some((r) => r.id === nodeId)).toBe(true);
 
       // Delete
       const deleted = await core.deleteNode('deleteme.md');
@@ -232,7 +248,7 @@ describe('GraphCore Integration', () => {
 
       // Should not be searchable
       results = await core.search('elephants', { limit: 5 });
-      expect(results.some((r) => r.id === 'deleteme.md')).toBe(false);
+      expect(results.some((r) => r.id === nodeId)).toBe(false);
     });
   });
 
@@ -262,22 +278,29 @@ describe('GraphCore Integration', () => {
     });
 
     it('getNeighbors returns correct nodes by direction', async () => {
+      const nodeBId = await getIdByPath('node-b.md');
+      const nodeCId = await getIdByPath('node-c.md');
+      const nodeAId = await getIdByPath('node-a.md');
+
       const outgoing = await core.getNeighbors('node-a.md', { direction: 'out' });
       expect(outgoing).toHaveLength(2);
-      expect(outgoing.map((n) => n.id).sort()).toEqual(['node-b.md', 'node-c.md']);
+      expect(outgoing.map((n) => n.id).sort()).toEqual([nodeBId, nodeCId].sort());
 
       const incoming = await core.getNeighbors('node-c.md', { direction: 'in' });
       expect(incoming).toHaveLength(2);
-      expect(incoming.map((n) => n.id).sort()).toEqual(['node-a.md', 'node-b.md']);
+      expect(incoming.map((n) => n.id).sort()).toEqual([nodeAId, nodeBId].sort());
     });
 
     it('findPath returns shortest path', async () => {
+      const nodeAId = await getIdByPath('node-a.md');
+      const nodeCId = await getIdByPath('node-c.md');
+
       // A -> B -> C, but also A -> C directly
       const path = await core.findPath('node-a.md', 'node-c.md');
 
       expect(path).not.toBeNull();
       // Direct path A -> C is shorter than A -> B -> C
-      expect(path).toEqual(['node-a.md', 'node-c.md']);
+      expect(path).toEqual([nodeAId, nodeCId]);
     });
 
     it('findPath returns null when no path exists', async () => {
@@ -287,11 +310,12 @@ describe('GraphCore Integration', () => {
     });
 
     it('getHubs returns most connected nodes', async () => {
+      const nodeCId = await getIdByPath('node-c.md');
       const hubs = await core.getHubs('in_degree', 3);
 
       expect(hubs.length).toBeGreaterThan(0);
       // C has highest in-degree (2 incoming links)
-      expect(hubs[0]![0]).toBe('node-c.md');
+      expect(hubs[0]![0]).toBe(nodeCId);
       expect(hubs[0]![1]).toBe(2);
     });
   });
@@ -314,21 +338,28 @@ describe('GraphCore Integration', () => {
     });
 
     it('searchByTags with mode=any returns nodes with any matching tag', async () => {
+      const taggedAId = await getIdByPath('tagged-a.md');
+      const taggedCId = await getIdByPath('tagged-c.md');
+
       const results = await core.searchByTags(['alpha'], 'any');
       expect(results).toHaveLength(2);
-      expect(results.map((r) => r.id).sort()).toEqual(['tagged-a.md', 'tagged-c.md']);
+      expect(results.map((r) => r.id).sort()).toEqual([taggedAId, taggedCId].sort());
     });
 
     it('searchByTags with mode=all returns nodes with all matching tags', async () => {
+      const taggedAId = await getIdByPath('tagged-a.md');
+
       const results = await core.searchByTags(['alpha', 'beta'], 'all');
       expect(results).toHaveLength(1);
-      expect(results[0]!.id).toBe('tagged-a.md');
+      expect(results[0]!.id).toBe(taggedAId);
     });
 
     it('getRandomNode with tag filter returns matching node', async () => {
+      const taggedBId = await getIdByPath('tagged-b.md');
+
       const node = await core.getRandomNode(['gamma']);
       expect(node).not.toBeNull();
-      expect(node!.id).toBe('tagged-b.md'); // Only one has gamma tag
+      expect(node!.id).toBe(taggedBId); // Only one has gamma tag
     });
   });
 

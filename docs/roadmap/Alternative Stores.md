@@ -1,4 +1,7 @@
 ---
+title: Alternative Stores
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: XL
 phase: Future
 category: Storage & Providers
 ---
-
 # Feature - Alternative Stores
 
 Additional StoreProvider implementations beyond DocStore.

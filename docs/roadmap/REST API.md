@@ -1,4 +1,7 @@
 ---
+title: Rest Api
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: L
 phase: Future
 category: External APIs
 ---
-
 # Feature - REST API
 
 HTTP REST interface as alternative to MCP.

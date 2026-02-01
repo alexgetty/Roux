@@ -1,4 +1,7 @@
 ---
+title: Script Extensions
+tags:
+  - roadmap
 type: Feature
 status: Planned
 priority: P2
@@ -6,7 +9,6 @@ effort: L
 phase: Post-MVP
 category: CLI & Visualization
 ---
-
 # Feature - Script Extensions
 
 Project-level custom scripts exposed as MCP tools, CLI commands, and API endpoints.

@@ -1,4 +1,7 @@
 ---
+title: Multi Directory
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: L
 phase: Future
 category: Storage & Providers
 ---
-
 # Feature - Multi-Directory
 
 Federate multiple source directories into single graph.

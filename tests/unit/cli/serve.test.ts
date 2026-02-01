@@ -115,9 +115,17 @@ describe('serve command', () => {
     // Pre-populate embedding for node A via DocStore
     const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
+
+    // Get the stable nanoid for node A
+    const nodeA = await store.getNode('a.md');
+    const nodeB = await store.getNode('b.md');
+    const nodeAId = nodeA!.id;
+    const nodeBId = nodeB!.id;
+
     // Use a known embedding vector (384 dims for transformers default model)
     const preExistingVector = new Array(384).fill(0.1);
-    await store.storeEmbedding('a.md', preExistingVector, 'pre-existing-model');
+    // Store embedding using stable ID, not path
+    await store.storeEmbedding(nodeAId, preExistingVector, 'pre-existing-model');
     store.close();
 
     // Run serve - should skip A, only embed B
@@ -129,15 +137,12 @@ describe('serve command', () => {
     await handle.stop();
 
     // Verify A still has original model (not overwritten by serve)
-    const verifyStore = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
-    // hasEmbedding only tells us it exists, but getModel on vectorProvider can verify model name
-    // Since DocStore doesn't expose getModel, we can check via SqliteVectorIndex directly
+    // Check via SqliteVectorIndex directly using stable IDs
     const { SqliteVectorIndex } = await import('../../../src/providers/vector/sqlite.js');
     const vectorProvider = new SqliteVectorIndex(join(testDir, '.roux'));
-    const modelForA = await vectorProvider.getModel('a.md');
-    const modelForB = await vectorProvider.getModel('b.md');
+    const modelForA = await vectorProvider.getModel(nodeAId);
+    const modelForB = await vectorProvider.getModel(nodeBId);
     vectorProvider.close();
-    verifyStore.close();
 
     // A should still have the pre-existing model (not overwritten)
     expect(modelForA).toBe('pre-existing-model');

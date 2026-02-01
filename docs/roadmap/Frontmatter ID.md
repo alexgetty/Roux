@@ -1,4 +1,7 @@
 ---
+title: Frontmatter Id
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,26 +9,29 @@ effort: M
 phase: Future
 category: Storage & Providers
 ---
-
 # Feature - Frontmatter ID
 
-Explicit ID override via frontmatter.
+**Status:** Superseded by [[decisions/Node Identity]]
 
 ## Summary
 
+This roadmap item proposed allowing explicit `id` fields in frontmatter to override filename-derived IDs.
+
+## Superseded
+
+The Node Identity decision (2026-01-31) implements a more comprehensive solution:
+
+- IDs are **always** in frontmatter (not optional)
+- IDs are **auto-generated** (not user-specified)
+- IDs are **immutable** (never change after creation)
+
+The original proposal was opt-in explicit IDs. The implemented solution is mandatory system-managed IDs.
+
+See [[decisions/Node Identity]] for full details.
+
+## Original Proposal (Historical)
+
 Allow frontmatter `id` field to take precedence over filename-derived ID.
-
-## Current State
-
-MVP: ID derived from file path. `notes/ideas.md` → `notes/ideas.md`
-
-## Use Cases
-
-- **Stable IDs:** Rename files without breaking external references
-- **Multi-format:** Same ID for `note.md` and `note.html`
-- **Migration:** Preserve IDs when moving between systems
-
-## Proposed
 
 ```yaml
 ---
@@ -34,31 +40,20 @@ title: My Note
 ---
 ```
 
-This note's ID is `my-stable-id`, not the file path.
-
-## Resolution Order
-
+Resolution order:
 1. Frontmatter `id` (if present)
 2. File path (fallback)
 
-## Challenges
+## Why the Change
 
-- **Uniqueness:** Must enforce unique IDs across vault
-- **Link resolution:** `[[my-stable-id]]` must find the file
-- **Rename handling:** ID doesn't change when file moves
+The original proposal didn't fully solve link integrity:
+- Users had to manually add IDs
+- Existing files without IDs still had the rename problem
+- No enforcement of uniqueness
 
-## Implementation
-
-- Parse `id` from frontmatter during indexing
-- Build ID→path lookup table
-- Query by ID, resolve to path for file ops
-
-## Complexity
-
-Low-Medium — parsing simple, uniqueness enforcement needed.
+The implemented solution (auto-generated, mandatory IDs) solves these issues systematically.
 
 ## References
 
-- [[decisions/Node Identity]] — ID precedence decision
-- [[decisions/ID Format]] — Format specification
-- [[DocStore]] — Current path-based ID
+- [[decisions/Node Identity]] — the implemented solution
+- [[roadmap/Link Integrity]] — the problem being solved

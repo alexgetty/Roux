@@ -202,6 +202,18 @@ import { join as join2 } from "path";
 import { mkdirSync } from "fs";
 
 // src/providers/docstore/cache/centrality.ts
+function initCentralitySchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS centrality (
+      node_id TEXT PRIMARY KEY,
+      pagerank REAL,
+      in_degree INTEGER,
+      out_degree INTEGER,
+      computed_at INTEGER,
+      FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+    )
+  `);
+}
 function storeCentrality(db, nodeId, pagerank, inDegree, outDegree, computedAt) {
   db.prepare(
     `
@@ -285,17 +297,9 @@ var Cache = class {
         source_modified INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS centrality (
-        node_id TEXT PRIMARY KEY,
-        pagerank REAL,
-        in_degree INTEGER,
-        out_degree INTEGER,
-        computed_at INTEGER,
-        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
-      );
-
       CREATE INDEX IF NOT EXISTS idx_nodes_source_path ON nodes(source_path);
     `);
+    initCentralitySchema(this.db);
     this.db.pragma("foreign_keys = ON");
   }
   getTableNames() {
@@ -385,13 +389,20 @@ var Cache = class {
     return row?.source_modified ?? null;
   }
   getNodeByPath(sourcePath) {
-    const row = this.db.prepare("SELECT * FROM nodes WHERE source_path = ?").get(sourcePath);
+    const row = this.db.prepare("SELECT * FROM nodes WHERE LOWER(source_path) = LOWER(?)").get(sourcePath);
     if (!row) return null;
     return this.rowToNode(row);
   }
   getAllTrackedPaths() {
     const rows = this.db.prepare("SELECT source_path FROM nodes").all();
     return new Set(rows.map((r) => r.source_path));
+  }
+  updateSourcePath(id, newPath) {
+    this.db.prepare("UPDATE nodes SET source_path = ? WHERE id = ?").run(newPath, id);
+  }
+  getIdByPath(sourcePath) {
+    const row = this.db.prepare("SELECT id FROM nodes WHERE source_path = ?").get(sourcePath);
+    return row?.id ?? null;
   }
   resolveTitles(ids) {
     if (ids.length === 0) return /* @__PURE__ */ new Map();
@@ -424,7 +435,7 @@ var Cache = class {
       params.push(filter.tag);
     }
     if (filter.path) {
-      conditions.push("LOWER(id) LIKE LOWER(?) || '%'");
+      conditions.push("LOWER(source_path) LIKE '%' || LOWER(?) || '%'");
       params.push(filter.path);
     }
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -749,7 +760,7 @@ import { join as join7 } from "path";
 import { parse as parseYaml } from "yaml";
 
 // src/providers/docstore/index.ts
-import { writeFile as writeFile2, mkdir as mkdir2, rm } from "fs/promises";
+import { writeFile as writeFile2, mkdir as mkdir2, rm, stat as stat2 } from "fs/promises";
 import { mkdirSync as mkdirSync2 } from "fs";
 import { join as join6, relative as relative2, dirname, extname as extname3 } from "path";
 
@@ -781,25 +792,25 @@ function getNeighborIds(graph, id, options) {
   if (!graph.hasNode(id)) {
     return [];
   }
-  let neighbors;
-  switch (options.direction) {
-    case "in":
-      neighbors = graph.inNeighbors(id);
-      break;
-    case "out":
-      neighbors = graph.outNeighbors(id);
-      break;
-    case "both":
-      neighbors = graph.neighbors(id);
-      break;
+  const limit = options.limit;
+  if (limit !== void 0 && limit <= 0) {
+    return [];
   }
-  if (options.limit !== void 0) {
-    if (options.limit <= 0) {
-      return [];
+  const maxCount = limit ?? Infinity;
+  const direction = options.direction;
+  if (direction === "both") {
+    const neighbors2 = [];
+    for (const entry of graph.neighborEntries(id)) {
+      if (neighbors2.length >= maxCount) break;
+      neighbors2.push(entry.neighbor);
     }
-    if (options.limit < neighbors.length) {
-      return neighbors.slice(0, options.limit);
-    }
+    return neighbors2;
+  }
+  const neighbors = [];
+  const iterator = direction === "in" ? graph.inNeighborEntries(id) : graph.outNeighborEntries(id);
+  for (const entry of iterator) {
+    if (neighbors.length >= maxCount) break;
+    neighbors.push(entry.neighbor);
   }
   return neighbors;
 }
@@ -1002,6 +1013,27 @@ var StoreProvider = class {
 
 // src/providers/docstore/parser.ts
 import matter from "gray-matter";
+
+// src/providers/docstore/normalize.ts
+function hasFileExtension(path) {
+  const match = path.match(/\.([a-z0-9]{1,4})$/i);
+  if (!match?.[1]) return false;
+  return /[a-z]/i.test(match[1]);
+}
+function normalizePath(path) {
+  return path.toLowerCase().replace(/\\/g, "/");
+}
+function normalizeLinkTarget(target) {
+  let normalized = target.trim().toLowerCase().replace(/\\/g, "/");
+  if (!hasFileExtension(normalized)) {
+    normalized += ".md";
+  }
+  return normalized;
+}
+
+// src/providers/docstore/parser.ts
+var RESERVED_FRONTMATTER_KEYS = ["id", "title", "tags"];
+var RESERVED_KEYS_SET = new Set(RESERVED_FRONTMATTER_KEYS);
 function parseMarkdown(raw) {
   let parsed;
   try {
@@ -1011,10 +1043,12 @@ function parseMarkdown(raw) {
       title: void 0,
       tags: [],
       properties: {},
-      content: raw
+      content: raw,
+      rawLinks: extractWikiLinks(raw)
     };
   }
   const data = parsed.data;
+  const id = typeof data["id"] === "string" ? data["id"] : void 0;
   const title = typeof data["title"] === "string" ? data["title"] : void 0;
   let tags = [];
   if (Array.isArray(data["tags"])) {
@@ -1022,16 +1056,22 @@ function parseMarkdown(raw) {
   }
   const properties = {};
   for (const [key, value] of Object.entries(data)) {
-    if (key !== "title" && key !== "tags") {
+    if (!RESERVED_KEYS_SET.has(key)) {
       properties[key] = value;
     }
   }
-  return {
+  const content = parsed.content.trim();
+  const result = {
     title,
     tags,
     properties,
-    content: parsed.content.trim()
+    content,
+    rawLinks: extractWikiLinks(content)
   };
+  if (id !== void 0) {
+    result.id = id;
+  }
+  return result;
 }
 function extractWikiLinks(content) {
   const withoutCodeBlocks = content.replace(/```[\s\S]*?```/g, "");
@@ -1049,9 +1089,7 @@ function extractWikiLinks(content) {
   }
   return links;
 }
-function normalizeId(path) {
-  return path.toLowerCase().replace(/\\/g, "/");
-}
+var normalizeId = normalizePath;
 function titleFromPath(path) {
   const parts = path.split(/[/\\]/);
   const filename = parts.at(-1);
@@ -1060,11 +1098,14 @@ function titleFromPath(path) {
   return spaced.split(" ").filter((w) => w.length > 0).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
 function serializeToMarkdown(parsed) {
-  const hasFrontmatter = parsed.title !== void 0 || parsed.tags.length > 0 || Object.keys(parsed.properties).length > 0;
+  const hasFrontmatter = parsed.id !== void 0 || parsed.title !== void 0 || parsed.tags.length > 0 || Object.keys(parsed.properties).length > 0;
   if (!hasFrontmatter) {
     return parsed.content;
   }
   const frontmatter = {};
+  if (parsed.id !== void 0) {
+    frontmatter["id"] = parsed.id;
+  }
   if (parsed.title !== void 0) {
     frontmatter["title"] = parsed.title;
   }
@@ -1080,12 +1121,16 @@ function serializeToMarkdown(parsed) {
 // src/providers/docstore/watcher.ts
 import { watch } from "chokidar";
 import { relative, extname } from "path";
+
+// src/providers/docstore/constants.ts
 var EXCLUDED_DIRS = /* @__PURE__ */ new Set([
   ".roux",
   "node_modules",
   ".git",
   ".obsidian"
 ]);
+
+// src/providers/docstore/watcher.ts
 var DEFAULT_DEBOUNCE_MS = 1e3;
 var FileWatcher = class {
   root;
@@ -1095,6 +1140,7 @@ var FileWatcher = class {
   watcher = null;
   debounceTimer = null;
   pendingChanges = /* @__PURE__ */ new Map();
+  isPaused = false;
   constructor(options) {
     this.root = options.root;
     this.extensions = options.extensions;
@@ -1146,6 +1192,12 @@ var FileWatcher = class {
   isWatching() {
     return this.watcher !== null;
   }
+  pause() {
+    this.isPaused = true;
+  }
+  resume() {
+    this.isPaused = false;
+  }
   flush() {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -1168,6 +1220,7 @@ var FileWatcher = class {
     }
   }
   queueChange(filePath, event) {
+    if (this.isPaused) return;
     const relativePath = relative(this.root, filePath);
     const ext = extname(filePath).toLowerCase();
     if (!ext || !this.extensions.has(ext)) {
@@ -1186,6 +1239,13 @@ var FileWatcher = class {
         return;
       } else if (existing === "add" && event === "unlink") {
         this.pendingChanges.delete(id);
+        if (this.pendingChanges.size === 0) {
+          if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = null;
+          }
+          return;
+        }
       } else if (existing === "change" && event === "unlink") {
         this.pendingChanges.set(id, "unlink");
       } else if (existing === "change" && event === "add") {
@@ -1208,28 +1268,33 @@ var FileWatcher = class {
 };
 
 // src/providers/docstore/links.ts
-function hasFileExtension(path) {
-  const match = path.match(/\.([a-z0-9]{1,4})$/i);
-  if (!match?.[1]) return false;
-  return /[a-z]/i.test(match[1]);
-}
-function normalizeWikiLink(target) {
-  let normalized = target.trim().toLowerCase().replace(/\\/g, "/");
-  if (!hasFileExtension(normalized)) {
-    normalized += ".md";
-  }
-  return normalized;
-}
+var normalizeWikiLink = normalizeLinkTarget;
 function buildFilenameIndex(nodes) {
   const index = /* @__PURE__ */ new Map();
   for (const node of nodes) {
-    const basename = node.id.split("/").pop();
-    const existing = index.get(basename) ?? [];
-    existing.push(node.id);
-    index.set(basename, existing);
+    const path = node.sourceRef?.path ?? "";
+    const titleKey = node.title.toLowerCase();
+    if (!titleKey && !path) {
+      console.warn(
+        `Node ${node.id} has no title or path \u2014 link resolution will fail`
+      );
+    }
+    if (titleKey) {
+      const existing = index.get(titleKey) ?? [];
+      existing.push(node.id);
+      index.set(titleKey, existing);
+    }
+    if (path) {
+      const filename = path.split("/").pop()?.replace(/\.[^.]+$/, "").toLowerCase();
+      if (filename && filename !== titleKey) {
+        const existing = index.get(filename) ?? [];
+        existing.push(node.id);
+        index.set(filename, existing);
+      }
+    }
   }
-  for (const paths of index.values()) {
-    paths.sort();
+  for (const ids of index.values()) {
+    ids.sort();
   }
   return index;
 }
@@ -1241,11 +1306,12 @@ function resolveLinks(outgoingLinks, filenameIndex, validNodeIds) {
     if (link.includes("/")) {
       return link;
     }
-    const matches = filenameIndex.get(link);
+    const lookupKey = link.replace(/\.md$/i, "").toLowerCase();
+    const matches = filenameIndex.get(lookupKey);
     if (matches && matches.length > 0) {
       return matches[0];
     }
-    const variant = spaceDashVariant(link);
+    const variant = spaceDashVariant(lookupKey);
     if (variant) {
       const variantMatches = filenameIndex.get(variant);
       if (variantMatches && variantMatches.length > 0) {
@@ -1313,6 +1379,12 @@ async function readFileContent(filePath) {
   return readFile2(filePath, "utf-8");
 }
 
+// src/providers/docstore/id.ts
+import { nanoid } from "nanoid";
+var NANOID_PATTERN = /^[A-Za-z0-9_-]{12}$/;
+var isValidId = (id) => NANOID_PATTERN.test(id);
+var generateId = () => nanoid(12);
+
 // src/providers/docstore/reader-registry.ts
 var ReaderRegistry = class {
   readers = /* @__PURE__ */ new Map();
@@ -1354,14 +1426,21 @@ var ReaderRegistry = class {
   }
   /**
    * Parse content using the appropriate reader for the file's extension.
+   * Validates frontmatter ID and signals if writeback is needed.
    * Throws if no reader is registered for the extension.
+   *
+   * Note: Does NOT generate new IDs here - that happens in Phase 3's writeback.
+   * Files without valid frontmatter IDs keep their path-based ID for now,
+   * with needsIdWrite: true signaling that an ID should be generated and written.
    */
   parse(content, context) {
     const reader = this.getReader(context.extension);
     if (!reader) {
       throw new Error(`No reader registered for extension: ${context.extension}`);
     }
-    return reader.parse(content, context);
+    const node = reader.parse(content, context);
+    const needsIdWrite = !isValidId(node.id);
+    return { node, needsIdWrite };
   }
 };
 
@@ -1370,7 +1449,7 @@ var MarkdownReader = class {
   extensions = [".md", ".markdown"];
   parse(content, context) {
     const parsed = parseMarkdown(content);
-    const id = normalizeId(context.relativePath);
+    const id = parsed.id ?? normalizeId(context.relativePath);
     const title = parsed.title ?? titleFromPath(id);
     const rawLinks = extractWikiLinks(parsed.content);
     const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
@@ -1410,7 +1489,8 @@ var DocStore = class extends StoreProvider {
       cacheDir,
       id = "docstore",
       vectorIndex,
-      registry
+      registry,
+      fileWatcher
     } = options;
     const ownsVector = !vectorIndex;
     if (!vectorIndex) mkdirSync2(cacheDir, { recursive: true });
@@ -1421,89 +1501,148 @@ var DocStore = class extends StoreProvider {
     this.cache = new Cache(cacheDir);
     this.ownsVectorIndex = ownsVector;
     this.registry = registry ?? createDefaultRegistry();
+    this.fileWatcher = fileWatcher ?? null;
   }
   async sync() {
-    const extensions = this.registry.getExtensions();
-    const currentPaths = await collectFiles(this.sourceRoot, extensions);
-    const trackedPaths = this.cache.getAllTrackedPaths();
-    for (const filePath of currentPaths) {
-      try {
-        const mtime = await getFileMtime(filePath);
-        const cachedMtime = this.cache.getModifiedTime(filePath);
-        if (cachedMtime === null || mtime > cachedMtime) {
-          const node = await this.parseFile(filePath);
-          this.cache.upsertNode(node, "file", filePath, mtime);
-        }
-      } catch (err) {
-        if (err.code === "ENOENT") {
+    if (this.fileWatcher?.isWatching()) {
+      this.fileWatcher.pause();
+    }
+    try {
+      const extensions = this.registry.getExtensions();
+      const currentPaths = await collectFiles(this.sourceRoot, extensions);
+      const trackedPaths = this.cache.getAllTrackedPaths();
+      const seenIds = /* @__PURE__ */ new Map();
+      for (const filePath of currentPaths) {
+        try {
+          const mtime = await getFileMtime(filePath);
+          const cachedMtime = this.cache.getModifiedTime(filePath);
+          if (cachedMtime === null || mtime > cachedMtime) {
+            const { node, needsIdWrite, newMtime } = await this.parseAndMaybeWriteId(filePath, mtime);
+            const existingPath = seenIds.get(node.id);
+            if (existingPath) {
+              console.warn(
+                `Duplicate ID ${node.id} found in ${filePath} (first seen in ${existingPath}):`,
+                new Error("Skipping duplicate")
+              );
+              continue;
+            }
+            seenIds.set(node.id, filePath);
+            const finalMtime = needsIdWrite ? newMtime ?? mtime : mtime;
+            this.cache.upsertNode(node, "file", filePath, finalMtime);
+          } else {
+            const existingNode = this.cache.getNodeByPath(filePath);
+            if (existingNode) {
+              const existingPath = seenIds.get(existingNode.id);
+              if (existingPath) {
+                console.warn(
+                  `Duplicate ID ${existingNode.id} found in ${filePath} (first seen in ${existingPath}):`,
+                  new Error("Skipping duplicate")
+                );
+                this.cache.deleteNode(existingNode.id);
+              } else {
+                seenIds.set(existingNode.id, filePath);
+              }
+            }
+          }
+        } catch (err) {
+          if (err.code === "ENOENT") {
+            continue;
+          }
+          console.warn(`Failed to process file ${filePath}:`, err);
           continue;
         }
-        console.warn(`Failed to process file ${filePath}:`, err);
-        continue;
       }
-    }
-    const currentSet = new Set(currentPaths);
-    for (const tracked of trackedPaths) {
-      if (!currentSet.has(tracked)) {
-        const node = this.cache.getNodeByPath(tracked);
-        if (node) {
-          this.cache.deleteNode(node.id);
+      const currentSet = new Set(currentPaths);
+      for (const tracked of trackedPaths) {
+        if (!currentSet.has(tracked)) {
+          const node = this.cache.getNodeByPath(tracked);
+          if (node) {
+            this.cache.deleteNode(node.id);
+          }
         }
       }
+      this.resolveAllLinks();
+      await this.syncGraph();
+    } finally {
+      if (this.fileWatcher?.isWatching()) {
+        this.fileWatcher.resume();
+      }
     }
-    this.resolveAllLinks();
-    await this.syncGraph();
   }
   async createNode(node) {
-    const normalizedId = normalizeId(node.id);
-    validatePathWithinSource(this.sourceRoot, normalizedId);
-    const existing = this.cache.getNode(normalizedId);
-    if (existing) {
-      throw new Error(`Node already exists: ${normalizedId}`);
+    const normalizedPath = normalizeId(node.id);
+    validatePathWithinSource(this.sourceRoot, normalizedPath);
+    const existingByPath = this.cache.getNodeByPath(join6(this.sourceRoot, normalizedPath));
+    if (existingByPath) {
+      throw new Error(`Node already exists: ${normalizedPath}`);
     }
-    const filePath = join6(this.sourceRoot, normalizedId);
+    const filePath = join6(this.sourceRoot, normalizedPath);
     const dir = dirname(filePath);
     await mkdir2(dir, { recursive: true });
+    const stableId = generateId();
+    const rawLinks = extractWikiLinks(node.content);
     const parsed = {
+      id: stableId,
       title: node.title,
       tags: node.tags,
       properties: node.properties,
-      content: node.content
+      content: node.content,
+      rawLinks
     };
     const markdown = serializeToMarkdown(parsed);
     await writeFile2(filePath, markdown, "utf-8");
     let outgoingLinks = node.outgoingLinks;
     if (node.content && (!outgoingLinks || outgoingLinks.length === 0)) {
-      const rawLinks = extractWikiLinks(node.content);
       outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     }
     const mtime = await getFileMtime(filePath);
-    const normalizedNode = { ...node, id: normalizedId, outgoingLinks };
-    this.cache.upsertNode(normalizedNode, "file", filePath, mtime);
+    const createdNode = {
+      ...node,
+      id: stableId,
+      outgoingLinks,
+      sourceRef: {
+        type: "file",
+        path: filePath,
+        lastModified: new Date(mtime)
+      }
+    };
+    this.cache.upsertNode(createdNode, "file", filePath, mtime);
     this.resolveAllLinks();
     await this.syncGraph();
   }
   async updateNode(id, updates) {
-    const normalizedId = normalizeId(id);
-    const existing = this.cache.getNode(normalizedId);
+    let existing = this.cache.getNode(id);
+    if (!existing) {
+      const normalizedId = normalizeId(id);
+      existing = this.cache.getNode(normalizedId);
+    }
+    if (!existing && (id.includes(".") || id.includes("/"))) {
+      const fullPath = join6(this.sourceRoot, normalizeId(id));
+      existing = this.cache.getNodeByPath(fullPath);
+    }
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
-    const contentForLinks = updates.content ?? existing.content;
+    const { ...safeUpdates } = updates;
+    const contentForLinks = safeUpdates.content ?? existing.content;
     const rawLinks = extractWikiLinks(contentForLinks);
     const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     const updated = {
       ...existing,
-      ...updates,
+      ...safeUpdates,
       outgoingLinks,
       id: existing.id
+      // Preserve original ID
     };
-    const filePath = join6(this.sourceRoot, existing.id);
+    const filePath = existing.sourceRef?.path ?? join6(this.sourceRoot, existing.id);
     const parsed = {
+      id: existing.id,
+      // Write the stable ID back to frontmatter
       title: updated.title,
       tags: updated.tags,
       properties: updated.properties,
-      content: updated.content
+      content: updated.content,
+      rawLinks
     };
     const markdown = serializeToMarkdown(parsed);
     await writeFile2(filePath, markdown, "utf-8");
@@ -1513,24 +1652,45 @@ var DocStore = class extends StoreProvider {
     await this.syncGraph();
   }
   async deleteNode(id) {
-    const normalizedId = normalizeId(id);
-    const existing = this.cache.getNode(normalizedId);
+    let existing = this.cache.getNode(id);
+    if (!existing) {
+      const normalizedId = normalizeId(id);
+      existing = this.cache.getNode(normalizedId);
+    }
+    if (!existing && (id.includes(".") || id.includes("/"))) {
+      const fullPath = join6(this.sourceRoot, normalizeId(id));
+      existing = this.cache.getNodeByPath(fullPath);
+    }
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
-    const filePath = join6(this.sourceRoot, existing.id);
+    const filePath = existing.sourceRef?.path ?? join6(this.sourceRoot, existing.id);
     await rm(filePath);
     this.cache.deleteNode(existing.id);
     if (this.vectorIndex) await this.vectorIndex.delete(existing.id);
     await this.syncGraph();
   }
   async getNode(id) {
+    let node = this.cache.getNode(id);
+    if (node) return node;
     const normalizedId = normalizeId(id);
-    return this.cache.getNode(normalizedId);
+    if (normalizedId !== id) {
+      node = this.cache.getNode(normalizedId);
+      if (node) return node;
+    }
+    if (id.includes(".") || id.includes("/")) {
+      const fullPath = join6(this.sourceRoot, normalizedId);
+      node = this.cache.getNodeByPath(fullPath);
+    }
+    return node;
   }
   async getNodes(ids) {
-    const normalizedIds = ids.map(normalizeId);
-    return this.cache.getNodes(normalizedIds);
+    const results = [];
+    for (const id of ids) {
+      const node = await this.getNode(id);
+      if (node) results.push(node);
+    }
+    return results;
   }
   async getAllNodeIds() {
     const nodes = this.cache.getAllNodes();
@@ -1553,8 +1713,12 @@ var DocStore = class extends StoreProvider {
     return names.map((query) => ({ query, match: null, score: 0 }));
   }
   async nodesExist(ids) {
-    const normalizedIds = ids.map(normalizeId);
-    return this.cache.nodesExist(normalizedIds);
+    const result = /* @__PURE__ */ new Map();
+    for (const id of ids) {
+      const node = await this.getNode(id);
+      result.set(normalizeId(id), node !== null);
+    }
+    return result;
   }
   hasEmbedding(id) {
     if (!this.vectorIndex) return false;
@@ -1597,54 +1761,101 @@ var DocStore = class extends StoreProvider {
     return this.fileWatcher?.isWatching() ?? false;
   }
   async handleWatcherBatch(events) {
+    this.fileWatcher?.pause();
     const processedIds = [];
-    for (const [id, event] of events) {
-      try {
-        if (event === "unlink") {
-          const existing = this.cache.getNode(id);
-          if (existing) {
-            this.cache.deleteNode(id);
-            if (this.vectorIndex) await this.vectorIndex.delete(id);
-            processedIds.push(id);
+    try {
+      for (const [pathId, event] of events) {
+        const filePath = join6(this.sourceRoot, pathId);
+        try {
+          if (event === "unlink") {
+            const existing = this.cache.getNodeByPath(filePath);
+            if (existing) {
+              this.cache.deleteNode(existing.id);
+              if (this.vectorIndex) {
+                try {
+                  await this.vectorIndex.delete(existing.id);
+                } catch (vectorErr) {
+                  console.warn(`Vector delete failed for ${pathId}:`, vectorErr);
+                }
+              }
+              processedIds.push(existing.id);
+            }
+          } else {
+            const mtime = await getFileMtime(filePath);
+            const { node, newMtime } = await this.parseAndMaybeWriteId(filePath, mtime);
+            const finalMtime = newMtime ?? mtime;
+            const existingByPath = this.cache.getNodeByPath(filePath);
+            if (existingByPath && existingByPath.id !== node.id) {
+              this.cache.deleteNode(existingByPath.id);
+              if (this.vectorIndex) {
+                try {
+                  await this.vectorIndex.delete(existingByPath.id);
+                } catch {
+                }
+              }
+            }
+            this.cache.upsertNode(node, "file", filePath, finalMtime);
+            processedIds.push(node.id);
           }
-        } else {
-          const filePath = join6(this.sourceRoot, id);
-          const node = await this.parseFile(filePath);
-          const mtime = await getFileMtime(filePath);
-          this.cache.upsertNode(node, "file", filePath, mtime);
-          processedIds.push(id);
+        } catch (err) {
+          console.warn(`Failed to process file change for ${pathId}:`, err);
         }
-      } catch (err) {
-        console.warn(`Failed to process file change for ${id}:`, err);
       }
-    }
-    if (processedIds.length > 0) {
-      this.resolveAllLinks();
-      await this.syncGraph();
-    }
-    if (this.onChangeCallback && processedIds.length > 0) {
-      this.onChangeCallback(processedIds);
+      if (processedIds.length > 0) {
+        this.resolveAllLinks();
+        await this.syncGraph();
+      }
+      if (this.onChangeCallback && processedIds.length > 0) {
+        this.onChangeCallback(processedIds);
+      }
+    } finally {
+      this.fileWatcher?.resume();
     }
   }
   resolveAllLinks() {
     const nodes = this.cache.getAllNodes();
     const filenameIndex = buildFilenameIndex(nodes);
-    const validNodeIds = /* @__PURE__ */ new Set();
-    for (const paths of filenameIndex.values()) {
-      for (const path of paths) {
-        validNodeIds.add(path);
+    const validNodeIds = new Set(nodes.map((n) => n.id));
+    const pathToId = /* @__PURE__ */ new Map();
+    for (const node of nodes) {
+      if (node.sourceRef?.path) {
+        const relativePath = relative2(this.sourceRoot, node.sourceRef.path);
+        const normalizedPath = normalizeId(relativePath);
+        pathToId.set(normalizedPath, node.id);
       }
     }
     for (const node of nodes) {
-      const resolved = resolveLinks(
+      const resolvedIds = resolveLinks(
         node.outgoingLinks,
         filenameIndex,
         validNodeIds
       );
-      if (resolved.some((r, i) => r !== node.outgoingLinks[i])) {
-        this.cache.updateOutgoingLinks(node.id, resolved);
+      const finalIds = resolvedIds.map((link) => {
+        if (validNodeIds.has(link)) {
+          return link;
+        }
+        const stableId = pathToId.get(link);
+        return stableId ?? link;
+      });
+      if (finalIds.some((r, i) => r !== node.outgoingLinks[i])) {
+        this.cache.updateOutgoingLinks(node.id, finalIds);
       }
     }
+  }
+  // ── Graph operations (override for path-based lookup) ─────
+  async getNeighbors(id, options) {
+    const node = await this.getNode(id);
+    if (!node) return [];
+    return super.getNeighbors(node.id, options);
+  }
+  async findPath(source, target) {
+    const sourceNode = await this.getNode(source);
+    const targetNode = await this.getNode(target);
+    if (!sourceNode || !targetNode) return null;
+    return super.findPath(sourceNode.id, targetNode.id);
+  }
+  async getHubs(metric, limit) {
+    return super.getHubs(metric, limit);
   }
   // ── StoreProvider abstract method implementations ─────────
   async loadAllNodes() {
@@ -1660,20 +1871,51 @@ var DocStore = class extends StoreProvider {
     }
   }
   /**
-   * Parse a file into a Node using the appropriate FormatReader.
+   * Parse a file and optionally write a generated ID back if missing.
+   * Returns the node (with stable ID) and whether a write occurred.
    */
-  async parseFile(filePath) {
+  async parseAndMaybeWriteId(filePath, originalMtime) {
     const content = await readFileContent(filePath);
     const relativePath = relative2(this.sourceRoot, filePath);
     const ext = extname3(filePath).toLowerCase();
-    const mtime = new Date(await getFileMtime(filePath));
+    const actualMtime = new Date(originalMtime);
     const context = {
       absolutePath: filePath,
       relativePath,
       extension: ext,
-      mtime
+      mtime: actualMtime
     };
-    return this.registry.parse(content, context);
+    const { node, needsIdWrite } = this.registry.parse(content, context);
+    if (!needsIdWrite) {
+      return { node, needsIdWrite: false };
+    }
+    const newId = generateId();
+    const writebackSuccess = await this.writeIdBack(filePath, newId, originalMtime, content);
+    if (!writebackSuccess) {
+      console.warn(`File modified during sync, skipping ID writeback: ${filePath}`);
+      return { node, needsIdWrite: true };
+    }
+    const updatedNode = {
+      ...node,
+      id: newId
+    };
+    const newMtime = await getFileMtime(filePath);
+    return { node: updatedNode, needsIdWrite: true, newMtime };
+  }
+  /**
+   * Write a generated ID back to file's frontmatter.
+   * Returns false if file was modified since originalMtime (race condition).
+   */
+  async writeIdBack(filePath, nodeId, originalMtime, originalContent) {
+    const currentStat = await stat2(filePath);
+    if (currentStat.mtimeMs !== originalMtime) {
+      return false;
+    }
+    const parsed = parseMarkdown(originalContent);
+    parsed.id = nodeId;
+    const newContent = serializeToMarkdown(parsed);
+    await writeFile2(filePath, newContent, "utf-8");
+    return true;
   }
 };
 

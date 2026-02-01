@@ -66,7 +66,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   update_node: 'Update an existing node. Title changes rejected if incoming links exist.',
   delete_node: 'Delete a node by ID',
   list_nodes: 'List nodes with optional filters and pagination. Tag filter searches the "tags" frontmatter array only. All IDs returned are lowercase.',
-  resolve_nodes: 'Batch resolve names to existing node IDs. Strategy selection: "exact" for known titles, "fuzzy" for typos/misspellings (e.g., "chikken" -> "chicken"), "semantic" for synonyms/concepts (e.g., "poultry leg meat" -> "chicken thigh"). Semantic does NOT handle typos — misspellings produce garbage embeddings.',
+  resolve_nodes: 'Batch resolve names to existing node IDs. Strategy selection: "exact" for known titles, "fuzzy" for typos/misspellings (e.g., "chikken" -> "chicken"), "semantic" for synonyms/concepts (e.g., "poultry leg meat" -> "chicken thigh"). Semantic does NOT handle typos - misspellings produce garbage embeddings.',
   nodes_exist: 'Batch check if node IDs exist. IDs are normalized to lowercase before checking.',
 };
 

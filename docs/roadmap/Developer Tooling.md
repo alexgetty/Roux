@@ -1,4 +1,7 @@
 ---
+title: Developer Tooling
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P1
@@ -6,7 +9,6 @@ effort: L
 phase: Post-MVP
 category: Infrastructure
 ---
-
 # Developer Tooling
 
 Debugging and DX tooling for tight feedback loops when using Roux as a dependency.

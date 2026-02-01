@@ -1,4 +1,7 @@
 ---
+title: Graph Index Extraction
+tags:
+  - roadmap
 type: Enhancement
 status: Planned
 priority: P2

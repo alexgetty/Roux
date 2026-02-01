@@ -1,4 +1,7 @@
 ---
+title: Resolve Threshold Validation
+tags:
+  - roadmap
 type: Enhancement
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: S
 phase: Post-MVP
 category: Search & Query
 ---
-
 # Resolve Threshold Validation
 
 ## Context

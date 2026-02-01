@@ -1,4 +1,7 @@
 ---
+title: Vectorprovider
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: L
 phase: Future
 category: Storage & Providers
 ---
-
 # Feature - VectorProvider
 
 External vector store delegation for industrial-scale search.

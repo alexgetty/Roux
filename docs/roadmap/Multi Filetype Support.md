@@ -1,4 +1,7 @@
 ---
+title: Multi Filetype Support
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: M
 phase: Future
 category: Storage & Providers
 ---
-
 # Multi-Filetype Support
 
 ## Context

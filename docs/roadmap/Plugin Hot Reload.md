@@ -1,11 +1,14 @@
 ---
+title: Plugin Hot Reload
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
 effort: M
 phase: Future
 category: Plugin System
-parent: "[[Plugin System]]"
+parent: '[[Plugin System]]'
 ---
 # Plugin Hot Reload
 

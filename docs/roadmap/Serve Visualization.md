@@ -1,4 +1,7 @@
 ---
+title: Serve Visualization
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: M
 phase: Post-MVP
 category: CLI & Visualization
 ---
-
 # Feature - Serve Visualization
 
 Built-in graph visualization when running `roux serve`.

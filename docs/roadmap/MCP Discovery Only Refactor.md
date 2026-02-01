@@ -1,4 +1,7 @@
 ---
+title: Mcp Discovery Only Refactor
+tags:
+  - roadmap
 type: Enhancement
 status: Planned
 priority: P1
@@ -6,7 +9,6 @@ effort: M
 phase: Post-MVP
 category: MCP Tools
 ---
-
 # Refactor MCP to Discovery-Only
 
 ## Context

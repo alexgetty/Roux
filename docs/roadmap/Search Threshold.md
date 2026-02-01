@@ -1,4 +1,7 @@
 ---
+title: Search Threshold
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: S
 phase: Post-MVP
 category: Search & Query
 ---
-
 # Feature - Search Threshold
 
 Add minimum similarity threshold to semantic search.

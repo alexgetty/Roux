@@ -110,6 +110,16 @@ describe('File Watcher Integration', () => {
     return fullPath;
   };
 
+  /**
+   * Get the stable nanoid for a node by its path.
+   * With stable frontmatter IDs, node.id is a nanoid, not a path.
+   */
+  const getIdByPath = async (relativePath: string): Promise<string> => {
+    const node = await store.getNode(relativePath);
+    if (!node) throw new Error(`Node not found: ${relativePath}`);
+    return node.id;
+  };
+
   describe('real filesystem watching', () => {
     it('detects new file and adds to cache', async () => {
       const { callback, waitForChanges } = createChangeCapture();
@@ -118,10 +128,11 @@ describe('File Watcher Integration', () => {
       await writeMarkdownFile('new-note.md', '---\ntitle: New Note\n---\nContent');
 
       const changedIds = await waitForChanges();
-
-      expect(changedIds).toContain('new-note.md');
       const node = await store.getNode('new-note.md');
+
+      // changedIds contains stable nanoid IDs, not paths
       expect(node).not.toBeNull();
+      expect(changedIds).toContain(node!.id);
       expect(node?.title).toBe('New Note');
     });
 
@@ -136,8 +147,11 @@ describe('File Watcher Integration', () => {
 
       const changedIds = await waitForChanges();
 
-      expect(changedIds).toContain('existing.md');
+      // Watcher should report the updated node
+      // Note: If file is rewritten without ID, a new stable ID is generated
       const node = await store.getNode('existing.md');
+      expect(node).not.toBeNull();
+      expect(changedIds).toContain(node!.id);
       expect(node?.title).toBe('Updated');
     });
 
@@ -145,6 +159,7 @@ describe('File Watcher Integration', () => {
       const filePath = await writeMarkdownFile('to-delete.md', '# Will be deleted');
       await store.sync();
 
+      const nodeId = await getIdByPath('to-delete.md');
       expect(await store.getNode('to-delete.md')).not.toBeNull();
 
       const { callback, waitForChanges } = createChangeCapture();
@@ -154,7 +169,8 @@ describe('File Watcher Integration', () => {
 
       const changedIds = await waitForChanges();
 
-      expect(changedIds).toContain('to-delete.md');
+      // changedIds contains stable nanoid IDs
+      expect(changedIds).toContain(nodeId);
       expect(await store.getNode('to-delete.md')).toBeNull();
     });
 
@@ -220,10 +236,12 @@ describe('File Watcher Integration', () => {
 
       // Wait for watcher to process
       const changedIds = await waitForChanges();
+      const persistentNode = await store.getNode('persistent.md');
 
       // Persistent file should be in the changes and cached
-      expect(changedIds).toContain('persistent.md');
-      expect(await store.getNode('persistent.md')).not.toBeNull();
+      // changedIds contains stable nanoid IDs
+      expect(persistentNode).not.toBeNull();
+      expect(changedIds).toContain(persistentNode!.id);
 
       // Transient file should not be in cache (add + unlink = no-op)
       expect(await store.getNode('transient.md')).toBeNull();
@@ -234,9 +252,11 @@ describe('File Watcher Integration', () => {
       await writeMarkdownFile('target.md', '---\ntitle: Target\n---\nContent');
       await store.sync();
 
+      const targetId = await getIdByPath('target.md');
+
       // Initially no edge
       let neighbors = await store.getNeighbors('source.md', { direction: 'out' });
-      expect(neighbors.map((n) => n.id)).not.toContain('target.md');
+      expect(neighbors.map((n) => n.id)).not.toContain(targetId);
 
       const { callback, waitForChanges } = createChangeCapture();
       await startWatchingStable(store, callback);
@@ -246,7 +266,7 @@ describe('File Watcher Integration', () => {
       await waitForChanges();
 
       neighbors = await store.getNeighbors('source.md', { direction: 'out' });
-      expect(neighbors.map((n) => n.id)).toContain('target.md');
+      expect(neighbors.map((n) => n.id)).toContain(targetId);
     });
 
     it('ignores non-markdown files', async () => {
@@ -261,9 +281,11 @@ describe('File Watcher Integration', () => {
       await writeMarkdownFile('real.md', '# Real');
 
       const changedIds = await waitForChanges();
+      const realNode = await store.getNode('real.md');
 
-      // Only the md file should be in changes
-      expect(changedIds).toContain('real.md');
+      // Only the md file should be in changes (changedIds contains stable IDs)
+      expect(realNode).not.toBeNull();
+      expect(changedIds).toContain(realNode!.id);
       expect(changedIds).not.toContain('image.png');
       expect(changedIds).not.toContain('data.json');
 
@@ -284,8 +306,11 @@ describe('File Watcher Integration', () => {
       await writeMarkdownFile('valid.md', '# Valid');
 
       const changedIds = await waitForChanges();
+      const validNode = await store.getNode('valid.md');
 
-      expect(changedIds).toContain('valid.md');
+      // changedIds contains stable nanoid IDs
+      expect(validNode).not.toBeNull();
+      expect(changedIds).toContain(validNode!.id);
       expect(changedIds).not.toContain('.obsidian/workspace.md');
 
       // .obsidian file should not be tracked
@@ -299,14 +324,15 @@ describe('File Watcher Integration', () => {
       await writeMarkdownFile('a/b/c/d/deep.md', '---\ntitle: Deep\n---\nContent');
 
       const changedIds = await waitForChanges();
-
-      expect(changedIds).toContain('a/b/c/d/deep.md');
       const node = await store.getNode('a/b/c/d/deep.md');
+
+      // changedIds contains stable nanoid IDs
       expect(node).not.toBeNull();
+      expect(changedIds).toContain(node!.id);
       expect(node?.title).toBe('Deep');
     });
 
-    it('cleans up vector embedding when file is deleted', async () => {
+    it('cleans up vector embedding when file is deleted (after TTL)', async () => {
       const vectorCacheDir = join(tempDir, 'vector-cache');
       await mkdir(vectorCacheDir, { recursive: true });
       const vectorProvider = new SqliteVectorIndex(vectorCacheDir);
@@ -318,19 +344,43 @@ describe('File Watcher Integration', () => {
       );
       await storeWithVector.sync();
 
-      await vectorProvider.store('with-embedding.md', [0.1, 0.2, 0.3], 'test-model');
-      expect(vectorProvider.hasEmbedding('with-embedding.md')).toBe(true);
+      // Get the stable ID BEFORE deletion
+      const nodeBeforeDelete = await storeWithVector.getNode('with-embedding.md');
+      const nodeId = nodeBeforeDelete!.id;
 
-      const { callback, waitForChanges } = createChangeCapture();
+      // Store embedding using stable ID
+      await vectorProvider.store(nodeId, [0.1, 0.2, 0.3], 'test-model');
+      expect(vectorProvider.hasEmbedding(nodeId)).toBe(true);
+
+      // Override TTL for faster test
+      // @ts-expect-error accessing private for testing
+      storeWithVector.UNLINK_TTL_MS = 100;
+
+      const { callback, waitForChanges, waitForNChanges } = createChangeCapture();
       await startWatchingStable(storeWithVector, callback);
 
       await unlink(filePath);
 
       const changedIds = await waitForChanges();
 
-      expect(changedIds).toContain('with-embedding.md');
+      // changedIds contains stable nanoid IDs - node removed from cache immediately
+      expect(changedIds).toContain(nodeId);
       expect(await storeWithVector.getNode('with-embedding.md')).toBeNull();
-      expect(vectorProvider.hasEmbedding('with-embedding.md')).toBe(false);
+
+      // Vector delete is deferred for rename detection - embedding still exists
+      expect(vectorProvider.hasEmbedding(nodeId)).toBe(true);
+
+      // Wait for TTL to expire
+      await new Promise((r) => setTimeout(r, 150));
+
+      // Trigger another event to force cleanup of expired pending unlinks
+      await writeFile(join(sourceDir, 'trigger-cleanup.md'), '# Trigger', 'utf-8');
+
+      // Wait for second batch of changes to complete
+      await waitForNChanges(2);
+
+      // Now the embedding should be cleaned up
+      expect(vectorProvider.hasEmbedding(nodeId)).toBe(false);
 
       storeWithVector.close();
       vectorProvider.close();

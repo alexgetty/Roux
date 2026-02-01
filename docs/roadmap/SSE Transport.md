@@ -1,4 +1,7 @@
 ---
+title: Sse Transport
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: M
 phase: Future
 category: External APIs
 ---
-
 # Feature - SSE Transport
 
 Standalone HTTP server with Server-Sent Events transport.

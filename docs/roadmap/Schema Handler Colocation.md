@@ -1,4 +1,7 @@
 ---
+title: Schema Handler Colocation
+tags:
+  - roadmap
 type: Enhancement
 status: Proposed
 priority: P3

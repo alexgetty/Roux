@@ -118,8 +118,8 @@ describe('viz command', () => {
     expect(result.nodeCount).toBe(2);
     // Should only have 1 edge (A->B), not 2 (A->nonexistent is filtered)
     expect(result.edgeCount).toBe(1);
-    // HTML should contain the valid link target but not the broken one
-    expect(html).toContain('b.md');
+    // HTML should contain the valid link target (by title) but not the broken one
+    expect(html).toContain('"title":"B"');
   });
 
   describe('empty graph', () => {

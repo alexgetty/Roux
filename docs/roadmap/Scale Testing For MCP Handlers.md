@@ -1,13 +1,15 @@
 ---
+title: Scale Testing For Mcp Handlers
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
 effort: S
 phase: Post-MVP
 category: Testing
-parent: "[[Testing Framework]]"
+parent: '[[Testing Framework]]'
 ---
-
 # Scale Testing for MCP Handlers
 
 ## Context

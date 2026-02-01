@@ -120,7 +120,7 @@ describe('ReaderRegistry', () => {
   });
 
   describe('parse', () => {
-    it('dispatches to correct reader and returns complete node structure', () => {
+    it('dispatches to correct reader and returns ParseResult with complete node structure', () => {
       const mdReader = createMockReader(['.md']);
       const txtReader = createMockReader(['.txt']);
       registry.register(mdReader);
@@ -134,9 +134,14 @@ describe('ReaderRegistry', () => {
         mtime,
       };
 
-      const node = registry.parse('# Content', context);
+      const result = registry.parse('# Content', context);
 
-      // Verify complete node structure, not just title
+      // Returns ParseResult, node needs ID written since mock uses path-based ID
+      expect(result.needsIdWrite).toBe(true);
+
+      // Verify complete node structure
+      const node = result.node;
+      // Path-based ID preserved (Phase 3 writeback will assign stable ID)
       expect(node.id).toBe('notes/test.md');
       expect(node.title).toBe('Mock: notes/test.md');
       expect(node.content).toBe('# Content');
@@ -200,6 +205,90 @@ describe('ReaderRegistry', () => {
       // which compile away to nothing at runtime
       const runtimeExports = Object.keys(typesModule);
       expect(runtimeExports).toEqual([]);
+    });
+  });
+
+  describe('parse() ID handling', () => {
+    const createReaderWithId = (frontmatterId?: string): FormatReader => ({
+      extensions: ['.md'],
+      parse: (content: string, context: FileContext): Node => ({
+        id: frontmatterId ?? context.relativePath.toLowerCase(),
+        title: `Test: ${context.relativePath}`,
+        content,
+        tags: [],
+        outgoingLinks: [],
+        properties: frontmatterId ? { _frontmatterId: frontmatterId } : {},
+        sourceRef: {
+          type: 'file',
+          path: context.absolutePath,
+          lastModified: context.mtime,
+        },
+      }),
+    });
+
+    const baseContext: FileContext = {
+      absolutePath: '/root/notes/test.md',
+      relativePath: 'notes/test.md',
+      extension: '.md',
+      mtime: new Date('2024-01-15T12:00:00Z'),
+    };
+
+    it('uses valid frontmatter ID, needsIdWrite: false', () => {
+      // Valid 12-char nanoid
+      const validId = 'Ab3_Xy-9Qz1w';
+      const reader = createReaderWithId(validId);
+      registry.register(reader);
+
+      const result = registry.parse('# Content', baseContext);
+
+      expect(result.node.id).toBe(validId);
+      expect(result.needsIdWrite).toBe(false);
+    });
+
+    it('keeps path-based ID when missing frontmatter ID, needsIdWrite: true', () => {
+      // Reader returns path-based ID (no frontmatter ID)
+      const reader = createReaderWithId(undefined);
+      registry.register(reader);
+
+      const result = registry.parse('# Content', baseContext);
+
+      // Path-based ID is preserved (Phase 3 writeback will assign stable ID)
+      expect(result.node.id).toBe('notes/test.md');
+      expect(result.needsIdWrite).toBe(true);
+    });
+
+    it('keeps invalid path-style ID, needsIdWrite: true', () => {
+      // Path-style ID is invalid (contains slash)
+      const reader = createReaderWithId('notes/foo.md');
+      registry.register(reader);
+
+      const result = registry.parse('# Content', baseContext);
+
+      // ID preserved, but flagged for writeback
+      expect(result.node.id).toBe('notes/foo.md');
+      expect(result.needsIdWrite).toBe(true);
+    });
+
+    it('keeps empty string ID, needsIdWrite: true', () => {
+      const reader = createReaderWithId('');
+      registry.register(reader);
+
+      const result = registry.parse('# Content', baseContext);
+
+      expect(result.node.id).toBe('');
+      expect(result.needsIdWrite).toBe(true);
+    });
+
+    it('keeps too-short ID, needsIdWrite: true', () => {
+      // 6 chars instead of 12
+      const reader = createReaderWithId('abc123');
+      registry.register(reader);
+
+      const result = registry.parse('# Content', baseContext);
+
+      // ID preserved, flagged for writeback
+      expect(result.node.id).toBe('abc123');
+      expect(result.needsIdWrite).toBe(true);
     });
   });
 });

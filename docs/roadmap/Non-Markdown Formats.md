@@ -1,4 +1,7 @@
 ---
+title: Non Markdown Formats
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: M
 phase: Future
 category: Storage & Providers
 ---
-
 # Feature - Non-Markdown Formats
 
 Support txt, html, and rtf file formats.

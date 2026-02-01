@@ -1,4 +1,7 @@
 ---
+title: Vector Concurrent Writes
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: S
 phase: Post-MVP
 category: Storage & Providers
 ---
-
 # Feature - Vector Concurrent Writes
 
 Test and document concurrent write behavior for vector store.

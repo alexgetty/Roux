@@ -1,4 +1,7 @@
 ---
+title: Fragment Links
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: M
 phase: Post-MVP
 category: Graph & Links
 ---
-
 # Feature - Fragment Links
 
 Support heading and block-level link targets.

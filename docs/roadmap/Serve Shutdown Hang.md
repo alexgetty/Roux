@@ -1,4 +1,7 @@
 ---
+title: Serve Shutdown Hang
+tags:
+  - roadmap
 type: Enhancement
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: S
 phase: Post-MVP
 category: CLI & Visualization
 ---
-
 # Serve Shutdown Hang
 
 ## Problem

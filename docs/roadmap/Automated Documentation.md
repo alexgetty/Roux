@@ -1,4 +1,7 @@
 ---
+title: Automated Documentation
+tags:
+  - roadmap
 type: Feature
 status: Planned
 priority: P2

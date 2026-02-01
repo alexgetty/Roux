@@ -1,4 +1,7 @@
 ---
+title: Typed Edges
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: L
 phase: Future
 category: Graph & Links
 ---
-
 # Feature - Typed Edges
 
 First-class edge model with type and weight properties.

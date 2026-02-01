@@ -1,4 +1,7 @@
 ---
+title: Sqlite Vec
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: M
 phase: Future
 category: Storage & Providers
 ---
-
 # Feature - sqlite-vec
 
 Native SQLite vector operations via sqlite-vec extension.

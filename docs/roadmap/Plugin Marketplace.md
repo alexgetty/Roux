@@ -1,11 +1,14 @@
 ---
+title: Plugin Marketplace
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
 effort: XL
 phase: Future
 category: Plugin System
-parent: "[[Plugin System]]"
+parent: '[[Plugin System]]'
 ---
 # Plugin Marketplace
 

@@ -1,11 +1,15 @@
 ---
+title: Testing Framework
+tags:
+  - roadmap
 type: Epic
 status: Planned
 priority: P1
 effort: XL
 phase: Post-MVP
 category: Testing
-blockedBy: ["[[Plugin System]]"]
+blockedBy:
+  - '[[Plugin System]]'
 ---
 # RFC: Graph Health & Testing Framework
 

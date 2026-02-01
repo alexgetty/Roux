@@ -21,24 +21,64 @@ export const hasFileExtension = hasFileExtensionImpl;
 export const normalizeWikiLink = normalizeLinkTarget;
 
 /**
- * Build an index mapping basenames to full node IDs.
- * Used for resolving bare wiki-links like [[note]] to their full paths.
+ * Node shape for building filename index.
+ * Uses stable nanoid-based IDs with title and optional sourceRef.
+ */
+interface IndexableNode {
+  id: string;
+  title: string;
+  sourceRef?: { path?: string };
+}
+
+/**
+ * Build an index mapping titles and filenames to node IDs.
+ * Used for resolving wiki-links like [[My Note]] to their stable IDs.
+ *
+ * Resolution priority:
+ * 1. Title (primary) - always indexed if non-empty
+ * 2. Filename from sourceRef.path (fallback) - indexed if different from title
  */
 export function buildFilenameIndex(
-  nodes: Iterable<{ id: string }>
+  nodes: Iterable<IndexableNode>
 ): Map<string, string[]> {
   const index = new Map<string, string[]>();
 
   for (const node of nodes) {
-    const basename = node.id.split('/').pop()!;
-    const existing = index.get(basename) ?? [];
-    existing.push(node.id);
-    index.set(basename, existing);
+    const path = node.sourceRef?.path ?? '';
+    const titleKey = node.title.toLowerCase();
+
+    // Warn if completely unindexable
+    if (!titleKey && !path) {
+      console.warn(
+        `Node ${node.id} has no title or path — link resolution will fail`
+      );
+    }
+
+    // Index by title (skip if empty)
+    if (titleKey) {
+      const existing = index.get(titleKey) ?? [];
+      existing.push(node.id);
+      index.set(titleKey, existing);
+    }
+
+    // Index by filename from path (if different from title)
+    if (path) {
+      const filename = path
+        .split('/')
+        .pop()
+        ?.replace(/\.[^.]+$/, '')
+        .toLowerCase();
+      if (filename && filename !== titleKey) {
+        const existing = index.get(filename) ?? [];
+        existing.push(node.id);
+        index.set(filename, existing);
+      }
+    }
   }
 
-  // Sort each array alphabetically for deterministic first-match
-  for (const paths of index.values()) {
-    paths.sort();
+  // Sort alphabetically for deterministic collision resolution
+  for (const ids of index.values()) {
+    ids.sort();
   }
 
   return index;
@@ -51,8 +91,10 @@ export function buildFilenameIndex(
  * Resolution rules:
  * 1. If link already matches a valid node ID, keep it
  * 2. If link contains '/', keep it as-is (partial paths don't resolve)
- * 3. For bare filenames, look up in the filename index
- * 4. If no match found, keep original link
+ * 3. Strip fragment (e.g., #Section) before resolution
+ * 4. For bare filenames, look up in the filename index (after stripping .md)
+ * 5. If no match found, try space/dash variant
+ * 6. If still no match, keep original link
  */
 export function resolveLinks(
   outgoingLinks: string[],
@@ -71,17 +113,35 @@ export function resolveLinks(
       return link;
     }
 
-    // Try basename lookup for bare filenames
-    const matches = filenameIndex.get(link);
+    // Strip fragment before resolution (e.g., [[Note#Section]] -> Note)
+    const [linkWithoutFragment] = link.split('#');
+
+    // Strip .md extension for index lookup (titles are indexed without extension)
+    const lookupKey = linkWithoutFragment!.replace(/\.md$/i, '').toLowerCase();
+
+    // Try title/filename lookup
+    const matches = filenameIndex.get(lookupKey);
     if (matches && matches.length > 0) {
+      // Fix #1: Warn about ambiguous resolution
+      if (matches.length > 1) {
+        console.warn(
+          `Ambiguous wikilink "${link}" matches ${matches.length} nodes. Using "${matches[0]}".`
+        );
+      }
       return matches[0]!;
     }
 
-    // Fallback: try space↔dash variant
-    const variant = spaceDashVariant(link);
+    // Fallback: try space/dash variant
+    const variant = spaceDashVariant(lookupKey);
     if (variant) {
       const variantMatches = filenameIndex.get(variant);
       if (variantMatches && variantMatches.length > 0) {
+        // Fix #1: Warn about ambiguous resolution for variant matches too
+        if (variantMatches.length > 1) {
+          console.warn(
+            `Ambiguous wikilink "${link}" matches ${variantMatches.length} nodes. Using "${variantMatches[0]}".`
+          );
+        }
         return variantMatches[0]!;
       }
     }
@@ -91,7 +151,7 @@ export function resolveLinks(
 }
 
 /**
- * Generate the space↔dash variant of a filename.
+ * Generate the space/dash variant of a filename.
  * Returns null if the filename has both or neither spaces and dashes.
  */
 export function spaceDashVariant(filename: string): string | null {

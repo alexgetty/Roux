@@ -8,7 +8,7 @@ import { nodeToResponse } from '../transforms.js';
 export const schema = {
   type: 'object',
   properties: {
-    id: {
+    path: {
       type: 'string',
       description:
         'Full path for new node (must end in .md). Will be lowercased (spaces and special characters preserved). Example: "notes/My Note.md" creates "notes/my note.md"',
@@ -29,7 +29,7 @@ export const schema = {
       description: 'Classification tags',
     },
   },
-  required: ['id', 'content'],
+  required: ['path', 'content'],
 } as const;
 
 /**
@@ -86,17 +86,25 @@ export async function handler(
   ctx: HandlerContext,
   args: Record<string, unknown>
 ): Promise<NodeResponse> {
-  const idRaw = validateRequiredString(args.id, 'id');
+  // Breaking change: 'id' renamed to 'path'. Node IDs are now auto-generated.
+  if ('id' in args && !('path' in args)) {
+    throw new McpError(
+      'INVALID_PARAMS',
+      "Parameter 'id' has been renamed to 'path'. Node IDs are now auto-generated."
+    );
+  }
 
-  if (!idRaw.toLowerCase().endsWith('.md')) {
-    throw new McpError('INVALID_PARAMS', 'id must end with .md extension');
+  const pathRaw = validateRequiredString(args.path, 'path');
+
+  if (!pathRaw.toLowerCase().endsWith('.md')) {
+    throw new McpError('INVALID_PARAMS', 'path must end with .md extension');
   }
 
   const content = validateRequiredString(args.content, 'content');
   const titleRaw = args.title as string | undefined;
   const tags = validateOptionalTags(args.tags) ?? [];
 
-  const id = normalizeCreateId(idRaw, ctx.naming);
+  const id = normalizeCreateId(pathRaw, ctx.naming);
   const title = titleRaw ?? deriveTitle(id, ctx.naming);
 
   const existing = await ctx.core.getNode(id);

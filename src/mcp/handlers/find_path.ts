@@ -9,12 +9,12 @@ export const schema = {
     source: {
       type: 'string',
       description:
-        'Start node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
+        'Start node ID. Accepts either a stable nanoid (e.g., "abc123XYZ789") or a file path for backwards compatibility (e.g., "recipes/bulgogi.md"). Paths are normalized to lowercase.',
     },
     target: {
       type: 'string',
       description:
-        'End node ID. ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
+        'End node ID. Accepts either a stable nanoid (e.g., "abc123XYZ789") or a file path for backwards compatibility (e.g., "recipes/bulgogi.md"). Paths are normalized to lowercase.',
     },
   },
   required: ['source', 'target'],

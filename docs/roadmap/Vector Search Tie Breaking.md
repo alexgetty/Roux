@@ -1,4 +1,7 @@
 ---
+title: Vector Search Tie Breaking
+tags:
+  - roadmap
 type: Enhancement
 status: Proposed
 priority: P3

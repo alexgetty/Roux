@@ -5,8 +5,8 @@
  * in DocStore while keeping format-specific logic isolated.
  */
 
-import type { Node } from '../../types/node.js';
-import type { FormatReader, FileContext } from './types.js';
+import type { FormatReader, FileContext, ParseResult } from './types.js';
+import { isValidId } from './id.js';
 
 /**
  * Registry for FormatReader implementations
@@ -59,13 +59,23 @@ export class ReaderRegistry {
 
   /**
    * Parse content using the appropriate reader for the file's extension.
+   * Validates frontmatter ID and signals if writeback is needed.
    * Throws if no reader is registered for the extension.
+   *
+   * Note: Does NOT generate new IDs here - that happens in Phase 3's writeback.
+   * Files without valid frontmatter IDs keep their path-based ID for now,
+   * with needsIdWrite: true signaling that an ID should be generated and written.
    */
-  parse(content: string, context: FileContext): Node {
+  parse(content: string, context: FileContext): ParseResult {
     const reader = this.getReader(context.extension);
     if (!reader) {
       throw new Error(`No reader registered for extension: ${context.extension}`);
     }
-    return reader.parse(content, context);
+    const node = reader.parse(content, context);
+
+    // Check if node has a valid stable frontmatter ID
+    const needsIdWrite = !isValidId(node.id);
+
+    return { node, needsIdWrite };
   }
 }

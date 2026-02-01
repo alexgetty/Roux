@@ -1,4 +1,7 @@
 ---
+title: Pagerank Metric
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: M
 phase: Post-MVP
 category: Search & Query
 ---
-
 # Feature - PageRank Metric
 
 Add PageRank centrality metric to `get_hubs`.

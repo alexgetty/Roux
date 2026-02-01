@@ -1,4 +1,7 @@
 ---
+title: Property Based Filtering
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: M
 phase: Post-MVP
 category: Search & Query
 ---
-
 # Property-Based Filtering
 
 ## Problem

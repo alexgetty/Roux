@@ -1,4 +1,7 @@
 ---
+title: Graph Builder Narrower Interface
+tags:
+  - roadmap
 type: Enhancement
 status: Proposed
 priority: P3

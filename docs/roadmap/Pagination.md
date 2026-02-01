@@ -1,4 +1,7 @@
 ---
+title: Pagination
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: S
 phase: Post-MVP
 category: MCP Tools
 ---
-
 # Feature - Pagination
 
 Add offset/cursor pagination to list endpoints.

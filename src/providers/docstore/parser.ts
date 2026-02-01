@@ -1,6 +1,11 @@
 import matter from 'gray-matter';
 
+/** Reserved frontmatter keys that are extracted to dedicated fields */
+export const RESERVED_FRONTMATTER_KEYS = ['id', 'title', 'tags'] as const;
+
 export interface ParsedMarkdown {
+  /** Stable frontmatter ID (12-char nanoid) */
+  id?: string;
   title: string | undefined;
   tags: string[];
   properties: Record<string, unknown>;
@@ -8,6 +13,9 @@ export interface ParsedMarkdown {
   /** Raw wiki-link targets before normalization (e.g., ["Other Note", "folder/file"]) */
   rawLinks: string[];
 }
+
+/** Set of reserved keys for O(1) lookup */
+const RESERVED_KEYS_SET = new Set<string>(RESERVED_FRONTMATTER_KEYS);
 
 /**
  * Parse markdown with YAML frontmatter.
@@ -30,6 +38,9 @@ export function parseMarkdown(raw: string): ParsedMarkdown {
 
   const data = parsed.data as Record<string, unknown>;
 
+  // Extract id - must be a string
+  const id = typeof data['id'] === 'string' ? data['id'] : undefined;
+
   // Extract title
   const title = typeof data['title'] === 'string' ? data['title'] : undefined;
 
@@ -39,23 +50,30 @@ export function parseMarkdown(raw: string): ParsedMarkdown {
     tags = data['tags'].filter((t): t is string => typeof t === 'string');
   }
 
-  // Extract other properties (excluding title and tags)
+  // Extract other properties (excluding all reserved keys)
   const properties: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
-    if (key !== 'title' && key !== 'tags') {
+    if (!RESERVED_KEYS_SET.has(key)) {
       properties[key] = value;
     }
   }
 
   const content = parsed.content.trim();
 
-  return {
+  const result: ParsedMarkdown = {
     title,
     tags,
     properties,
     content,
     rawLinks: extractWikiLinks(content),
   };
+
+  // Only include id if it's a string (exactOptionalPropertyTypes)
+  if (id !== undefined) {
+    result.id = id;
+  }
+
+  return result;
 }
 
 /**
@@ -126,9 +144,11 @@ export function titleFromPath(path: string): string {
 /**
  * Serialize parsed markdown back to a string with YAML frontmatter.
  * Omits frontmatter if no metadata is present.
+ * Places id FIRST in frontmatter for consistency.
  */
 export function serializeToMarkdown(parsed: ParsedMarkdown): string {
   const hasFrontmatter =
+    parsed.id !== undefined ||
     parsed.title !== undefined ||
     parsed.tags.length > 0 ||
     Object.keys(parsed.properties).length > 0;
@@ -137,8 +157,13 @@ export function serializeToMarkdown(parsed: ParsedMarkdown): string {
     return parsed.content;
   }
 
-  // Build frontmatter object
+  // Build frontmatter object with id FIRST
+  // Using insertion order which is preserved in modern JS
   const frontmatter: Record<string, unknown> = {};
+
+  if (parsed.id !== undefined) {
+    frontmatter['id'] = parsed.id;
+  }
 
   if (parsed.title !== undefined) {
     frontmatter['title'] = parsed.title;

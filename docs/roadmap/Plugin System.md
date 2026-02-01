@@ -1,13 +1,15 @@
 ---
+title: Plugin System
+tags:
+  - roadmap
+  - architecture
+  - extensibility
 type: Epic
 status: Planned
 priority: P1
 effort: XL
 phase: Post-MVP
 category: Plugin System
-tags:
-  - architecture
-  - extensibility
 ---
 # Plugin System
 

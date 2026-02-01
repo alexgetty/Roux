@@ -194,8 +194,9 @@ export class Cache {
   }
 
   getNodeByPath(sourcePath: string): Node | null {
+    // Case-insensitive path lookup for cross-platform compatibility
     const row = this.db
-      .prepare('SELECT * FROM nodes WHERE source_path = ?')
+      .prepare('SELECT * FROM nodes WHERE LOWER(source_path) = LOWER(?)')
       .get(sourcePath) as NodeRow | undefined;
 
     if (!row) return null;
@@ -208,6 +209,32 @@ export class Cache {
       .all() as Array<{ source_path: string }>;
 
     return new Set(rows.map((r) => r.source_path));
+  }
+
+  /**
+   * Update source path for a node, optionally updating mtime too.
+   *
+   * Fix #4: When mtime is provided, updates source_modified so that
+   * content changes after rename are detected on next sync.
+   */
+  updateSourcePath(id: string, newPath: string, mtime?: number): void {
+    if (mtime !== undefined) {
+      this.db
+        .prepare('UPDATE nodes SET source_path = ?, source_modified = ? WHERE id = ?')
+        .run(newPath, mtime, id);
+    } else {
+      this.db
+        .prepare('UPDATE nodes SET source_path = ? WHERE id = ?')
+        .run(newPath, id);
+    }
+  }
+
+  getIdByPath(sourcePath: string): string | null {
+    const row = this.db
+      .prepare('SELECT id FROM nodes WHERE source_path = ?')
+      .get(sourcePath) as { id: string } | undefined;
+
+    return row?.id ?? null;
   }
 
   resolveTitles(ids: string[]): Map<string, string> {
@@ -256,7 +283,8 @@ export class Cache {
     }
 
     if (filter.path) {
-      conditions.push("LOWER(id) LIKE LOWER(?) || '%'");
+      // Filter by source_path since node id is now a stable nanoid
+      conditions.push("LOWER(source_path) LIKE '%' || LOWER(?) || '%'");
       params.push(filter.path);
     }
 

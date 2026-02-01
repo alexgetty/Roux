@@ -1,11 +1,14 @@
 ---
+title: Plugin Cross Communication
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
 effort: M
 phase: Future
 category: Plugin System
-parent: "[[Plugin System]]"
+parent: '[[Plugin System]]'
 ---
 # Plugin Cross-Communication
 

@@ -1,4 +1,7 @@
 ---
+title: Aliases
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: M
 phase: Post-MVP
 category: Graph & Links
 ---
-
 # Feature - Aliases
 
 Resolve wikilinks via frontmatter aliases.

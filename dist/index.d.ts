@@ -155,6 +155,26 @@ interface VectorIndex {
 }
 declare function isVectorIndex(value: unknown): value is VectorIndex;
 
+type PropertyType = 'string' | 'number' | 'boolean' | 'function' | 'object' | 'array';
+interface PropertySchema {
+    type: PropertyType;
+    optional?: boolean;
+    /** For 'string' type, require non-empty */
+    nonEmpty?: boolean;
+}
+type Schema = Record<string, PropertySchema>;
+/**
+ * Create a type guard function from a schema definition.
+ *
+ * @example
+ * const isUser = createGuard<User>({
+ *   id: { type: 'string', nonEmpty: true },
+ *   name: { type: 'string' },
+ *   age: { type: 'number', optional: true },
+ * });
+ */
+declare function createGuard<T>(schema: Schema): (value: unknown) => value is T;
+
 interface SearchOptions {
     /** Default: 10 */
     limit?: number;
@@ -319,11 +339,59 @@ declare abstract class StoreProvider {
 }
 
 /**
+ * FileWatcher - Pure file system event emitter
+ *
+ * Responsibilities:
+ * - Wraps chokidar
+ * - Filters (.md only, excluded dirs)
+ * - Coalesces events
+ * - Debounces
+ * - Emits batched events via callback
+ */
+
+type FileEventType = 'add' | 'change' | 'unlink';
+interface FileWatcherOptions {
+    root: string;
+    /** File extensions to watch (e.g., new Set(['.md', '.markdown'])). Required. */
+    extensions: ReadonlySet<string>;
+    debounceMs?: number;
+    /** Called after debounce with coalesced events. Exceptions (sync or async) are
+     *  logged and swallowed; watcher continues operating. */
+    onBatch: (events: Map<string, FileEventType>) => void | Promise<void>;
+}
+declare class FileWatcher {
+    private readonly root;
+    private readonly extensions;
+    private readonly debounceMs;
+    private readonly onBatch;
+    private watcher;
+    private debounceTimer;
+    private pendingChanges;
+    private isPaused;
+    constructor(options: FileWatcherOptions);
+    start(): Promise<void>;
+    stop(): void;
+    isWatching(): boolean;
+    pause(): void;
+    resume(): void;
+    flush(): void;
+    private queueChange;
+}
+
+/**
  * FormatReader plugin types
  *
  * Extracted to break circular dependency between reader-registry and readers.
  */
 
+/**
+ * Result of parsing a file through ReaderRegistry
+ */
+interface ParseResult {
+    node: Node;
+    /** True if the file needs a stable frontmatter ID written */
+    needsIdWrite: boolean;
+}
 /**
  * Context provided to readers during parsing
  */
@@ -380,9 +448,14 @@ declare class ReaderRegistry {
     hasReader(extension: string): boolean;
     /**
      * Parse content using the appropriate reader for the file's extension.
+     * Validates frontmatter ID and signals if writeback is needed.
      * Throws if no reader is registered for the extension.
+     *
+     * Note: Does NOT generate new IDs here - that happens in Phase 3's writeback.
+     * Files without valid frontmatter IDs keep their path-based ID for now,
+     * with needsIdWrite: true signaling that an ID should be generated and written.
      */
-    parse(content: string, context: FileContext): Node;
+    parse(content: string, context: FileContext): ParseResult;
 }
 
 interface DocStoreOptions {
@@ -391,6 +464,8 @@ interface DocStoreOptions {
     id?: string;
     vectorIndex?: VectorIndex;
     registry?: ReaderRegistry;
+    /** Optional FileWatcher instance. If provided, DocStore uses it instead of creating one. */
+    fileWatcher?: FileWatcher;
 }
 declare class DocStore extends StoreProvider {
     readonly id: string;
@@ -422,13 +497,25 @@ declare class DocStore extends StoreProvider {
     isWatching(): boolean;
     private handleWatcherBatch;
     private resolveAllLinks;
+    getNeighbors(id: string, options: {
+        direction: 'in' | 'out' | 'both';
+        limit?: number;
+    }): Promise<Node[]>;
+    findPath(source: string, target: string): Promise<string[] | null>;
+    getHubs(metric: 'in_degree' | 'out_degree', limit: number): Promise<Array<[string, number]>>;
     protected loadAllNodes(): Promise<Node[]>;
     protected getNodesByIds(ids: string[]): Promise<Node[]>;
     protected onCentralityComputed(centrality: Map<string, CentralityMetrics>): void;
     /**
-     * Parse a file into a Node using the appropriate FormatReader.
+     * Parse a file and optionally write a generated ID back if missing.
+     * Returns the node (with stable ID) and whether a write occurred.
      */
-    private parseFile;
+    private parseAndMaybeWriteId;
+    /**
+     * Write a generated ID back to file's frontmatter.
+     * Returns false if file was modified since originalMtime (race condition).
+     */
+    private writeIdBack;
 }
 
 interface TransformersEmbeddingOptions {
@@ -473,4 +560,4 @@ declare class SqliteVectorIndex implements VectorIndex {
 
 declare const VERSION = "0.1.3";
 
-export { type CacheConfig, type CentralityMetrics, DEFAULT_CONFIG, type Direction, DocStore, type DocStoreConfig, type Edge, type Embedding, type EmbeddingConfig, type GraphCore, GraphCoreImpl, type LLMConfig, type LinkInfo, type ListFilter, type ListOptions, type LocalEmbeddingConfig, type Metric, type ModelChangeBehavior, type NeighborOptions, type Node, type NodeSummary, type NodeUpdates, type NodeWithContext, type OllamaEmbeddingConfig, type OllamaLLMConfig, type OpenAIEmbeddingConfig, type OpenAILLMConfig, type ProvidersConfig, type ResolveOptions, type ResolveResult, type ResolveStrategy, type RouxConfig, type SearchOptions, type SourceConfig, type SourceRef, SqliteVectorIndex, type Store, type StoreConfig, StoreProvider, type StoreProviderOptions, type SystemConfig, type TagMode, TransformersEmbedding, VERSION, type VectorIndex, type VectorSearchResult, isNode, isSourceRef, isVectorIndex };
+export { type CacheConfig, type CentralityMetrics, DEFAULT_CONFIG, type Direction, DocStore, type DocStoreConfig, type Edge, type Embedding, type EmbeddingConfig, type GraphCore, GraphCoreImpl, type LLMConfig, type LinkInfo, type ListFilter, type ListOptions, type LocalEmbeddingConfig, type Metric, type ModelChangeBehavior, type NeighborOptions, type Node, type NodeSummary, type NodeUpdates, type NodeWithContext, type OllamaEmbeddingConfig, type OllamaLLMConfig, type OpenAIEmbeddingConfig, type OpenAILLMConfig, type PropertySchema, type PropertyType, type ProvidersConfig, type ResolveOptions, type ResolveResult, type ResolveStrategy, type RouxConfig, type Schema, type SearchOptions, type SourceConfig, type SourceRef, SqliteVectorIndex, type Store, type StoreConfig, StoreProvider, type StoreProviderOptions, type SystemConfig, type TagMode, TransformersEmbedding, VERSION, type VectorIndex, type VectorSearchResult, createGuard, isNode, isSourceRef, isVectorIndex };

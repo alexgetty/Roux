@@ -1,4 +1,7 @@
 ---
+title: Inline Tags
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: S
 phase: Post-MVP
 category: Graph & Links
 ---
-
 # Feature - Inline Tags
 
 Parse `#tag` syntax in markdown content.

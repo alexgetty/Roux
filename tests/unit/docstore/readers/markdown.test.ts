@@ -69,6 +69,21 @@ No title in frontmatter`;
       expect(node.title).toBe('My Derived Title');
     });
 
+    it('derives title from path when frontmatter has ID but no title', () => {
+      // Regression test: title should derive from PATH, not from nanoid ID
+      const content = `---
+id: abc123XYZ789
+tags: [recipe]
+---
+Recipe content`;
+      const context = createContext('recipes/French Onion Soup.md');
+      const node = reader.parse(content, context);
+
+      // Title should be derived from filename, NOT from nanoid
+      expect(node.title).toBe('French Onion Soup');
+      expect(node.title).not.toMatch(/abc123/i);
+    });
+
     it('normalizes ID to lowercase', () => {
       const content = '# Simple content';
       const context = createContext('Folder/CamelCase.md');

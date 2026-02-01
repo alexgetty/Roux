@@ -7,6 +7,15 @@
 import type { Node } from '../../types/node.js';
 
 /**
+ * Result of parsing a file through ReaderRegistry
+ */
+export interface ParseResult {
+  node: Node;
+  /** True if the file needs a stable frontmatter ID written */
+  needsIdWrite: boolean;
+}
+
+/**
  * Context provided to readers during parsing
  */
 export interface FileContext {

@@ -1,13 +1,15 @@
 ---
+title: Test Coverage Extensions
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
 effort: M
 phase: Post-MVP
 category: Testing
-parent: "[[Testing Framework]]"
+parent: '[[Testing Framework]]'
 ---
-
 # Feature - Test Coverage Extensions
 
 Edge case and stress testing identified during red-team audit round 5.

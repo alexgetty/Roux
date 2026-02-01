@@ -1,4 +1,7 @@
 ---
+title: Stale Update Prevention
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P2

@@ -1,4 +1,7 @@
 ---
+title: Viz Theme
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P3
@@ -6,7 +9,6 @@ effort: S
 phase: Post-MVP
 category: CLI & Visualization
 ---
-
 # Feature - Viz Theme
 
 Light/dark theme option for `roux viz` command.

@@ -715,6 +715,83 @@ describe('Cache', () => {
     });
   });
 
+  describe('updateSourcePath', () => {
+    it('updates path without full upsert', () => {
+      const node = createNode({ id: 'moving.md' });
+      cache.upsertNode(node, 'file', '/old/path.md', Date.now());
+
+      cache.updateSourcePath('moving.md', '/new/path.md');
+
+      // Verify path updated
+      const retrieved = cache.getNode('moving.md');
+      expect(retrieved?.sourceRef?.path).toBe('/new/path.md');
+
+      // Verify other fields unchanged
+      expect(retrieved?.title).toBe('Test Note');
+      expect(retrieved?.content).toBe('Some content');
+    });
+
+    it('is no-op for non-existent ID (no error)', () => {
+      // Should not throw
+      expect(() => cache.updateSourcePath('ghost.md', '/some/path.md')).not.toThrow();
+
+      // Verify no node was created
+      const retrieved = cache.getNode('ghost.md');
+      expect(retrieved).toBeNull();
+    });
+
+    // Fix #4: updateSourcePath with mtime parameter
+    it('updates path and mtime when mtime is provided', () => {
+      const originalMtime = 1000;
+      const newMtime = 2000;
+      const node = createNode({ id: 'mtime-update.md' });
+      cache.upsertNode(node, 'file', '/old/path.md', originalMtime);
+
+      // Verify original mtime
+      const cachedMtime = cache.getModifiedTime('/old/path.md');
+      expect(cachedMtime).toBe(originalMtime);
+
+      // Update with new path and mtime
+      cache.updateSourcePath('mtime-update.md', '/new/path.md', newMtime);
+
+      // Verify mtime was updated
+      const newCachedMtime = cache.getModifiedTime('/new/path.md');
+      expect(newCachedMtime).toBe(newMtime);
+
+      // Verify path was updated
+      const retrieved = cache.getNode('mtime-update.md');
+      expect(retrieved?.sourceRef?.path).toBe('/new/path.md');
+    });
+
+    it('does not update mtime when mtime parameter is undefined', () => {
+      const originalMtime = 1000;
+      const node = createNode({ id: 'no-mtime.md' });
+      cache.upsertNode(node, 'file', '/old/path.md', originalMtime);
+
+      // Update path only (no mtime)
+      cache.updateSourcePath('no-mtime.md', '/new/path.md');
+
+      // Verify mtime was preserved
+      const newCachedMtime = cache.getModifiedTime('/new/path.md');
+      expect(newCachedMtime).toBe(originalMtime);
+    });
+  });
+
+  describe('getIdByPath', () => {
+    it('returns node ID for tracked path', () => {
+      const node = createNode({ id: 'lookup.md' });
+      cache.upsertNode(node, 'file', '/some/lookup.md', Date.now());
+
+      const id = cache.getIdByPath('/some/lookup.md');
+      expect(id).toBe('lookup.md');
+    });
+
+    it('returns null for untracked path', () => {
+      const id = cache.getIdByPath('/unknown/path.md');
+      expect(id).toBeNull();
+    });
+  });
+
   describe('corrupted data handling', () => {
     it('throws on corrupted tags JSON when reading node', () => {
       // Insert valid node first

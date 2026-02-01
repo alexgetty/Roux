@@ -821,13 +821,13 @@ describe('handleRandomNode', () => {
 
 describe('handleCreateNode', () => {
   // Core behavior tests
-  it('creates node at exact ID path (lowercased)', async () => {
+  it('creates node at exact path (lowercased)', async () => {
     const created = createNode({ id: 'notes/my note.md', title: 'My Note' });
     const ctx = createContext();
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      id: 'notes/My Note.md',
+      path: 'notes/My Note.md',
       content: 'Hello',
     });
 
@@ -849,7 +849,7 @@ describe('handleCreateNode', () => {
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      id: 'graph/Ingredients/Sesame Oil.md',
+      path: 'graph/Ingredients/Sesame Oil.md',
       content: 'A fragrant oil',
     });
 
@@ -868,7 +868,7 @@ describe('handleCreateNode', () => {
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      id: 'notes/abbrev.md',
+      path: 'notes/abbrev.md',
       title: 'Full Descriptive Title',
       content: 'Content here',
     });
@@ -879,12 +879,12 @@ describe('handleCreateNode', () => {
     );
   });
 
-  it('normalizes ID case consistently', async () => {
+  it('normalizes path case consistently', async () => {
     const created = createNode({ id: 'folder/note.md', title: 'NOTE' });
     const ctx = createContext();
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
-    await handleCreateNode(ctx, { id: 'FOLDER/NOTE.MD', content: '' });
+    await handleCreateNode(ctx, { path: 'FOLDER/NOTE.MD', content: '' });
 
     expect(ctx.core.createNode).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'folder/note.md' })
@@ -901,7 +901,7 @@ describe('handleCreateNode', () => {
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      id: 'tagged.md',
+      path: 'tagged.md',
       content: 'Content',
       tags: ['idea', 'important'],
     });
@@ -924,7 +924,7 @@ describe('handleCreateNode', () => {
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      id: 'deep/nested/path/note.md',
+      path: 'deep/nested/path/note.md',
       content: '',
     });
 
@@ -937,20 +937,20 @@ describe('handleCreateNode', () => {
     (ctx.core.getNode as ReturnType<typeof vi.fn>).mockResolvedValue(existing);
 
     await expect(
-      handleCreateNode(ctx, { id: 'existing.md', content: 'Content' })
+      handleCreateNode(ctx, { path: 'existing.md', content: 'Content' })
     ).rejects.toMatchObject({ code: 'NODE_EXISTS' });
   });
 
   // Validation tests
-  it('rejects empty id', async () => {
+  it('rejects empty path', async () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { id: '', content: 'Content' })
+      handleCreateNode(ctx, { path: '', content: 'Content' })
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
-  it('rejects missing id', async () => {
+  it('rejects missing path', async () => {
     const ctx = createContext();
 
     await expect(
@@ -958,22 +958,22 @@ describe('handleCreateNode', () => {
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
-  it('rejects id without .md extension', async () => {
+  it('rejects path without .md extension', async () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { id: 'notes/file', content: '' })
+      handleCreateNode(ctx, { path: 'notes/file', content: '' })
     ).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
       message: expect.stringMatching(/must end with \.md/i),
     });
   });
 
-  it('rejects id with wrong extension (.txt)', async () => {
+  it('rejects path with wrong extension (.txt)', async () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { id: 'notes/file.txt', content: '' })
+      handleCreateNode(ctx, { path: 'notes/file.txt', content: '' })
     ).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
       message: expect.stringMatching(/must end with \.md/i),
@@ -984,7 +984,7 @@ describe('handleCreateNode', () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { id: 'test.md' })
+      handleCreateNode(ctx, { path: 'test.md' })
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
@@ -992,7 +992,7 @@ describe('handleCreateNode', () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { id: 'test.md', content: 'x', tags: [123, 'valid'] })
+      handleCreateNode(ctx, { path: 'test.md', content: 'x', tags: [123, 'valid'] })
     ).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
       message: expect.stringContaining('only strings'),
@@ -1003,7 +1003,7 @@ describe('handleCreateNode', () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { id: 'test.md', content: 'x', tags: [null, 'valid'] })
+      handleCreateNode(ctx, { path: 'test.md', content: 'x', tags: [null, 'valid'] })
     ).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
       message: expect.stringContaining('only strings'),
@@ -1014,7 +1014,7 @@ describe('handleCreateNode', () => {
     const ctx = createContext();
 
     await expect(
-      handleCreateNode(ctx, { id: 'test.md', content: 'x', tags: 'not-an-array' })
+      handleCreateNode(ctx, { path: 'test.md', content: 'x', tags: 'not-an-array' })
     ).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
       message: expect.stringContaining('only strings'),
@@ -1028,11 +1028,22 @@ describe('handleCreateNode', () => {
     );
 
     await expect(
-      handleCreateNode(ctx, { id: '../escape/test.md', content: 'x' })
+      handleCreateNode(ctx, { path: '../escape/test.md', content: 'x' })
     ).rejects.toThrow(/outside.*source/i);
   });
 
-  it('derives title via title-casing from normalized ID when title not provided', async () => {
+  it('throws clear error when using deprecated id parameter', async () => {
+    const ctx = createContext();
+
+    await expect(
+      handleCreateNode(ctx, { id: 'deprecated.md', content: 'x' })
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: "Parameter 'id' has been renamed to 'path'. Node IDs are now auto-generated.",
+    });
+  });
+
+  it('derives title via title-casing from normalized path when title not provided', async () => {
     const created = createNode({
       id: 'notes/my title here.md',
       title: 'My Title Here',
@@ -1041,13 +1052,13 @@ describe('handleCreateNode', () => {
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      id: 'notes/My Title Here.md',
+      path: 'notes/My Title Here.md',
       content: '',
     });
 
     // ID is lowercased
     expect(result.id).toBe('notes/my title here.md');
-    // Title is derived from lowercased ID, then title-cased per naming conventions
+    // Title is derived from lowercased path, then title-cased per naming conventions
     expect(result.title).toBe('My Title Here');
   });
 
@@ -1060,13 +1071,13 @@ describe('handleCreateNode', () => {
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await handleCreateNode(ctx, {
-      id: 'notes/API.md',
+      path: 'notes/API.md',
       content: '',
     });
 
     // ID is lowercased
     expect(result.id).toBe('notes/api.md');
-    // Title is derived from lowercased ID ('api'), then title-cased -> 'Api' (not 'API')
+    // Title is derived from lowercased path ('api'), then title-cased -> 'Api' (not 'API')
     expect(result.title).toBe('Api');
   });
 });
@@ -1793,7 +1804,7 @@ describe('dispatchTool', () => {
     (ctx.core.createNode as ReturnType<typeof vi.fn>).mockResolvedValue(created);
 
     const result = await dispatchTool(ctx, 'create_node', {
-      id: 'test.md',
+      path: 'test.md',
       content: 'Content',
     });
 
@@ -1899,6 +1910,38 @@ describe('coerceInt', () => {
 
   it('accepts value greater than minimum', () => {
     expect(coerceInt(50, 10, 1, 'limit')).toBe(50);
+  });
+});
+
+// Fix #7: MCP schema missing preference for nanoid lookup
+describe('MCP schema id descriptions', () => {
+  it('get_node schema explains nanoid preference', async () => {
+    const { schema } = await import('../../../src/mcp/handlers/get_node.js');
+    expect(schema.properties.id.description).toContain('nanoid');
+    expect(schema.properties.id.description).toContain('path');
+    // Should mention that nanoid is preferred
+    expect(schema.properties.id.description).toMatch(/prefer.*nanoid|nanoid.*direct/i);
+  });
+
+  it('update_node schema explains nanoid preference', async () => {
+    const { schema } = await import('../../../src/mcp/handlers/update_node.js');
+    expect(schema.properties.id.description).toContain('nanoid');
+    expect(schema.properties.id.description).toContain('path');
+    expect(schema.properties.id.description).toMatch(/prefer.*nanoid|nanoid.*direct/i);
+  });
+
+  it('delete_node schema explains nanoid preference', async () => {
+    const { schema } = await import('../../../src/mcp/handlers/delete_node.js');
+    expect(schema.properties.id.description).toContain('nanoid');
+    expect(schema.properties.id.description).toContain('path');
+    expect(schema.properties.id.description).toMatch(/prefer.*nanoid|nanoid.*direct/i);
+  });
+
+  it('get_neighbors schema explains nanoid preference', async () => {
+    const { schema } = await import('../../../src/mcp/handlers/get_neighbors.js');
+    expect(schema.properties.id.description).toContain('nanoid');
+    expect(schema.properties.id.description).toContain('path');
+    expect(schema.properties.id.description).toMatch(/prefer.*nanoid|nanoid.*direct/i);
   });
 });
 

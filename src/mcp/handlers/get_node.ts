@@ -9,7 +9,7 @@ export const schema = {
     id: {
       type: 'string',
       description:
-        'Node ID (file path for DocStore). ID is normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
+        'Node ID to retrieve. Accepts either a stable nanoid (e.g., "abc123XYZ789") or a file path for backwards compatibility (e.g., "recipes/bulgogi.md"). Paths are normalized to lowercase. Prefer nanoid for direct lookup; path requires index scan.',
     },
     depth: {
       type: 'integer',

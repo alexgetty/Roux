@@ -1,4 +1,7 @@
 ---
+title: Llmprovider
+tags:
+  - roadmap
 type: Feature
 status: Planned
 priority: P1
@@ -6,7 +9,6 @@ effort: L
 phase: Post-MVP
 category: Storage & Providers
 ---
-
 # Feature - LLMProvider
 
 LLM-assisted features for content generation and analysis.

@@ -39,6 +39,7 @@ export class FileWatcher {
   private watcher: FSWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingChanges: Map<string, FileEventType> = new Map();
+  private isPaused = false;
 
   constructor(options: FileWatcherOptions) {
     this.root = options.root;
@@ -107,6 +108,14 @@ export class FileWatcher {
     return this.watcher !== null;
   }
 
+  pause(): void {
+    this.isPaused = true;
+  }
+
+  resume(): void {
+    this.isPaused = false;
+  }
+
   flush(): void {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -134,6 +143,8 @@ export class FileWatcher {
   }
 
   private queueChange(filePath: string, event: FileEventType): void {
+    if (this.isPaused) return;
+
     const relativePath = relative(this.root, filePath);
 
     // Filter by extension using path.extname for correctness

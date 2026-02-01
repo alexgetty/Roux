@@ -50,12 +50,16 @@ describe('status command', () => {
     const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
     await store.sync();
 
-    // Verify actual edges exist via neighbor queries
+    // Get stable IDs for each node
+    const bNode = await store.getNode('b.md');
+    const cNode = await store.getNode('c.md');
+
+    // Verify actual edges exist via neighbor queries (IDs are now nanoids)
     const aNeighbors = await store.getNeighbors('a.md', { direction: 'out' });
-    expect(aNeighbors.map(n => n.id)).toContain('b.md');
+    expect(aNeighbors.map(n => n.id)).toContain(bNode!.id);
 
     const bNeighbors = await store.getNeighbors('b.md', { direction: 'out' });
-    expect(bNeighbors.map(n => n.id)).toContain('c.md');
+    expect(bNeighbors.map(n => n.id)).toContain(cNode!.id);
 
     store.close();
 

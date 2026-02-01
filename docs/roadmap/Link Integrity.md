@@ -1,4 +1,7 @@
 ---
+title: Link Integrity
+tags:
+  - roadmap
 type: Feature
 status: Proposed
 priority: P0
@@ -6,16 +9,17 @@ effort: L
 phase: Post-MVP
 category: Graph & Links
 ---
-
 # Feature - Link Integrity
 
 Handle broken links when node title/ID changes.
 
-## Summary
+## Status
 
-Renaming a node via `update_node` changes its file path (ID), silently breaking all incoming `[[wikilinks]]` from other nodes.
+**Superseded by [[decisions/Node Identity]]**
 
-## Problem
+The original problem (renames break links) is solved at the architecture level by decoupling ID from file path. See the decision doc for full rationale.
+
+## Original Problem
 
 ```
 notes/algorithms.md contains: [[sorting-basics]]
@@ -23,76 +27,46 @@ User renames "sorting-basics.md" to "sorting-fundamentals.md"
 Link now broken: [[sorting-basics]] → nowhere
 ```
 
-## Options
+## Solution
 
-### 1. Scan and Update (Expensive but Correct)
-- Find all nodes linking to old ID
-- Rewrite their content with new ID
-- Atomic operation (all or nothing)
+The Node Identity decision introduces:
 
-**Pros:** Links never break
-**Cons:** Expensive for large graphs, modifies files user didn't touch
+1. **Stable IDs** — auto-generated, stored in frontmatter, never change
+2. **Title-based resolution** — wikilinks use titles, not paths
+3. **Three-way decoupling** — ID, title, and path are independent concerns
 
-### 2. Reject Breaking Changes (Safe but Limiting)
-- Check for incoming links before rename
-- Reject if any exist (return error)
-- User must manually update links first
+When a file is renamed:
+- Path changes (filesystem)
+- ID unchanged (frontmatter)
+- Title unchanged (unless user edits it)
+- Links still resolve (title → ID → new path)
 
-**Pros:** Never breaks links, no hidden file modifications
-**Cons:** Frustrating UX, blocks legitimate renames
+## Implementation
 
-### 3. Alias Tracking (Complex)
-- Maintain old→new ID mapping
-- Resolve links through alias table
-- Eventually consistent
+See [[decisions/Node Identity]] for implementation details:
 
-**Pros:** Links work during transition
-**Cons:** Complexity, stale aliases accumulate
+- `id` field in frontmatter (nanoid, 12 chars)
+- Title → ID → Path resolution
+- Lazy generation for existing files
+- Duplicate detection on index
 
-## Recommendation
+## Original Options (Historical)
 
-Option 2 for MVP safety, Option 1 as opt-in behavior later.
+These were considered before the identity refactor:
 
-## Complexity
+### 1. Scan and Update
+Find all nodes linking to old ID, rewrite their content with new ID.
 
-High — touches file watcher, link resolution, write operations.
+### 2. Reject Breaking Changes  
+Check for incoming links before rename, reject if any exist.
 
-## Implementation Sketch
+### 3. Alias Tracking
+Maintain old→new ID mapping, resolve links through alias table.
 
-From consolidated docs, the recommended approach:
-
-```typescript
-async moveNode(oldId: string, newId: string): Promise<Node> {
-  const node = await this.getNode(oldId);
-  const incoming = await this.getNeighbors(oldId, { direction: 'in' });
-
-  // Update each linking node's content
-  for (const neighbor of incoming) {
-    // Rewrite [[oldId]] → [[newId]] in content
-    await this.updateNode(neighbor.id, {
-      content: neighbor.content.replace(`[[${oldId}]]`, `[[${newId}]]`)
-    });
-  }
-
-  // Rename file, update cache, rebuild graph
-  await this.renameFile(oldId, newId);
-  return this.getNode(newId);
-}
-```
-
-**Key considerations:**
-- Atomicity — all-or-nothing operation
-- Embedding migration — move embedding to new ID
-- MCP tool: `move_node` or extend `update_node`
+All rejected in favor of stable IDs. See decision doc for rationale.
 
 ## References
 
-- [[MCP Tools Schema#update_node]] — CRITICAL warning documented
-- [[Wiki-links]] — Link resolution logic
-- [[DocStore]] — File write operations
-
-## Consolidated From
-
-- `archive/Move Node Operation.md`
-- `archive/Rename Node Support.md`
-- `archive/UpdateNode File Rename.md`
+- [[decisions/Node Identity]] — the solution
+- [[1.0 Vision - Node Schema]] — core node fields
+- [[Wiki-links]] — link resolution logic

@@ -134,6 +134,68 @@ Content`;
       expect(result.properties).not.toHaveProperty('tags');
       expect(result.properties['other']).toBe('value');
     });
+
+    it('extracts id from frontmatter', () => {
+      const content = `---
+id: n7x2k9m4abcd
+title: Test Note
+---
+Content`;
+
+      const result = parseMarkdown(content);
+      expect(result.id).toBe('n7x2k9m4abcd');
+    });
+
+    it('returns undefined id when not present', () => {
+      const content = `---
+title: No ID
+---
+Content`;
+
+      const result = parseMarkdown(content);
+      expect(result.id).toBeUndefined();
+    });
+
+    it('excludes id from properties', () => {
+      const content = `---
+id: abc123xyz789
+title: Test
+custom: value
+---
+Content`;
+
+      const result = parseMarkdown(content);
+      expect(result.properties).not.toHaveProperty('id');
+      expect(result.properties['custom']).toBe('value');
+    });
+
+    it('excludes all reserved keys from properties', () => {
+      const content = `---
+id: abc123xyz789
+title: Reserved Test
+tags: [test]
+custom: kept
+---
+Content`;
+
+      const result = parseMarkdown(content);
+      expect(result.properties).not.toHaveProperty('id');
+      expect(result.properties).not.toHaveProperty('title');
+      expect(result.properties).not.toHaveProperty('tags');
+      expect(result.properties['custom']).toBe('kept');
+    });
+
+    it('handles non-string id gracefully', () => {
+      const content = `---
+id: 12345
+title: Numeric ID
+---
+Content`;
+
+      const result = parseMarkdown(content);
+      // id must be a string, numbers should be ignored
+      expect(result.id).toBeUndefined();
+    });
   });
 });
 
@@ -441,5 +503,124 @@ Body text with [[links]].`;
     expect(reparsed.content).toContain('Before');
     expect(reparsed.content).toContain('After');
     expect(reparsed.content).toContain('---');
+  });
+
+  it('places id FIRST in frontmatter', () => {
+    const parsed: ParsedMarkdown = {
+      id: 'abc123xyz789',
+      title: 'After ID',
+      tags: ['test'],
+      properties: { custom: 'value' },
+      content: 'Content',
+    };
+
+    const result = serializeToMarkdown(parsed);
+    const lines = result.split('\n');
+
+    // Find the first non-separator line in frontmatter
+    const frontmatterStart = lines.indexOf('---');
+    const firstField = lines[frontmatterStart + 1];
+    expect(firstField).toMatch(/^id:/);
+  });
+
+  it('outputs frontmatter when only id is present', () => {
+    const parsed: ParsedMarkdown = {
+      id: 'abc123xyz789',
+      title: undefined,
+      tags: [],
+      properties: {},
+      content: 'Just content',
+    };
+
+    const result = serializeToMarkdown(parsed);
+    expect(result).toContain('---');
+    expect(result).toContain('id: abc123xyz789');
+    expect(result).toContain('Just content');
+  });
+
+  it('serializes with id, title, and tags', () => {
+    const parsed: ParsedMarkdown = {
+      id: 'n7x2k9m4abcd',
+      title: 'Full Note',
+      tags: ['a', 'b'],
+      properties: {},
+      content: 'Body',
+    };
+
+    const result = serializeToMarkdown(parsed);
+    expect(result).toContain('id: n7x2k9m4abcd');
+    expect(result).toContain('title: Full Note');
+    expect(result).toContain('tags:');
+  });
+
+  it('roundtrips id through parse and serialize', () => {
+    const original = `---
+id: abc123xyz789
+title: Roundtrip
+tags:
+  - test
+---
+Content here.`;
+
+    const parsed = parseMarkdown(original);
+    expect(parsed.id).toBe('abc123xyz789');
+
+    const serialized = serializeToMarkdown(parsed);
+    const reparsed = parseMarkdown(serialized);
+
+    expect(reparsed.id).toBe('abc123xyz789');
+    expect(reparsed.title).toBe('Roundtrip');
+  });
+
+  it('handles title with colon', () => {
+    const parsed: ParsedMarkdown = {
+      title: 'Part 1: The Beginning',
+      tags: [],
+      properties: {},
+      content: 'Content',
+    };
+
+    const serialized = serializeToMarkdown(parsed);
+    const reparsed = parseMarkdown(serialized);
+    expect(reparsed.title).toBe('Part 1: The Beginning');
+  });
+
+  it('handles title with quotes', () => {
+    const parsed: ParsedMarkdown = {
+      title: 'Say "Hello" World',
+      tags: [],
+      properties: {},
+      content: 'Content',
+    };
+
+    const serialized = serializeToMarkdown(parsed);
+    const reparsed = parseMarkdown(serialized);
+    expect(reparsed.title).toBe('Say "Hello" World');
+  });
+
+  it('handles title with unicode', () => {
+    const parsed: ParsedMarkdown = {
+      title: 'Caf\u00e9 \u2764\ufe0f \u4e2d\u6587',
+      tags: [],
+      properties: {},
+      content: 'Content',
+    };
+
+    const serialized = serializeToMarkdown(parsed);
+    const reparsed = parseMarkdown(serialized);
+    expect(reparsed.title).toBe('Caf\u00e9 \u2764\ufe0f \u4e2d\u6587');
+  });
+
+  it('handles title with single quotes', () => {
+    const parsed: ParsedMarkdown = {
+      title: "It's a test",
+      tags: [],
+      properties: {},
+      content: 'Content',
+    };
+
+    const serialized = serializeToMarkdown(parsed);
+    const reparsed = parseMarkdown(serialized);
+    expect(reparsed.title).toBe("It's a test");
   });
 });

@@ -1,4 +1,7 @@
 ---
+title: Docstore Post Mvp
+tags:
+  - roadmap
 type: Enhancement
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: M
 phase: Post-MVP
 category: Storage & Providers
 ---
-
 # DocStore Post-MVP
 
 Items identified during red team audit. Valid concerns but out of scope for MVP (<200 nodes, single-user Obsidian vault).

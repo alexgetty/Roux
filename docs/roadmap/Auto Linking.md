@@ -1,4 +1,7 @@
 ---
+title: Auto Linking
+tags:
+  - roadmap
 type: RFC
 status: Proposed
 priority: P2
@@ -6,7 +9,6 @@ effort: L
 phase: Future
 category: Graph & Links
 ---
-
 # RFC: Auto-Linking for Roux
 
 **Status:** Draft

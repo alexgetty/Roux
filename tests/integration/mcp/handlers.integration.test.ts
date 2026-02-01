@@ -86,6 +86,16 @@ describe('MCP Handlers Integration', () => {
     }
   };
 
+  /**
+   * Get the stable nanoid for a node by its path.
+   * With stable frontmatter IDs, node.id is a nanoid, not a path.
+   */
+  const getIdByPath = async (relativePath: string): Promise<string> => {
+    const node = await store.getNode(relativePath);
+    if (!node) throw new Error(`Node not found: ${relativePath}`);
+    return node.id;
+  };
+
   describe('handleSearch', () => {
     it('returns search results with scores', async () => {
       await writeMarkdownFile(
@@ -95,10 +105,11 @@ describe('MCP Handlers Integration', () => {
       await store.sync();
       await embedAllNodes();
 
+      const expectedId = await getIdByPath('typescript.md');
       const results = await handleSearch(ctx, { query: 'static types', limit: 5 });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.id).toBe('typescript.md');
+      expect(results[0]!.id).toBe(expectedId);
       expect(results[0]!.score).toBeDefined();
       expect(results[0]!.score).toBeGreaterThan(0);
     });
@@ -127,10 +138,11 @@ describe('MCP Handlers Integration', () => {
     });
 
     it('returns node with depth=0', async () => {
+      const expectedId = await getIdByPath('test-node.md');
       const result = await handleGetNode(ctx, { id: 'test-node.md', depth: 0 });
 
       expect(result).not.toBeNull();
-      expect(result!.id).toBe('test-node.md');
+      expect(result!.id).toBe(expectedId);
       expect(result!.title).toBe('Test Node');
       expect(result!.tags).toContain('testing');
     });
@@ -143,10 +155,12 @@ describe('MCP Handlers Integration', () => {
       );
       await store.sync();
 
+      const expectedId = await getIdByPath('test-node.md');
+      const parentId = await getIdByPath('parent.md');
       const result = await handleGetNode(ctx, { id: 'test-node.md', depth: 1 });
 
       expect(result).not.toBeNull();
-      expect(result!.id).toBe('test-node.md');
+      expect(result!.id).toBe(expectedId);
 
       // Verify context fields exist with actual values
       const contextResult = result as {
@@ -157,7 +171,7 @@ describe('MCP Handlers Integration', () => {
       };
 
       expect(contextResult.incomingNeighbors).toHaveLength(1);
-      expect(contextResult.incomingNeighbors[0]!.id).toBe('parent.md');
+      expect(contextResult.incomingNeighbors[0]!.id).toBe(parentId);
       expect(contextResult.incomingNeighbors[0]!.title).toBe('Parent');
       expect(contextResult.incomingCount).toBe(1);
 
@@ -168,6 +182,25 @@ describe('MCP Handlers Integration', () => {
     it('returns null for non-existent node', async () => {
       const result = await handleGetNode(ctx, { id: 'nonexistent.md' });
       expect(result).toBeNull();
+    });
+
+    it('retrieves node by nanoid ID', async () => {
+      const nanoidId = await getIdByPath('test-node.md');
+      // Lookup by stable nanoid ID
+      const result = await handleGetNode(ctx, { id: nanoidId });
+
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(nanoidId);
+      expect(result!.title).toBe('Test Node');
+    });
+
+    it('retrieves node by path (backwards compatible)', async () => {
+      const nanoidId = await getIdByPath('test-node.md');
+      // Lookup by file path
+      const result = await handleGetNode(ctx, { id: 'test-node.md' });
+
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(nanoidId);
     });
   });
 
@@ -183,6 +216,9 @@ describe('MCP Handlers Integration', () => {
     });
 
     it('returns outgoing neighbors', async () => {
+      const leafAId = await getIdByPath('leaf-a.md');
+      const leafBId = await getIdByPath('leaf-b.md');
+
       const results = await handleGetNeighbors(ctx, {
         id: 'center.md',
         direction: 'out',
@@ -190,18 +226,20 @@ describe('MCP Handlers Integration', () => {
 
       expect(results).toHaveLength(2);
       const ids = results.map((r) => r.id);
-      expect(ids).toContain('leaf-a.md');
-      expect(ids).toContain('leaf-b.md');
+      expect(ids).toContain(leafAId);
+      expect(ids).toContain(leafBId);
     });
 
     it('returns incoming neighbors', async () => {
+      const centerId = await getIdByPath('center.md');
+
       const results = await handleGetNeighbors(ctx, {
         id: 'leaf-a.md',
         direction: 'in',
       });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.id).toBe('center.md');
+      expect(results[0]!.id).toBe(centerId);
     });
 
     it('returns empty array for node with no neighbors', async () => {
@@ -229,13 +267,17 @@ describe('MCP Handlers Integration', () => {
     });
 
     it('finds path between connected nodes', async () => {
+      const startId = await getIdByPath('start.md');
+      const middleId = await getIdByPath('middle.md');
+      const endId = await getIdByPath('end.md');
+
       const result = await handleFindPath(ctx, {
         source: 'start.md',
         target: 'end.md',
       });
 
       expect(result).not.toBeNull();
-      expect(result!.path).toEqual(['start.md', 'middle.md', 'end.md']);
+      expect(result!.path).toEqual([startId, middleId, endId]);
       expect(result!.length).toBe(2);
     });
 
@@ -269,10 +311,11 @@ describe('MCP Handlers Integration', () => {
     });
 
     it('returns nodes sorted by in_degree', async () => {
+      const hubId = await getIdByPath('hub.md');
       const results = await handleGetHubs(ctx, { metric: 'in_degree', limit: 5 });
 
       expect(results.length).toBeGreaterThan(0);
-      expect(results[0]!.id).toBe('hub.md');
+      expect(results[0]!.id).toBe(hubId);
       expect(results[0]!.score).toBe(3); // 3 incoming links
     });
 
@@ -296,23 +339,25 @@ describe('MCP Handlers Integration', () => {
     });
 
     it('finds nodes by tag with mode=any', async () => {
+      const taggedAId = await getIdByPath('tagged-a.md');
       const results = await handleSearchByTags(ctx, {
         tags: ['alpha'],
         mode: 'any',
       });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.id).toBe('tagged-a.md');
+      expect(results[0]!.id).toBe(taggedAId);
     });
 
     it('finds nodes with mode=all requiring all tags', async () => {
+      const taggedAId = await getIdByPath('tagged-a.md');
       const results = await handleSearchByTags(ctx, {
         tags: ['alpha', 'beta'],
         mode: 'all',
       });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.id).toBe('tagged-a.md');
+      expect(results[0]!.id).toBe(taggedAId);
     });
   });
 
@@ -330,10 +375,12 @@ describe('MCP Handlers Integration', () => {
     });
 
     it('returns a random node', async () => {
+      const random1Id = await getIdByPath('random-1.md');
+      const random2Id = await getIdByPath('random-2.md');
       const result = await handleRandomNode(ctx, {});
 
       expect(result).not.toBeNull();
-      expect(['random-1.md', 'random-2.md']).toContain(result!.id);
+      expect([random1Id, random2Id]).toContain(result!.id);
     });
 
     it('returns null when no nodes exist', async () => {
@@ -365,55 +412,72 @@ describe('MCP Handlers Integration', () => {
       await store.sync();
     });
 
-    it('creates a new node', async () => {
+    it('creates a new node with path parameter', async () => {
       const result = await handleCreateNode(ctx, {
-        id: 'New Note.md',
+        path: 'New Note.md',
         content: 'This is new content.',
         tags: ['new', 'test'],
       });
 
-      expect(result.id).toBe('new note.md');
+      // ID is now a stable nanoid, not a path
+      expect(result.id).toMatch(/^[a-zA-Z0-9_-]{12}$/);
       expect(result.title).toBe('New Note');
       expect(result.tags).toContain('new');
 
-      // Verify it persisted
+      // Verify it persisted (lookup by path still works)
       const retrieved = await store.getNode('new note.md');
       expect(retrieved).not.toBeNull();
+      expect(retrieved!.id).toBe(result.id);
     });
 
     it('creates node in subdirectory', async () => {
       const result = await handleCreateNode(ctx, {
-        id: 'subdir/Nested Note.md',
+        path: 'subdir/Nested Note.md',
         content: 'Nested content.',
       });
 
-      expect(result.id).toBe('subdir/nested note.md');
+      // ID is now a stable nanoid, not a path
+      expect(result.id).toMatch(/^[a-zA-Z0-9_-]{12}$/);
+      // Can still retrieve by path
+      const retrieved = await store.getNode('subdir/nested note.md');
+      expect(retrieved).not.toBeNull();
     });
 
     it('throws NODE_EXISTS for duplicate', async () => {
       await handleCreateNode(ctx, {
-        id: 'Duplicate.md',
+        path: 'Duplicate.md',
         content: 'First version.',
       });
 
       await expect(
         handleCreateNode(ctx, {
-          id: 'Duplicate.md',
+          path: 'Duplicate.md',
           content: 'Second version.',
         })
       ).rejects.toThrow(McpError);
     });
 
-    it('nodes_exist returns true for created node using original ID input', async () => {
-      await handleCreateNode(ctx, { id: 'Test/Sesame Oil.md', content: 'test' });
+    it('nodes_exist returns true for created node using original path input', async () => {
+      await handleCreateNode(ctx, { path: 'Test/Sesame Oil.md', content: 'test' });
 
-      // The exact ID input (mixed case) should resolve via normalization
+      // The exact path input (mixed case) should resolve via normalization
       const result = await handleNodesExist(ctx, { ids: ['Test/Sesame Oil.md'] });
       expect(result['test/sesame oil.md']).toBe(true);
 
       // Also verify lowercase variant works
       const result2 = await handleNodesExist(ctx, { ids: ['test/sesame oil.md'] });
       expect(result2['test/sesame oil.md']).toBe(true);
+    });
+
+    it('throws clear error when using deprecated id parameter', async () => {
+      // Breaking change: 'id' param renamed to 'path'
+      // Node IDs are now auto-generated nanoids
+      await expect(
+        handleCreateNode(ctx, {
+          id: 'DeprecatedParam.md',
+          content: 'test',
+        })
+      ).rejects.toThrow("Parameter 'id' has been renamed to 'path'. Node IDs are now auto-generated.");
     });
   });
 
@@ -469,6 +533,28 @@ describe('MCP Handlers Integration', () => {
         })
       ).rejects.toThrow(McpError);
     });
+
+    it('updates node by nanoid ID', async () => {
+      const nanoidId = await getIdByPath('to-update.md');
+      const result = await handleUpdateNode(ctx, {
+        id: nanoidId,
+        content: 'Updated via nanoid.',
+      });
+
+      expect(result.content).toBe('Updated via nanoid.');
+      expect(result.id).toBe(nanoidId);
+    });
+
+    it('updates node by path (backwards compatible)', async () => {
+      const nanoidId = await getIdByPath('to-update.md');
+      const result = await handleUpdateNode(ctx, {
+        id: 'to-update.md',
+        content: 'Updated via path.',
+      });
+
+      expect(result.content).toBe('Updated via path.');
+      expect(result.id).toBe(nanoidId);
+    });
   });
 
   describe('handleDeleteNode', () => {
@@ -493,6 +579,27 @@ describe('MCP Handlers Integration', () => {
     it('returns deleted=false for non-existent node', async () => {
       const result = await handleDeleteNode(ctx, { id: 'nonexistent.md' });
       expect(result.deleted).toBe(false);
+    });
+
+    it('deletes node by nanoid ID', async () => {
+      const nanoidId = await getIdByPath('to-delete.md');
+      const result = await handleDeleteNode(ctx, { id: nanoidId });
+
+      expect(result.deleted).toBe(true);
+
+      // Verify it's gone
+      const retrieved = await store.getNode(nanoidId);
+      expect(retrieved).toBeNull();
+    });
+
+    it('deletes node by path (backwards compatible)', async () => {
+      const result = await handleDeleteNode(ctx, { id: 'to-delete.md' });
+
+      expect(result.deleted).toBe(true);
+
+      // Verify it's gone
+      const retrieved = await store.getNode('to-delete.md');
+      expect(retrieved).toBeNull();
     });
   });
 

@@ -23,10 +23,12 @@ export class MarkdownReader implements FormatReader {
   parse(content: string, context: FileContext): Node {
     const parsed = parseMarkdown(content);
 
-    const id = normalizeId(context.relativePath);
+    // Use frontmatter ID if present, otherwise derive from path
+    // (ReaderRegistry validates and generates if invalid)
+    const id = parsed.id ?? normalizeId(context.relativePath);
 
     // Derive title from path if not in frontmatter
-    const title = parsed.title ?? titleFromPath(id);
+    const title = parsed.title ?? titleFromPath(context.relativePath);
 
     // Extract and normalize wiki links
     const rawLinks = extractWikiLinks(parsed.content);
