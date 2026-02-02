@@ -1,17 +1,17 @@
 ---
-type: Issue
-priority: Low
-component: DocStore
-status: open
+id: O3EWzHkXBywE
 title: Watcher Wiki Link Resolution Test Gap
 tags:
   - issue
   - watcher
   - testing
+type: Issue
+priority: Low
+component: DocStore
+status: open
 severity: Medium
 phase: MVP
 ---
-
 # Watcher Wiki-Link Resolution Test Gap
 
 ## Problem

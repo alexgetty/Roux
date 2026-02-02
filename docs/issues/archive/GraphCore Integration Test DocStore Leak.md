@@ -1,17 +1,17 @@
 ---
-type: Issue
-priority: Medium
-component: Testing
-status: open
+id: 3YL5753llAYu
 title: Graphcore Integration Test Docstore Leak
 tags:
   - issue
   - graphcore
   - bug
   - testing
+type: Issue
+priority: Medium
+component: Testing
+status: open
 severity: Medium
 ---
-
 # GraphCore Integration Test DocStore Leak
 
 ## Problem

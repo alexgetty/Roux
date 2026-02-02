@@ -1,18 +1,18 @@
 ---
-type: Issue
-priority: Medium
-component: Testing
-status: open
+id: vQ9KwURKPNlr
 title: Integration Test Gaps
 tags:
   - issue
   - docstore
   - testing
   - integration
+type: Issue
+priority: Medium
+component: Testing
+status: open
 severity: High
 phase: 7
 ---
-
 # Integration Test Gaps
 
 Missing integration tests for cross-component flows.

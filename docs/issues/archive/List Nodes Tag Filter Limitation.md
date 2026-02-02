@@ -1,17 +1,17 @@
 ---
-type: Issue
-priority: Low
-component: 'MCP, DocStore'
-status: open
+id: c3KVuBdHY-cS
 title: List Nodes Tag Filter Limitation
 tags:
   - issue
   - mcp
   - enhancement
+type: Issue
+priority: Low
+component: 'MCP, DocStore'
+status: open
 severity: Medium
 phase: Resolution
 ---
-
 # List Nodes Tag Filter Limitation
 
 ## Problem

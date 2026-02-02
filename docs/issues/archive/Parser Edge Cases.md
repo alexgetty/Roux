@@ -1,17 +1,17 @@
 ---
-type: Issue
-priority: Low
-component: Parser
-status: open
+id: AaHEdKxbLX6d
 title: Parser Edge Cases
 tags:
   - issue
   - docstore
   - testing
+type: Issue
+priority: Low
+component: Parser
+status: open
 severity: High
 phase: 6
 ---
-
 # Parser Edge Cases
 
 Several edge cases in wiki-link extraction are untested.

@@ -1,4 +1,5 @@
 ---
+id: CR4lGrb13qM7
 title: mcp-handlers-flat-structure
 tags:
   - critical

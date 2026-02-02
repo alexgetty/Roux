@@ -1,4 +1,6 @@
 ---
+id: HSDrCBRndCd_
+title: consolidated-unicode-i18n-handling
 tags:
   - consolidated
   - test-audit
@@ -6,9 +8,7 @@ tags:
   - i18n
 status: open
 priority: high
-title: consolidated-unicode-i18n-handling
 ---
-
 # Consolidated: Unicode and Internationalization Handling
 
 ## Problem Pattern

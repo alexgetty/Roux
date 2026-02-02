@@ -1,11 +1,11 @@
 ---
+id: ZV7hnWl1CAlR
 type: Roadmap Feature
 status: Implemented
 priority: High
 phase: MVP
-parent: "[[MCP Tools Schema]]"
+parent: '[[MCP Tools Schema]]'
 ---
-
 # Feature - Batch Node Operations
 
 Add batch primitives for efficient entity resolution and existence checks.

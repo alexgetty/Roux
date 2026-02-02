@@ -1,4 +1,5 @@
 ---
+id: j6M20xuTTVdv
 title: options object pattern
 tags:
   - decision

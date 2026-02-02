@@ -1,15 +1,15 @@
 ---
-type: Issue
-severity: Medium
-component: MCP
-phase: MVP
+id: '-3mLCgNkkXlb'
 title: MCP resolve_nodes Exact Strategy Threshold Confusion
 tags:
   - Issue
   - mcp
   - medium
+type: Issue
+severity: Medium
+component: MCP
+phase: MVP
 ---
-
 # resolve_nodes Exact Strategy Threshold Confusion
 
 ## Problem

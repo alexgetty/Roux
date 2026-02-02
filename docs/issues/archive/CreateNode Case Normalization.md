@@ -1,17 +1,17 @@
 ---
-type: Issue
-priority: Medium
-component: DocStore
-status: open
+id: mDApQl1Ankcp
 title: Createnode Case Normalization
 tags:
   - issue
   - docstore
   - testing
+type: Issue
+priority: Medium
+component: DocStore
+status: open
 severity: High
 phase: 6
 ---
-
 # CreateNode Case Normalization
 
 Missing test for ID case normalization in `createNode`.

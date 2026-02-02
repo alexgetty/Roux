@@ -1,8 +1,9 @@
 ---
+id: _sk8JnVfBrkY
 status: open
 priority: High
-phase:
-parent:
+phase: null
+parent: null
 ---
 ⏺ roux - get_node (MCP)(id: "notes/hierarchy of understanding.md", depth: 1)
   ⎿  {

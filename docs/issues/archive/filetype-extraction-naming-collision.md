@@ -1,4 +1,5 @@
 ---
+id: 264CbERAbRNx
 title: filetype-extraction-naming-collision
 tags:
   - issue

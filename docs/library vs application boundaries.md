@@ -1,4 +1,5 @@
 ---
+id: N1FbiY18zK9p
 title: Library vs Application Boundaries
 tags:
   - architecture

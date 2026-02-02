@@ -1,4 +1,5 @@
 ---
+id: BsUtp1boiXsH
 title: mcp-server-inline-schemas
 tags:
   - critical

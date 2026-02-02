@@ -1,12 +1,12 @@
 ---
-type: Research
+id: 2dEM7XTys1RL
+title: Versioning Conventions
 tags:
   - roadmap
   - versioning
   - research
-title: Versioning Conventions
+type: Research
 ---
-
 # Versioning Conventions
 
 Research synthesis on semver, milestones, and release strategies for Roux.

@@ -1,4 +1,5 @@
 ---
+id: BN6dytRrW3A-
 title: embeddings-empty-vector-untested
 tags:
   - medium

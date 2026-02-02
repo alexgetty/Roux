@@ -1,4 +1,5 @@
 ---
+id: IisqhQ3Ev4wG
 title: mcp-architecture
 tags:
   - issue

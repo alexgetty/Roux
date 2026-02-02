@@ -1,15 +1,15 @@
 ---
-type: Issue
-severity: Medium
-component: MCP
-phase: MVP
+id: AmP-MTuCYyt9
 title: MCP create_node ID Transformation Undocumented
 tags:
   - Issue
   - mcp
   - medium
+type: Issue
+severity: Medium
+component: MCP
+phase: MVP
 ---
-
 # create_node ID Transformation Undocumented
 
 ## Problem

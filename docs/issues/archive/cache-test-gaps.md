@@ -1,15 +1,15 @@
 ---
-type: '[[Test Gap]]'
-priority: Low
-component: '[[Cache]]'
-status: open
+id: yhGU5tX6xl9i
 title: Cache Test Gaps
 tags:
   - issue
   - cache
   - testing
+type: '[[Test Gap]]'
+priority: Low
+component: '[[Cache]]'
+status: open
 ---
-
 # Cache Test Gaps
 
 Missing test coverage in DocStore cache layer.

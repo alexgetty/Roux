@@ -1,4 +1,6 @@
 ---
+id: 1RCPP9vAd54q
+title: consolidated-empty-string-validation
 tags:
   - consolidated
   - test-audit
@@ -6,9 +8,7 @@ tags:
   - security
 status: open
 priority: high
-title: consolidated-empty-string-validation
 ---
-
 # Consolidated: Empty String and Special Character Validation
 
 ## Problem Pattern

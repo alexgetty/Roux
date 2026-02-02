@@ -1,4 +1,6 @@
 ---
+id: KMUTZVTl1XaH
+title: consolidated-weak-assertions
 tags:
   - consolidated
   - test-audit
@@ -6,9 +8,7 @@ tags:
   - testing
 status: open
 priority: medium
-title: consolidated-weak-assertions
 ---
-
 # Consolidated: Weak Assertions Pattern
 
 ## Problem Pattern

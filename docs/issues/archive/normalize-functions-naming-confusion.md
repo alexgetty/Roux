@@ -1,4 +1,5 @@
 ---
+id: zFwblricjuF9
 title: normalize-functions-naming-confusion
 tags:
   - low

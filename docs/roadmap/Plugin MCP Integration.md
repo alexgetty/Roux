@@ -1,4 +1,5 @@
 ---
+id: '-PTFEvvo8Uor'
 title: Plugin Mcp Integration
 tags:
   - roadmap

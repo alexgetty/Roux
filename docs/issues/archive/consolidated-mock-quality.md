@@ -1,4 +1,6 @@
 ---
+id: PxwJiPM9vy-u
+title: consolidated-mock-quality
 tags:
   - consolidated
   - test-audit
@@ -6,9 +8,7 @@ tags:
   - testing
 status: open
 priority: medium
-title: consolidated-mock-quality
 ---
-
 # Consolidated: Mock Quality and Interface Drift
 
 ## Problem Pattern

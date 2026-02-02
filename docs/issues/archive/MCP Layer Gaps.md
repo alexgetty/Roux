@@ -1,17 +1,17 @@
 ---
-type: Issue
-priority: High
-component: MCP
-status: open
+id: kUHN0ptd5ATy
 title: Mcp Layer Gaps
 tags:
   - issue
   - mcp
   - bug
+type: Issue
+priority: High
+component: MCP
+status: open
 severity: Medium
 phase: 9
 ---
-
 # MCP Layer Gaps
 
 Outstanding issues from Phase 9 red-team audit. Updated after Phase 10 fixes.

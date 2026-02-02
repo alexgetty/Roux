@@ -1,15 +1,15 @@
 ---
-type: Issue
-severity: Medium
-component: MCP
-phase: current
+id: Fv9B_YFl8G20
 title: MCP Server Test Fragility
 tags:
   - issue
   - testing
   - mcp
+type: Issue
+severity: Medium
+component: MCP
+phase: current
 ---
-
 # MCP Server Test Fragility
 
 ## Problem

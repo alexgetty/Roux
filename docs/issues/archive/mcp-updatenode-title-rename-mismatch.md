@@ -1,4 +1,5 @@
 ---
+id: h1tU1i4Ftkq6
 title: mcp-updatenode-title-rename-mismatch
 tags:
   - issue

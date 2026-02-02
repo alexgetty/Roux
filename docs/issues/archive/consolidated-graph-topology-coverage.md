@@ -1,4 +1,6 @@
 ---
+id: dRQP-MBOK4dG
+title: consolidated-graph-topology-coverage
 tags:
   - consolidated
   - test-audit
@@ -6,9 +8,7 @@ tags:
   - topology
 status: open
 priority: high
-title: consolidated-graph-topology-coverage
 ---
-
 # Consolidated: Graph Topology Coverage Gaps
 
 ## Problem Pattern

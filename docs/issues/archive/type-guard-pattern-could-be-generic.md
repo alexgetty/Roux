@@ -1,4 +1,5 @@
 ---
+id: TRpRonAZZ8nK
 title: Type Guard Pattern Could Be Generic
 tags:
   - dry

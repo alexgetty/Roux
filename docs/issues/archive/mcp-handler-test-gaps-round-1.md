@@ -1,15 +1,15 @@
 ---
-type: Issue
-severity: Medium
-component: MCP
-phase: current
+id: pCEioHzAPVMv
 title: MCP Handler Test Gaps - Round 1
 tags:
   - issue
   - testing
   - mcp
+type: Issue
+severity: Medium
+component: MCP
+phase: current
 ---
-
 # MCP Handler Test Gaps - Round 1
 
 ## Problem

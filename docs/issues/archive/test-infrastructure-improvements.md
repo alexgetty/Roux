@@ -1,16 +1,16 @@
 ---
-type: '[[Tech Debt]]'
-priority: Low
-component: '[[Testing]]'
-status: open
+id: TtdjyZLduv2T
 title: Test Infrastructure Improvements
 tags:
   - issue
   - testing
   - tech-debt
   - infrastructure
+type: '[[Tech Debt]]'
+priority: Low
+component: '[[Testing]]'
+status: open
 ---
-
 # Test Infrastructure Improvements
 
 Collection of test quality issues that add maintenance burden.
