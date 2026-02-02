@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Release commit validator
-# If package.json version is changing, only allow: CHANGELOG.md, package.json, package-lock.json
+# If package.json version is changing:
+# 1. Only allow release-related files
+# 2. Verify CHANGELOG.md was updated since last release tag
 
-# Get staged files
 STAGED_FILES=$(git diff --cached --name-only)
 
 # Check if package.json is staged
 if ! echo "$STAGED_FILES" | grep -q "^package.json$"; then
-    # Not a release commit, allow anything
     exit 0
 fi
 
@@ -17,7 +17,6 @@ OLD_VERSION=$(git show HEAD:package.json 2>/dev/null | grep '"version"' | head -
 NEW_VERSION=$(git diff --cached package.json | grep '^\+.*"version"' | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/')
 
 if [ -z "$NEW_VERSION" ]; then
-    # Version not changing, not a release commit
     exit 0
 fi
 
@@ -36,9 +35,18 @@ for file in $STAGED_FILES; do
     fi
 done
 
-# Verify CHANGELOG.md is present
-if ! echo "$STAGED_FILES" | grep -q "^CHANGELOG.md$"; then
-    echo "ERROR: Release commits must include CHANGELOG.md"
+# Verify CHANGELOG.md was updated since last release tag
+LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
+
+if [ -z "$LAST_TAG" ]; then
+    echo "Release commit validated: version $OLD_VERSION -> $NEW_VERSION (first release)"
+    exit 0
+fi
+
+CHANGELOG_COMMITS=$(git log "$LAST_TAG"..HEAD --oneline -- CHANGELOG.md | wc -l | tr -d ' ')
+
+if [ "$CHANGELOG_COMMITS" -eq 0 ]; then
+    echo "ERROR: CHANGELOG.md has not been updated since $LAST_TAG"
     echo ""
     echo "Run /release to generate changelog before publishing."
     exit 1
