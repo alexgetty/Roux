@@ -1,4 +1,33 @@
+---
+id: MKFTHic4umOg
+---
 # Changelog
+
+## 0.2.0
+
+### Features
+- Stable frontmatter IDs: nodes now persist identity across renames and moves
+- FormatReader plugin architecture for extensible file format support
+- Add rawLinks field to ParsedMarkdown interface
+- Model mismatch detection warns when vector index was built with different embedding model
+- Naming conventions config for customizable file creation patterns
+
+### Architecture
+- Extract GraphManager for cleaner separation of graph operations
+- Extract StoreProvider abstract class for shared store logic
+- Modularize MCP handlers with centralized validation
+- Three-tier provider naming convention across all providers
+- Optimize neighbor traversal with iterator-based early termination
+
+### Fixes
+- Fix FileWatcher debounce timer leak and 4 related issues
+- Fix type guard validation gaps
+- Resolve 9 test audit issues and 5 misc bugs
+- Fix ID normalization edge cases
+
+### Quality
+- Achieve 100% code coverage
+- Add edge case tests for zero vectors, truncation, and invalid UTF-8
 
 ## 0.1.3
 - Redesign create_node API: id-first, title optional (derived from filename)
