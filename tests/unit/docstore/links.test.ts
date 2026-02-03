@@ -317,10 +317,12 @@ describe('links', () => {
     });
 
     it('returns first match alphabetically for duplicate titles', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const links = ['readme.md'];
       const resolved = resolveLinks(links, filenameIndex, validNodeIds);
 
       expect(resolved).toEqual(['aaa111bbb222']);
+      warnSpy.mockRestore();
     });
 
     it('keeps partial paths as-is (no resolution)', () => {

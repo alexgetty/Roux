@@ -803,6 +803,7 @@ describe('FileWatcher', () => {
 
   describe('error handling', () => {
     it('rejects start() promise on chokidar error', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const watcher = new FileWatcher({
         root: sourceDir,
         extensions: new Set(['.md']),
@@ -817,6 +818,7 @@ describe('FileWatcher', () => {
       triggerEvent('error', emfileError);
 
       await expect(promise).rejects.toThrow('EMFILE');
+      consoleSpy.mockRestore();
     });
 
     it('logs helpful message for EMFILE errors', async () => {

@@ -339,6 +339,7 @@ describe('serve command', () => {
       await writeFile(join(testDir, 'test2.md'), '---\ntitle: Test2\n---\n\nContent2', 'utf-8');
 
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       // Capture the watch callback
       let watchCallback: ((changedIds: string[]) => Promise<void>) | null = null;
@@ -392,6 +393,7 @@ describe('serve command', () => {
         DocStore.prototype.startWatching = originalStartWatching;
         TransformersEmbedding.prototype.embed = originalEmbed;
         consoleSpy.mockRestore();
+        logSpy.mockRestore();
       }
     });
   });

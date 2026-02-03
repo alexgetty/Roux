@@ -1420,6 +1420,7 @@ No links yet`
     });
 
     it('picks alphabetically first match for ambiguous filenames', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       await writeMarkdownFile('a/item.md', '---\ntitle: Item A\n---\nA');
       await writeMarkdownFile('b/item.md', '---\ntitle: Item B\n---\nB');
       await writeMarkdownFile('ref.md', 'See [[item]]');
@@ -1437,6 +1438,7 @@ No links yet`
       // Exactly one should be resolved (whichever sorts first alphabetically by ID)
       expect(hasItemA || hasItemB).toBe(true);
       expect(hasItemA && hasItemB).toBe(false);
+      warnSpy.mockRestore();
     });
 
     it('treats partial path links literally (creates ghost, no suffix matching)', async () => {
