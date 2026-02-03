@@ -74,6 +74,12 @@ describe('truncateContent', () => {
     expect(truncateContent('', 'neighbor')).toBe('');
   });
 
+  it('returns null for null content (ghost nodes)', () => {
+    expect(truncateContent(null, 'primary')).toBeNull();
+    expect(truncateContent(null, 'list')).toBeNull();
+    expect(truncateContent(null, 'neighbor')).toBeNull();
+  });
+
   describe('boundary cases', () => {
     it('truncates content exactly one char over limit', () => {
       const content = 'x'.repeat(TRUNCATION_LIMITS.neighbor + 1);

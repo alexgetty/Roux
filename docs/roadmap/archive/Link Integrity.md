@@ -3,12 +3,16 @@ id: Cgy7Gx4NqVpZ
 title: Link Integrity
 tags:
   - roadmap
+  - superseded
+  - archived
 type: Feature
-status: Proposed
+status: Superseded
 priority: P0
 effort: L
 phase: Post-MVP
 category: Graph & Links
+superseded_by: decisions/Node Identity
+release: v0.2.0
 ---
 # Feature - Link Integrity
 
@@ -16,7 +20,7 @@ Handle broken links when node title/ID changes.
 
 ## Status
 
-**Superseded by [[decisions/Node Identity]]**
+**Superseded by [[decisions/Node Identity]]** — Implemented in v0.2.0 via Stable Frontmatter IDs.
 
 The original problem (renames break links) is solved at the architecture level by decoupling ID from file path. See the decision doc for full rationale.
 

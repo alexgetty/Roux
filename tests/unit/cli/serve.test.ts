@@ -185,6 +185,75 @@ describe('serve command', () => {
     }
   });
 
+  describe('ghost node embedding', () => {
+    it('embeds ghost nodes by title', async () => {
+      await initCommand(testDir);
+      // Create a note with an unresolved wikilink - this creates a ghost
+      await writeFile(
+        join(testDir, 'note.md'),
+        '---\ntitle: Note\n---\n\nLink to [[Missing Page]]',
+        'utf-8'
+      );
+
+      const handle = await serveCommand(testDir, {
+        watch: false,
+        transportFactory: () => ({ start: async () => {}, close: async () => {} }),
+      });
+
+      // nodeCount should include both the real note and the ghost
+      expect(handle.nodeCount).toBe(2);
+
+      await handle.stop();
+
+      // Verify ghost has embedding via SqliteVectorIndex
+      const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
+      const note = await store.getNode('note.md');
+      const ghostId = note?.outgoingLinks[0]!;
+      expect(ghostId.startsWith('ghost_')).toBe(true);
+
+      // Ghost should have an embedding
+      const hasEmbedding = store.hasEmbedding(ghostId);
+      expect(hasEmbedding).toBe(true);
+
+      store.close();
+    });
+
+    it('includes ghost in nodeCount during startup', async () => {
+      await initCommand(testDir);
+      // Create note with unresolved link during init
+      await writeFile(
+        join(testDir, 'linker.md'),
+        '---\ntitle: Linker\n---\n\n[[Ghost Target]]',
+        'utf-8'
+      );
+
+      const handle = await serveCommand(testDir, {
+        watch: false,
+        transportFactory: () => ({ start: async () => {}, close: async () => {} }),
+      });
+
+      // Should count both the real node and the ghost
+      expect(handle.nodeCount).toBe(2);
+
+      await handle.stop();
+
+      // Verify via store that ghost exists and has embedding
+      const store = new DocStore({ sourceRoot: testDir, cacheDir: join(testDir, '.roux') });
+      const linker = await store.getNode('linker.md');
+      const ghostId = linker?.outgoingLinks[0]!;
+      expect(ghostId.startsWith('ghost_')).toBe(true);
+
+      const ghost = await store.getNode(ghostId);
+      expect(ghost?.content).toBeNull();
+      expect(ghost?.title).toBe('Ghost Target');
+
+      // Ghost should have been embedded
+      expect(store.hasEmbedding(ghostId)).toBe(true);
+
+      store.close();
+    });
+  });
+
   describe('error propagation and cleanup', () => {
     it('propagates embedding failure during startup', async () => {
       await initCommand(testDir);

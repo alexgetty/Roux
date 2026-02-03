@@ -377,7 +377,8 @@ describe('MCP Handlers Integration', () => {
     it('returns a random node', async () => {
       const random1Id = await getIdByPath('random-1.md');
       const random2Id = await getIdByPath('random-2.md');
-      const result = await handleRandomNode(ctx, {});
+      // Use orphans: include since test nodes have no links
+      const result = await handleRandomNode(ctx, { orphans: 'include' });
 
       expect(result).not.toBeNull();
       expect([random1Id, random2Id]).toContain(result!.id);

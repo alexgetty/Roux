@@ -14,6 +14,7 @@ import type {
   ListNodesResult,
   ResolveOptions,
   ResolveResult,
+  RandomNodeOptions,
 } from '../types/provider.js';
 import {
   isStoreProvider,
@@ -250,9 +251,9 @@ export class GraphCoreImpl implements GraphCore {
     return store.searchByTags(tags, mode, limit);
   }
 
-  async getRandomNode(tags?: string[]): Promise<Node | null> {
+  async getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null> {
     const store = this.requireStore();
-    return store.getRandomNode(tags);
+    return store.getRandomNode(tags, options);
   }
 
   async listNodes(

@@ -88,7 +88,10 @@ function isNode(value) {
     return false;
   }
   const obj = value;
-  if (typeof obj["id"] !== "string" || typeof obj["title"] !== "string" || typeof obj["content"] !== "string") {
+  if (typeof obj["id"] !== "string" || typeof obj["title"] !== "string") {
+    return false;
+  }
+  if (obj["content"] !== null && typeof obj["content"] !== "string") {
     return false;
   }
   if (!Array.isArray(obj["tags"]) || !obj["tags"].every((t) => typeof t === "string")) {
@@ -455,12 +458,17 @@ var StoreProvider = class {
     return this.vectorIndex.search(vector, limit);
   }
   // ── Discovery ──────────────────────────────────────────────
-  async getRandomNode(tags) {
+  async getRandomNode(tags, options) {
     let candidates;
     if (tags && tags.length > 0) {
       candidates = await this.searchByTags(tags, "any");
     } else {
       candidates = await this.loadAllNodes();
+    }
+    if (options?.ghostsOnly) {
+      candidates = candidates.filter((n) => n.content === null);
+    } else if (!options?.includeGhosts) {
+      candidates = candidates.filter((n) => n.content !== null);
     }
     if (candidates.length === 0) return null;
     return candidates[Math.floor(Math.random() * candidates.length)];
@@ -485,6 +493,12 @@ var StoreProvider = class {
     if (filter.path) {
       const lowerPath = filter.path.toLowerCase();
       nodes = nodes.filter((n) => n.id.startsWith(lowerPath));
+    }
+    const ghosts = filter.ghosts ?? "include";
+    if (ghosts === "exclude") {
+      nodes = nodes.filter((n) => n.content !== null);
+    } else if (ghosts === "only") {
+      nodes = nodes.filter((n) => n.content === null);
     }
     const total = nodes.length;
     const offset = options?.offset ?? 0;
@@ -646,6 +660,39 @@ var Cache = class {
       sourceModified
     );
   }
+  /**
+   * Insert or update a ghost node (placeholder for unresolved wikilink).
+   * Ghost nodes have content: null and no source reference.
+   */
+  upsertGhostNode(node) {
+    if (node.content !== null) {
+      throw new Error("Ghost nodes must have null content");
+    }
+    const stmt = this.db.prepare(`
+      INSERT INTO nodes (id, title, content, tags, outgoing_links, properties, source_type, source_path, source_modified)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        content = excluded.content,
+        tags = excluded.tags,
+        outgoing_links = excluded.outgoing_links,
+        properties = excluded.properties,
+        source_type = excluded.source_type,
+        source_path = excluded.source_path,
+        source_modified = excluded.source_modified
+    `);
+    stmt.run(
+      node.id,
+      node.title,
+      node.content,
+      JSON.stringify(node.tags),
+      JSON.stringify(node.outgoingLinks),
+      JSON.stringify(node.properties),
+      null,
+      null,
+      null
+    );
+  }
   getNode(id) {
     const row = this.db.prepare("SELECT * FROM nodes WHERE id = ?").get(id);
     if (!row) return null;
@@ -711,8 +758,18 @@ var Cache = class {
     const rows = this.db.prepare("SELECT source_path FROM nodes").all();
     return new Set(rows.map((r) => r.source_path));
   }
-  updateSourcePath(id, newPath) {
-    this.db.prepare("UPDATE nodes SET source_path = ? WHERE id = ?").run(newPath, id);
+  /**
+   * Update source path for a node, optionally updating mtime too.
+   *
+   * Fix #4: When mtime is provided, updates source_modified so that
+   * content changes after rename are detected on next sync.
+   */
+  updateSourcePath(id, newPath, mtime) {
+    if (mtime !== void 0) {
+      this.db.prepare("UPDATE nodes SET source_path = ?, source_modified = ? WHERE id = ?").run(newPath, mtime, id);
+    } else {
+      this.db.prepare("UPDATE nodes SET source_path = ? WHERE id = ?").run(newPath, id);
+    }
   }
   getIdByPath(sourcePath) {
     const row = this.db.prepare("SELECT id FROM nodes WHERE source_path = ?").get(sourcePath);
@@ -752,11 +809,26 @@ var Cache = class {
       conditions.push("LOWER(source_path) LIKE '%' || LOWER(?) || '%'");
       params.push(filter.path);
     }
+    const ghosts = filter.ghosts ?? "include";
+    if (ghosts === "exclude") {
+      conditions.push("content IS NOT NULL");
+    } else if (ghosts === "only") {
+      conditions.push("content IS NULL");
+    }
+    const orphans = filter.orphans ?? "include";
+    let joinClause = "";
+    if (orphans === "exclude") {
+      joinClause = "LEFT JOIN centrality c ON nodes.id = c.node_id";
+      conditions.push("(COALESCE(c.in_degree, 1) > 0 OR COALESCE(c.out_degree, 1) > 0)");
+    } else if (orphans === "only") {
+      joinClause = "LEFT JOIN centrality c ON nodes.id = c.node_id";
+      conditions.push("c.in_degree = 0 AND c.out_degree = 0");
+    }
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const countQuery = `SELECT COUNT(*) as count FROM nodes ${whereClause}`;
+    const countQuery = `SELECT COUNT(*) as count FROM nodes ${joinClause} ${whereClause}`;
     const countRow = this.db.prepare(countQuery).get(...params);
     const total = countRow.count;
-    const query = `SELECT id, title FROM nodes ${whereClause} LIMIT ? OFFSET ?`;
+    const query = `SELECT nodes.id, nodes.title FROM nodes ${joinClause} ${whereClause} LIMIT ? OFFSET ?`;
     const rows = this.db.prepare(query).all(...params, limit, offset);
     const nodes = rows.map((row) => ({ id: row.id, title: row.title }));
     return { nodes, total };
@@ -796,11 +868,11 @@ var Cache = class {
     this.db.close();
   }
   rowToNode(row) {
-    const sourceRef = {
+    const sourceRef = row.source_type && row.source_path && row.source_modified !== null ? {
       type: row.source_type,
       path: row.source_path,
       lastModified: new Date(row.source_modified)
-    };
+    } : void 0;
     return {
       id: row.id,
       title: row.title,
@@ -808,7 +880,7 @@ var Cache = class {
       tags: JSON.parse(row.tags),
       outgoingLinks: JSON.parse(row.outgoing_links),
       properties: JSON.parse(row.properties),
-      sourceRef
+      ...sourceRef && { sourceRef }
     };
   }
 };
@@ -1274,15 +1346,26 @@ function resolveLinks(outgoingLinks, filenameIndex, validNodeIds) {
     if (link.includes("/")) {
       return link;
     }
-    const lookupKey = link.replace(/\.md$/i, "").toLowerCase();
+    const [linkWithoutFragment] = link.split("#");
+    const lookupKey = linkWithoutFragment.replace(/\.md$/i, "").toLowerCase();
     const matches = filenameIndex.get(lookupKey);
     if (matches && matches.length > 0) {
+      if (matches.length > 1) {
+        console.warn(
+          `Ambiguous wikilink "${link}" matches ${matches.length} nodes. Using "${matches[0]}".`
+        );
+      }
       return matches[0];
     }
     const variant = spaceDashVariant(lookupKey);
     if (variant) {
       const variantMatches = filenameIndex.get(variant);
       if (variantMatches && variantMatches.length > 0) {
+        if (variantMatches.length > 1) {
+          console.warn(
+            `Ambiguous wikilink "${link}" matches ${variantMatches.length} nodes. Using "${variantMatches[0]}".`
+          );
+        }
         return variantMatches[0];
       }
     }
@@ -1349,9 +1432,19 @@ async function readFileContent(filePath) {
 
 // src/providers/docstore/id.ts
 import { nanoid } from "nanoid";
+import { createHash } from "crypto";
 var NANOID_PATTERN = /^[A-Za-z0-9_-]{12}$/;
+var GHOST_PREFIX = "ghost_";
 var isValidId = (id) => NANOID_PATTERN.test(id);
 var generateId = () => nanoid(12);
+function ghostId(title) {
+  const normalized = title.toLowerCase().trim();
+  const hash = createHash("sha256").update(normalized).digest("base64url").slice(0, 12);
+  return `${GHOST_PREFIX}${hash}`;
+}
+function isGhostId(id) {
+  return id.startsWith(GHOST_PREFIX);
+}
 
 // src/providers/docstore/reader-registry.ts
 var ReaderRegistry = class {
@@ -1418,7 +1511,7 @@ var MarkdownReader = class {
   parse(content, context) {
     const parsed = parseMarkdown(content);
     const id = parsed.id ?? normalizeId(context.relativePath);
-    const title = parsed.title ?? titleFromPath(id);
+    const title = parsed.title ?? titleFromPath(context.relativePath);
     const rawLinks = extractWikiLinks(parsed.content);
     const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
     return {
@@ -1451,6 +1544,10 @@ var DocStore = class extends StoreProvider {
   registry;
   fileWatcher = null;
   onChangeCallback;
+  /** Pending unlinks waiting for potential rename detection (id -> metadata) */
+  pendingUnlinks = /* @__PURE__ */ new Map();
+  /** Time-to-live for pending unlinks before they're treated as real deletes */
+  UNLINK_TTL_MS = 5e3;
   constructor(options) {
     const {
       sourceRoot,
@@ -1548,13 +1645,14 @@ var DocStore = class extends StoreProvider {
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true });
     const stableId = generateId();
-    const rawLinks = extractWikiLinks(node.content);
+    const content = node.content ?? "";
+    const rawLinks = extractWikiLinks(content);
     const parsed = {
       id: stableId,
       title: node.title,
       tags: node.tags,
       properties: node.properties,
-      content: node.content,
+      content,
       rawLinks
     };
     const markdown = serializeToMarkdown(parsed);
@@ -1591,6 +1689,9 @@ var DocStore = class extends StoreProvider {
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
+    if (isGhostId(existing.id)) {
+      throw new Error(`Cannot update ghost node "${existing.title}" \u2014 create a real node to replace it`);
+    }
     const { ...safeUpdates } = updates;
     const contentForLinks = safeUpdates.content ?? existing.content;
     const rawLinks = extractWikiLinks(contentForLinks);
@@ -1610,6 +1711,7 @@ var DocStore = class extends StoreProvider {
       tags: updated.tags,
       properties: updated.properties,
       content: updated.content,
+      // Non-null: ghost guard above ensures real node
       rawLinks
     };
     const markdown = serializeToMarkdown(parsed);
@@ -1632,8 +1734,10 @@ var DocStore = class extends StoreProvider {
     if (!existing) {
       throw new Error(`Node not found: ${id}`);
     }
-    const filePath = existing.sourceRef?.path ?? join4(this.sourceRoot, existing.id);
-    await rm(filePath);
+    if (!isGhostId(existing.id)) {
+      const filePath = existing.sourceRef?.path ?? join4(this.sourceRoot, existing.id);
+      await rm(filePath);
+    }
     this.cache.deleteNode(existing.id);
     if (this.vectorIndex) await this.vectorIndex.delete(existing.id);
     await this.syncGraph();
@@ -1666,6 +1770,34 @@ var DocStore = class extends StoreProvider {
   }
   async searchByTags(tags, mode, limit) {
     return this.cache.searchByTags(tags, mode, limit);
+  }
+  async getRandomNode(tags, options) {
+    let candidates;
+    if (tags && tags.length > 0) {
+      candidates = await this.searchByTags(tags, "any");
+    } else {
+      candidates = this.cache.getAllNodes();
+    }
+    if (options?.ghostsOnly) {
+      candidates = candidates.filter((n) => n.content === null);
+    } else if (!options?.includeGhosts) {
+      candidates = candidates.filter((n) => n.content !== null);
+    }
+    if (options?.orphansOnly) {
+      candidates = candidates.filter((n) => {
+        const centrality = this.cache.getCentrality(n.id);
+        if (!centrality) return false;
+        return centrality.inDegree === 0 && centrality.outDegree === 0;
+      });
+    } else if (options?.excludeOrphans ?? true) {
+      candidates = candidates.filter((n) => {
+        const centrality = this.cache.getCentrality(n.id);
+        if (!centrality) return true;
+        return centrality.inDegree > 0 || centrality.outDegree > 0;
+      });
+    }
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
   }
   async resolveTitles(ids) {
     return this.cache.resolveTitles(ids);
@@ -1731,27 +1863,40 @@ var DocStore = class extends StoreProvider {
   async handleWatcherBatch(events) {
     this.fileWatcher?.pause();
     const processedIds = [];
+    const now = Date.now();
     try {
+      await this.cleanupExpiredUnlinks(now);
+      const batchUnlinks = /* @__PURE__ */ new Map();
+      const batchAdds = [];
+      const batchChanges = [];
       for (const [pathId, event] of events) {
         const filePath = join4(this.sourceRoot, pathId);
+        if (event === "unlink") {
+          const existing = this.cache.getNodeByPath(filePath);
+          if (existing) {
+            batchUnlinks.set(existing.id, filePath);
+          }
+        } else if (event === "add") {
+          batchAdds.push({ pathId, filePath });
+        } else {
+          batchChanges.push({ pathId, filePath });
+        }
+      }
+      for (const { pathId, filePath } of batchAdds) {
         try {
-          if (event === "unlink") {
-            const existing = this.cache.getNodeByPath(filePath);
-            if (existing) {
-              this.cache.deleteNode(existing.id);
-              if (this.vectorIndex) {
-                try {
-                  await this.vectorIndex.delete(existing.id);
-                } catch (vectorErr) {
-                  console.warn(`Vector delete failed for ${pathId}:`, vectorErr);
-                }
-              }
-              processedIds.push(existing.id);
-            }
+          const mtime = await getFileMtime(filePath);
+          const { node, newMtime } = await this.parseAndMaybeWriteId(filePath, mtime);
+          const finalMtime = newMtime ?? mtime;
+          if (batchUnlinks.has(node.id)) {
+            batchUnlinks.delete(node.id);
+            this.cache.updateSourcePath(node.id, filePath, finalMtime);
+            this.cache.upsertNode(node, "file", filePath, finalMtime);
+            processedIds.push(node.id);
+          } else if (this.pendingUnlinks.has(node.id)) {
+            this.pendingUnlinks.delete(node.id);
+            this.cache.upsertNode(node, "file", filePath, finalMtime);
+            processedIds.push(node.id);
           } else {
-            const mtime = await getFileMtime(filePath);
-            const { node, newMtime } = await this.parseAndMaybeWriteId(filePath, mtime);
-            const finalMtime = newMtime ?? mtime;
             const existingByPath = this.cache.getNodeByPath(filePath);
             if (existingByPath && existingByPath.id !== node.id) {
               this.cache.deleteNode(existingByPath.id);
@@ -1769,6 +1914,32 @@ var DocStore = class extends StoreProvider {
           console.warn(`Failed to process file change for ${pathId}:`, err);
         }
       }
+      for (const { pathId, filePath } of batchChanges) {
+        try {
+          const mtime = await getFileMtime(filePath);
+          const { node, newMtime } = await this.parseAndMaybeWriteId(filePath, mtime);
+          const finalMtime = newMtime ?? mtime;
+          const existingByPath = this.cache.getNodeByPath(filePath);
+          if (existingByPath && existingByPath.id !== node.id) {
+            this.cache.deleteNode(existingByPath.id);
+            if (this.vectorIndex) {
+              try {
+                await this.vectorIndex.delete(existingByPath.id);
+              } catch {
+              }
+            }
+          }
+          this.cache.upsertNode(node, "file", filePath, finalMtime);
+          processedIds.push(node.id);
+        } catch (err) {
+          console.warn(`Failed to process file change for ${pathId}:`, err);
+        }
+      }
+      for (const [id, path] of batchUnlinks) {
+        this.cache.deleteNode(id);
+        processedIds.push(id);
+        this.pendingUnlinks.set(id, { path, timestamp: now });
+      }
       if (processedIds.length > 0) {
         this.resolveAllLinks();
         await this.syncGraph();
@@ -1780,33 +1951,132 @@ var DocStore = class extends StoreProvider {
       this.fileWatcher?.resume();
     }
   }
+  /**
+   * Clean up expired pending vector deletes.
+   * These are real deletes (not renames) - safe to remove from vector index.
+   */
+  async cleanupExpiredUnlinks(now) {
+    for (const [id, entry] of this.pendingUnlinks) {
+      if (now - entry.timestamp > this.UNLINK_TTL_MS) {
+        if (this.vectorIndex) {
+          try {
+            await this.vectorIndex.delete(id);
+          } catch (vectorErr) {
+            console.warn(`Vector delete failed for expired unlink ${id}:`, vectorErr);
+          }
+        }
+        this.pendingUnlinks.delete(id);
+      }
+    }
+  }
   resolveAllLinks() {
     const nodes = this.cache.getAllNodes();
-    const filenameIndex = buildFilenameIndex(nodes);
+    const realNodes = nodes.filter((n) => !isGhostId(n.id));
+    const ghostNodes = nodes.filter((n) => isGhostId(n.id));
+    const filenameIndex = buildFilenameIndex(realNodes);
     const validNodeIds = new Set(nodes.map((n) => n.id));
     const pathToId = /* @__PURE__ */ new Map();
-    for (const node of nodes) {
+    for (const node of realNodes) {
       if (node.sourceRef?.path) {
         const relativePath = relative2(this.sourceRoot, node.sourceRef.path);
         const normalizedPath = normalizeId(relativePath);
         pathToId.set(normalizedPath, node.id);
       }
     }
-    for (const node of nodes) {
+    const titleToRealId = /* @__PURE__ */ new Map();
+    for (const node of realNodes) {
+      const key = node.title.toLowerCase().trim();
+      if (!titleToRealId.has(key)) {
+        titleToRealId.set(key, node.id);
+      }
+    }
+    const ghostToRealId = /* @__PURE__ */ new Map();
+    for (const ghost of ghostNodes) {
+      const key = ghost.title.toLowerCase().trim();
+      const realId = titleToRealId.get(key);
+      if (realId) {
+        ghostToRealId.set(ghost.id, realId);
+      }
+    }
+    const ghostsToCreate = /* @__PURE__ */ new Map();
+    const normalizedToOriginal = /* @__PURE__ */ new Map();
+    for (const node of realNodes) {
+      if (node.content === null) continue;
+      const rawLinks = extractWikiLinks(node.content);
+      for (const raw of rawLinks) {
+        const normalized = normalizeWikiLink(raw);
+        if (!normalizedToOriginal.has(normalized)) {
+          normalizedToOriginal.set(normalized, raw);
+        }
+      }
+    }
+    for (const node of realNodes) {
       const resolvedIds = resolveLinks(
         node.outgoingLinks,
         filenameIndex,
         validNodeIds
       );
       const finalIds = resolvedIds.map((link) => {
+        if (isGhostId(link) && ghostToRealId.has(link)) {
+          return ghostToRealId.get(link);
+        }
+        if (isGhostId(link) && validNodeIds.has(link)) {
+          return link;
+        }
         if (validNodeIds.has(link)) {
           return link;
         }
         const stableId = pathToId.get(link);
-        return stableId ?? link;
+        if (stableId) {
+          return stableId;
+        }
+        const linkTitle = link.replace(/\.md$/i, "");
+        const linkKey = linkTitle.toLowerCase().trim();
+        const realIdForLink = titleToRealId.get(linkKey);
+        if (realIdForLink) {
+          return realIdForLink;
+        }
+        const originalTitle = normalizedToOriginal.get(link);
+        const title = originalTitle ?? linkTitle;
+        const gid = ghostId(title);
+        if (!validNodeIds.has(gid) && !ghostsToCreate.has(gid)) {
+          ghostsToCreate.set(gid, { id: gid, title });
+        }
+        return gid;
       });
       if (finalIds.some((r, i) => r !== node.outgoingLinks[i])) {
         this.cache.updateOutgoingLinks(node.id, finalIds);
+      }
+    }
+    for (const { id, title } of ghostsToCreate.values()) {
+      const ghost = {
+        id,
+        title,
+        content: null,
+        tags: [],
+        outgoingLinks: [],
+        properties: {}
+      };
+      this.cache.upsertGhostNode(ghost);
+      validNodeIds.add(id);
+    }
+    for (const gid of ghostToRealId.keys()) {
+      this.cache.deleteNode(gid);
+    }
+    const updatedNodes = this.cache.getAllNodes();
+    const updatedGhosts = updatedNodes.filter((n) => isGhostId(n.id));
+    const referencedGhostIds = /* @__PURE__ */ new Set();
+    for (const node of updatedNodes) {
+      if (isGhostId(node.id)) continue;
+      for (const linkId of node.outgoingLinks) {
+        if (isGhostId(linkId)) {
+          referencedGhostIds.add(linkId);
+        }
+      }
+    }
+    for (const ghost of updatedGhosts) {
+      if (!referencedGhostIds.has(ghost.id)) {
+        this.cache.deleteNode(ghost.id);
       }
     }
   }
@@ -1858,7 +2128,7 @@ var DocStore = class extends StoreProvider {
       return { node, needsIdWrite: false };
     }
     const newId = generateId();
-    const writebackSuccess = await this.writeIdBack(filePath, newId, originalMtime, content);
+    const writebackSuccess = await this.writeIdBack(filePath, newId, originalMtime);
     if (!writebackSuccess) {
       console.warn(`File modified during sync, skipping ID writeback: ${filePath}`);
       return { node, needsIdWrite: true };
@@ -1873,13 +2143,18 @@ var DocStore = class extends StoreProvider {
   /**
    * Write a generated ID back to file's frontmatter.
    * Returns false if file was modified since originalMtime (race condition).
+   *
+   * Fix #3: Re-reads file content after mtime check to avoid TOCTOU race.
+   * The file could change between the initial read and this write - using
+   * stale content would lose any concurrent edits.
    */
-  async writeIdBack(filePath, nodeId, originalMtime, originalContent) {
+  async writeIdBack(filePath, nodeId, originalMtime) {
     const currentStat = await stat2(filePath);
     if (currentStat.mtimeMs !== originalMtime) {
       return false;
     }
-    const parsed = parseMarkdown(originalContent);
+    const freshContent = await readFileContent(filePath);
+    const parsed = parseMarkdown(freshContent);
     parsed.id = nodeId;
     const newContent = serializeToMarkdown(parsed);
     await writeFile(filePath, newContent, "utf-8");
@@ -2110,9 +2385,9 @@ var GraphCoreImpl = class _GraphCoreImpl {
     const store = this.requireStore();
     return store.searchByTags(tags, mode, limit);
   }
-  async getRandomNode(tags) {
+  async getRandomNode(tags, options) {
     const store = this.requireStore();
-    return store.getRandomNode(tags);
+    return store.getRandomNode(tags, options);
   }
   async listNodes(filter, options) {
     return this.requireStore().listNodes(filter, options);

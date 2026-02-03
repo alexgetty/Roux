@@ -142,6 +142,47 @@ describe('buildGraph', () => {
     expect(graph.hasDirectedEdge('Note.md', 'note.md')).toBe(true);
   });
 
+  describe('ghost node graph participation', () => {
+    it('includes ghost nodes in graph structure', () => {
+      const nodes = [
+        createNode({ id: 'real.md', title: 'Real', content: 'Content', outgoingLinks: ['ghost_abc123def456'] }),
+        createNode({ id: 'ghost_abc123def456', title: 'Missing Page', content: null, outgoingLinks: [] }),
+      ];
+
+      const graph = buildGraph(nodes);
+
+      expect(graph.order).toBe(2);
+      expect(graph.hasNode('ghost_abc123def456')).toBe(true);
+      expect(graph.hasDirectedEdge('real.md', 'ghost_abc123def456')).toBe(true);
+    });
+
+    it('ghost nodes can have incoming edges from multiple real nodes', () => {
+      const nodes = [
+        createNode({ id: 'a.md', content: 'A', outgoingLinks: ['ghost_shared123456'] }),
+        createNode({ id: 'b.md', content: 'B', outgoingLinks: ['ghost_shared123456'] }),
+        createNode({ id: 'ghost_shared123456', title: 'Shared Ghost', content: null, outgoingLinks: [] }),
+      ];
+
+      const graph = buildGraph(nodes);
+
+      expect(graph.order).toBe(3);
+      expect(graph.inDegree('ghost_shared123456')).toBe(2);
+      expect(graph.outDegree('ghost_shared123456')).toBe(0);
+    });
+
+    it('ghost nodes have zero outgoing edges', () => {
+      // Ghosts can't have outgoing links since they have no content
+      const nodes = [
+        createNode({ id: 'ghost_abc123def456', title: 'Ghost', content: null, outgoingLinks: [] }),
+      ];
+
+      const graph = buildGraph(nodes);
+
+      expect(graph.order).toBe(1);
+      expect(graph.outDegree('ghost_abc123def456')).toBe(0);
+    });
+  });
+
   describe('edge cases for node IDs', () => {
     it('accepts empty string node ID (graphology allows it)', () => {
       // Note: This documents graphology behavior. Upstream validation

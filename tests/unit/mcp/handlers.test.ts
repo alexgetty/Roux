@@ -804,7 +804,70 @@ describe('handleRandomNode', () => {
 
     await handleRandomNode(ctx, { tags: ['idea'] });
 
-    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(['idea']);
+    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(['idea'], { includeGhosts: false, ghostsOnly: false, excludeOrphans: true, orphansOnly: false });
+  });
+
+  it('includes ghosts when requested', async () => {
+    const ctx = createContext();
+    (ctx.core.getRandomNode as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await handleRandomNode(ctx, { ghosts: 'include' });
+
+    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(undefined, { includeGhosts: true, ghostsOnly: false, excludeOrphans: true, orphansOnly: false });
+  });
+
+  it('excludes ghosts by default', async () => {
+    const ctx = createContext();
+    (ctx.core.getRandomNode as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await handleRandomNode(ctx, {});
+
+    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(undefined, { includeGhosts: false, ghostsOnly: false, excludeOrphans: true, orphansOnly: false });
+  });
+
+  it('returns only ghosts when ghosts: only', async () => {
+    const ctx = createContext();
+    (ctx.core.getRandomNode as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await handleRandomNode(ctx, { ghosts: 'only' });
+
+    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(undefined, { includeGhosts: true, ghostsOnly: true, excludeOrphans: true, orphansOnly: false });
+  });
+
+  it('excludes orphans by default', async () => {
+    const ctx = createContext();
+    (ctx.core.getRandomNode as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await handleRandomNode(ctx, {});
+
+    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(undefined, { includeGhosts: false, ghostsOnly: false, excludeOrphans: true, orphansOnly: false });
+  });
+
+  it('includes orphans when orphans: include', async () => {
+    const ctx = createContext();
+    (ctx.core.getRandomNode as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await handleRandomNode(ctx, { orphans: 'include' });
+
+    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(undefined, { includeGhosts: false, ghostsOnly: false, excludeOrphans: false, orphansOnly: false });
+  });
+
+  it('returns only orphans when orphans: only', async () => {
+    const ctx = createContext();
+    (ctx.core.getRandomNode as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await handleRandomNode(ctx, { orphans: 'only' });
+
+    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(undefined, { includeGhosts: false, ghostsOnly: false, excludeOrphans: false, orphansOnly: true });
+  });
+
+  it('defaults orphans to "exclude" for invalid value', async () => {
+    const ctx = createContext();
+    (ctx.core.getRandomNode as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await handleRandomNode(ctx, { orphans: 'invalid' });
+
+    expect(ctx.core.getRandomNode).toHaveBeenCalledWith(undefined, { includeGhosts: false, ghostsOnly: false, excludeOrphans: true, orphansOnly: false });
   });
 
   it('throws INVALID_PARAMS when tags contain non-strings', async () => {
@@ -1470,7 +1533,7 @@ describe('handleListNodes', () => {
     });
 
     expect(ctx.core.listNodes).toHaveBeenCalledWith(
-      { tag: 'recipe', path: 'notes/' },
+      { tag: 'recipe', path: 'notes/', ghosts: 'include', orphans: 'include' },
       { limit: 50, offset: 10 }
     );
   });
@@ -1485,7 +1548,7 @@ describe('handleListNodes', () => {
     const { handleListNodes } = await import('../../../src/mcp/handlers.js');
     await handleListNodes(ctx, {});
 
-    expect(ctx.core.listNodes).toHaveBeenCalledWith({}, { limit: 100, offset: 0 });
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({ ghosts: 'include', orphans: 'include' }, { limit: 100, offset: 0 });
   });
 
   it('throws INVALID_PARAMS for negative limit', async () => {
@@ -1538,7 +1601,7 @@ describe('handleListNodes', () => {
     const { handleListNodes } = await import('../../../src/mcp/handlers.js');
     await handleListNodes(ctx, { offset: 0 });
 
-    expect(ctx.core.listNodes).toHaveBeenCalledWith({}, { limit: 100, offset: 0 });
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({ ghosts: 'include', orphans: 'include' }, { limit: 100, offset: 0 });
   });
 
   it('uses default offset 0 for NaN input', async () => {
@@ -1551,7 +1614,72 @@ describe('handleListNodes', () => {
     const { handleListNodes } = await import('../../../src/mcp/handlers.js');
     await handleListNodes(ctx, { offset: 'abc' });
 
-    expect(ctx.core.listNodes).toHaveBeenCalledWith({}, { limit: 100, offset: 0 });
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({ ghosts: 'include', orphans: 'include' }, { limit: 100, offset: 0 });
+  });
+
+  it('passes ghosts filter to core', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, { ghosts: 'exclude' });
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({ ghosts: 'exclude', orphans: 'include' }, { limit: 100, offset: 0 });
+  });
+
+  it('defaults ghosts to "include" for invalid value', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, { ghosts: 'invalid' });
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({ ghosts: 'include', orphans: 'include' }, { limit: 100, offset: 0 });
+  });
+
+  it('passes orphans filter to core', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, { orphans: 'exclude' });
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({ ghosts: 'include', orphans: 'exclude' }, { limit: 100, offset: 0 });
+  });
+
+  it('defaults orphans to "include" for invalid value', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, { orphans: 'invalid' });
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({ ghosts: 'include', orphans: 'include' }, { limit: 100, offset: 0 });
+  });
+
+  it('combines ghost and orphan filters', async () => {
+    const ctx = createContext();
+    (ctx.core.listNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [],
+      total: 0,
+    });
+
+    const { handleListNodes } = await import('../../../src/mcp/handlers.js');
+    await handleListNodes(ctx, { ghosts: 'exclude', orphans: 'only' });
+
+    expect(ctx.core.listNodes).toHaveBeenCalledWith({ ghosts: 'exclude', orphans: 'only' }, { limit: 100, offset: 0 });
   });
 });
 
@@ -1942,6 +2070,13 @@ describe('MCP schema id descriptions', () => {
     expect(schema.properties.id.description).toContain('nanoid');
     expect(schema.properties.id.description).toContain('path');
     expect(schema.properties.id.description).toMatch(/prefer.*nanoid|nanoid.*direct/i);
+  });
+
+  it('nodes_exist schema explains nanoid preference', async () => {
+    const { schema } = await import('../../../src/mcp/handlers/nodes_exist.js');
+    expect(schema.properties.ids.description).toContain('nanoid');
+    expect(schema.properties.ids.description).toContain('path');
+    expect(schema.properties.ids.description).toMatch(/prefer.*nanoid|nanoid.*direct/i);
   });
 });
 

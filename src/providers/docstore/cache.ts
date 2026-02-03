@@ -23,13 +23,13 @@ export type { CentralityRecord };
 interface NodeRow {
   id: string;
   title: string;
-  content: string;
+  content: string | null;
   tags: string;
   outgoing_links: string;
   properties: string;
-  source_type: string;
-  source_path: string;
-  source_modified: number;
+  source_type: string | null;
+  source_path: string | null;
+  source_modified: number | null;
 }
 
 
@@ -106,6 +106,42 @@ export class Cache {
       sourceType,
       sourcePath,
       sourceModified
+    );
+  }
+
+  /**
+   * Insert or update a ghost node (placeholder for unresolved wikilink).
+   * Ghost nodes have content: null and no source reference.
+   */
+  upsertGhostNode(node: Node): void {
+    if (node.content !== null) {
+      throw new Error('Ghost nodes must have null content');
+    }
+
+    const stmt = this.db.prepare(`
+      INSERT INTO nodes (id, title, content, tags, outgoing_links, properties, source_type, source_path, source_modified)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        content = excluded.content,
+        tags = excluded.tags,
+        outgoing_links = excluded.outgoing_links,
+        properties = excluded.properties,
+        source_type = excluded.source_type,
+        source_path = excluded.source_path,
+        source_modified = excluded.source_modified
+    `);
+
+    stmt.run(
+      node.id,
+      node.title,
+      node.content,
+      JSON.stringify(node.tags),
+      JSON.stringify(node.outgoingLinks),
+      JSON.stringify(node.properties),
+      null,
+      null,
+      null
     );
   }
 
@@ -288,15 +324,38 @@ export class Cache {
       params.push(filter.path);
     }
 
+    // Ghost filtering: content IS NULL for ghosts
+    const ghosts = filter.ghosts ?? 'include';
+    if (ghosts === 'exclude') {
+      conditions.push('content IS NOT NULL');
+    } else if (ghosts === 'only') {
+      conditions.push('content IS NULL');
+    }
+    // 'include' (default) - no filter needed
+
+    // Orphan filtering: nodes with in_degree=0 AND out_degree=0 are orphans
+    // Nodes without centrality records are treated as NON-orphans (COALESCE to 1)
+    const orphans = filter.orphans ?? 'include';
+    let joinClause = '';
+    if (orphans === 'exclude') {
+      joinClause = 'LEFT JOIN centrality c ON nodes.id = c.node_id';
+      conditions.push('(COALESCE(c.in_degree, 1) > 0 OR COALESCE(c.out_degree, 1) > 0)');
+    } else if (orphans === 'only') {
+      joinClause = 'LEFT JOIN centrality c ON nodes.id = c.node_id';
+      // Must have centrality record with both = 0 to be an orphan
+      conditions.push('c.in_degree = 0 AND c.out_degree = 0');
+    }
+    // 'include' (default) - no filter needed
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // Get total count of matching nodes (without limit/offset)
-    const countQuery = `SELECT COUNT(*) as count FROM nodes ${whereClause}`;
+    const countQuery = `SELECT COUNT(*) as count FROM nodes ${joinClause} ${whereClause}`;
     const countRow = this.db.prepare(countQuery).get(...params) as { count: number };
     const total = countRow.count;
 
     // Get paginated results
-    const query = `SELECT id, title FROM nodes ${whereClause} LIMIT ? OFFSET ?`;
+    const query = `SELECT nodes.id, nodes.title FROM nodes ${joinClause} ${whereClause} LIMIT ? OFFSET ?`;
     const rows = this.db.prepare(query).all(...params, limit, offset) as Array<{ id: string; title: string }>;
 
     const nodes = rows.map((row) => ({ id: row.id, title: row.title }));
@@ -366,11 +425,15 @@ export class Cache {
   }
 
   private rowToNode(row: NodeRow): Node {
-    const sourceRef: SourceRef = {
-      type: row.source_type as SourceRef['type'],
-      path: row.source_path,
-      lastModified: new Date(row.source_modified),
-    };
+    // Ghost nodes have null source fields - no sourceRef
+    const sourceRef: SourceRef | undefined =
+      row.source_type && row.source_path && row.source_modified !== null
+        ? {
+            type: row.source_type as SourceRef['type'],
+            path: row.source_path,
+            lastModified: new Date(row.source_modified),
+          }
+        : undefined;
 
     return {
       id: row.id,
@@ -379,7 +442,7 @@ export class Cache {
       tags: JSON.parse(row.tags) as string[],
       outgoingLinks: JSON.parse(row.outgoing_links) as string[],
       properties: JSON.parse(row.properties) as Record<string, unknown>,
-      sourceRef,
+      ...(sourceRef && { sourceRef }),
     };
   }
 }

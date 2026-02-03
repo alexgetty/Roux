@@ -9,7 +9,8 @@ export interface Node {
   /** Store-specific format */
   id: string;
   title: string;
-  content: string;
+  /** null for ghost nodes (placeholder for unresolved wikilinks) */
+  content: string | null;
   tags: string[];
   /** By id */
   outgoingLinks: string[];
@@ -41,9 +42,13 @@ export function isNode(value: unknown): value is Node {
   // Validate required fields
   if (
     typeof obj['id'] !== 'string' ||
-    typeof obj['title'] !== 'string' ||
-    typeof obj['content'] !== 'string'
+    typeof obj['title'] !== 'string'
   ) {
+    return false;
+  }
+
+  // Content must be string or null (ghost nodes), but not undefined
+  if (obj['content'] !== null && typeof obj['content'] !== 'string') {
     return false;
   }
 

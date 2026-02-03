@@ -18,9 +18,11 @@ const TRUNCATION_SUFFIX = '... [truncated]';
  * Ensures valid UTF-16 output by not splitting surrogate pairs.
  */
 export function truncateContent(
-  content: string,
+  content: string | null,
   context: TruncationContext
-): string {
+): string | null {
+  if (content === null) return null;
+
   const limit = TRUNCATION_LIMITS[context];
 
   if (content.length <= limit) {

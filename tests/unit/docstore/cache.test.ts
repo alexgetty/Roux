@@ -792,6 +792,198 @@ describe('Cache', () => {
     });
   });
 
+  describe('ghost nodes (content: null, nullable source)', () => {
+    const createGhostNode = (id: string, title: string): Node => ({
+      id,
+      title,
+      content: null,
+      tags: [],
+      outgoingLinks: [],
+      properties: {},
+    });
+
+    it('throws when content is not null', () => {
+      const badGhost: Node = {
+        id: 'ghost_bad',
+        title: 'Bad Ghost',
+        content: 'should be null',
+        tags: [],
+        outgoingLinks: [],
+        properties: {},
+      };
+      expect(() => cache.upsertGhostNode(badGhost)).toThrow('Ghost nodes must have null content');
+    });
+
+    it('stores ghost node with null source fields', () => {
+      const ghost = createGhostNode('ghost_abc123def456', 'Missing Page');
+      cache.upsertGhostNode(ghost);
+
+      const retrieved = cache.getNode('ghost_abc123def456');
+      expect(retrieved).not.toBeNull();
+      expect(retrieved?.id).toBe('ghost_abc123def456');
+      expect(retrieved?.title).toBe('Missing Page');
+      expect(retrieved?.content).toBeNull();
+      expect(retrieved?.sourceRef).toBeUndefined();
+    });
+
+    it('retrieves ghost with no sourceRef', () => {
+      const ghost = createGhostNode('ghost_xyz', 'Another Ghost');
+      cache.upsertGhostNode(ghost);
+
+      const retrieved = cache.getNode('ghost_xyz');
+      expect(retrieved?.sourceRef).toBeUndefined();
+    });
+
+    it('ghost node coexists with real nodes', () => {
+      const real = createNode({ id: 'real.md', title: 'Real Note' });
+      cache.upsertNode(real, 'file', '/real.md', Date.now());
+
+      const ghost = createGhostNode('ghost_abc', 'Ghost Note');
+      cache.upsertGhostNode(ghost);
+
+      const allNodes = cache.getAllNodes();
+      expect(allNodes).toHaveLength(2);
+      expect(allNodes.some(n => n.id === 'real.md')).toBe(true);
+      expect(allNodes.some(n => n.id === 'ghost_abc')).toBe(true);
+    });
+
+    it('ghost node appears in getAllNodes', () => {
+      const ghost = createGhostNode('ghost_test', 'Test Ghost');
+      cache.upsertGhostNode(ghost);
+
+      const all = cache.getAllNodes();
+      expect(all.some(n => n.id === 'ghost_test')).toBe(true);
+    });
+
+    it('can delete ghost node', () => {
+      const ghost = createGhostNode('ghost_deleteme', 'To Delete');
+      cache.upsertGhostNode(ghost);
+
+      cache.deleteNode('ghost_deleteme');
+
+      expect(cache.getNode('ghost_deleteme')).toBeNull();
+    });
+
+    describe('listNodes ghost filtering', () => {
+      beforeEach(() => {
+        cache.upsertNode(createNode({ id: 'real1.md', title: 'Real 1' }), 'file', '/real1.md', Date.now());
+        cache.upsertNode(createNode({ id: 'real2.md', title: 'Real 2' }), 'file', '/real2.md', Date.now());
+        cache.upsertGhostNode(createGhostNode('ghost_abc', 'Ghost'));
+      });
+
+      it('includes ghosts by default', () => {
+        const result = cache.listNodes({});
+        expect(result.total).toBe(3);
+        expect(result.nodes.some(n => n.id === 'ghost_abc')).toBe(true);
+      });
+
+      it('ghosts: "include" includes all nodes', () => {
+        const result = cache.listNodes({ ghosts: 'include' });
+        expect(result.total).toBe(3);
+        expect(result.nodes.some(n => n.id === 'ghost_abc')).toBe(true);
+      });
+
+      it('ghosts: "exclude" omits ghost nodes', () => {
+        const result = cache.listNodes({ ghosts: 'exclude' });
+        expect(result.total).toBe(2);
+        expect(result.nodes.every(n => !n.id.startsWith('ghost_'))).toBe(true);
+      });
+
+      it('ghosts: "only" returns only ghost nodes', () => {
+        const result = cache.listNodes({ ghosts: 'only' });
+        expect(result.total).toBe(1);
+        expect(result.nodes[0]?.id).toBe('ghost_abc');
+      });
+    });
+  });
+
+  describe('listNodes orphan filtering', () => {
+    const createGhostNode = (id: string, title: string): Node => ({
+      id,
+      title,
+      content: null,
+      tags: [],
+      outgoingLinks: [],
+      properties: {},
+    });
+
+    beforeEach(() => {
+      // Connected node: has links (in_degree=1, out_degree=1)
+      cache.upsertNode(createNode({ id: 'connected.md', title: 'Connected' }), 'file', '/connected.md', Date.now());
+      cache.storeCentrality('connected.md', 0, 1, 1, Date.now());
+
+      // Orphan node: no links (in_degree=0, out_degree=0)
+      cache.upsertNode(createNode({ id: 'orphan.md', title: 'Orphan' }), 'file', '/orphan.md', Date.now());
+      cache.storeCentrality('orphan.md', 0, 0, 0, Date.now());
+
+      // Node without centrality record (should be treated as non-orphan)
+      cache.upsertNode(createNode({ id: 'nocentrality.md', title: 'No Centrality' }), 'file', '/nocentrality.md', Date.now());
+    });
+
+    it('includes orphans by default', () => {
+      const result = cache.listNodes({});
+      expect(result.total).toBe(3);
+      expect(result.nodes.some(n => n.id === 'orphan.md')).toBe(true);
+    });
+
+    it('orphans: "include" includes all nodes', () => {
+      const result = cache.listNodes({ orphans: 'include' });
+      expect(result.total).toBe(3);
+      expect(result.nodes.some(n => n.id === 'orphan.md')).toBe(true);
+    });
+
+    it('orphans: "exclude" omits orphan nodes', () => {
+      const result = cache.listNodes({ orphans: 'exclude' });
+      expect(result.total).toBe(2);
+      expect(result.nodes.every(n => n.id !== 'orphan.md')).toBe(true);
+      expect(result.nodes.some(n => n.id === 'connected.md')).toBe(true);
+      expect(result.nodes.some(n => n.id === 'nocentrality.md')).toBe(true);
+    });
+
+    it('orphans: "only" returns only orphan nodes', () => {
+      const result = cache.listNodes({ orphans: 'only' });
+      expect(result.total).toBe(1);
+      expect(result.nodes[0]?.id).toBe('orphan.md');
+    });
+
+    it('treats nodes without centrality records as non-orphans', () => {
+      // When filtering for only orphans, node without centrality should NOT appear
+      const onlyOrphans = cache.listNodes({ orphans: 'only' });
+      expect(onlyOrphans.nodes.every(n => n.id !== 'nocentrality.md')).toBe(true);
+
+      // When excluding orphans, node without centrality SHOULD appear
+      const excludeOrphans = cache.listNodes({ orphans: 'exclude' });
+      expect(excludeOrphans.nodes.some(n => n.id === 'nocentrality.md')).toBe(true);
+    });
+
+    it('combines ghost and orphan filtering with AND', () => {
+      // Add a ghost node that is also an orphan
+      cache.upsertGhostNode(createGhostNode('ghost_orphan', 'Ghost Orphan'));
+      cache.storeCentrality('ghost_orphan', 0, 0, 0, Date.now());
+
+      // Add a ghost node that is NOT an orphan (has incoming links)
+      cache.upsertGhostNode(createGhostNode('ghost_linked', 'Ghost Linked'));
+      cache.storeCentrality('ghost_linked', 0, 1, 0, Date.now());
+
+      // ghosts: 'only' AND orphans: 'only' should return only ghosts that are also orphans
+      const result = cache.listNodes({ ghosts: 'only', orphans: 'only' });
+      expect(result.total).toBe(1);
+      expect(result.nodes[0]?.id).toBe('ghost_orphan');
+    });
+
+    it('combines ghost exclusion and orphan exclusion', () => {
+      // Add ghost nodes
+      cache.upsertGhostNode(createGhostNode('ghost_test', 'Ghost Test'));
+      cache.storeCentrality('ghost_test', 0, 0, 0, Date.now());
+
+      // ghosts: 'exclude' AND orphans: 'exclude' should return only connected real nodes
+      const result = cache.listNodes({ ghosts: 'exclude', orphans: 'exclude' });
+      expect(result.total).toBe(2);
+      expect(result.nodes.every(n => !n.id.startsWith('ghost_'))).toBe(true);
+      expect(result.nodes.every(n => n.id !== 'orphan.md')).toBe(true);
+    });
+  });
+
   describe('corrupted data handling', () => {
     it('throws on corrupted tags JSON when reading node', () => {
       // Insert valid node first

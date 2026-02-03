@@ -97,9 +97,9 @@ describe('viz command', () => {
     expect(result.shouldOpen).toBe(true);
   });
 
-  it('filters edges to nonexistent target nodes', async () => {
+  it('creates ghost nodes for unresolved links', async () => {
     await initCommand(testDir);
-    // Create a node that links to a nonexistent node
+    // Create a node that links to a nonexistent node and an existing one
     await writeFile(
       join(testDir, 'a.md'),
       '---\ntitle: A\n---\n\nLinks to [[nonexistent]] and [[b]]',
@@ -114,12 +114,13 @@ describe('viz command', () => {
     const result = await vizCommand(testDir);
     const html = await readFile(result.outputPath, 'utf-8');
 
-    // Should have 2 nodes
-    expect(result.nodeCount).toBe(2);
-    // Should only have 1 edge (A->B), not 2 (A->nonexistent is filtered)
-    expect(result.edgeCount).toBe(1);
-    // HTML should contain the valid link target (by title) but not the broken one
+    // Should have 3 nodes: A, B, and ghost node for "nonexistent"
+    expect(result.nodeCount).toBe(3);
+    // Should have 2 edges: A->B and A->ghost
+    expect(result.edgeCount).toBe(2);
+    // HTML should contain both titles
     expect(html).toContain('"title":"B"');
+    expect(html).toContain('"title":"nonexistent"');
   });
 
   describe('empty graph', () => {

@@ -8,44 +8,55 @@ tags:
 ---
 # Plugin Architecture Prep
 
-**Status:** Ready for implementation (red team reviewed x2)
+**Status:** Ready for implementation (red team reviewed x3)
 
-**Goal:** Prepare the provider system for a future unified plugin architecture by adding `id` fields, lifecycle hooks, and runtime validation.
+**Goal:** Prepare the provider system for a future unified plugin architecture by adding `id` fields, options object constructors, type guard validation, and clean shutdown.
+
+## Key Decision: Cold Boot Only
+
+**No runtime hot-swap.** Providers are configured once at startup and immutable for the lifetime of the process. Config changes take effect on next boot.
+
+Process lifecycle:
+1. Read config
+2. Construct providers from config
+3. Register (validate + assign)
+4. Run (immutable — no replacement, no re-registration)
+5. Shutdown (clean destroy)
+
+This eliminates: lifecycle hooks, rollback logic, replacement guards, concurrent access windows during registration, and orphaned provider states. Hot-reload is deferred to [[roadmap/Plugin Hot Reload]] (P3) if consumer applications need it.
 
 ## Decisions
 
-- **Async registration:** Confirmed. Registration methods become async to properly await lifecycle hooks.
-- **destroy() method:** Confirmed. Add to GraphCore for clean shutdown.
+- **Synchronous registration:** Registration is validate-and-assign. No async hooks, no awaiting side effects.
+- **Async fromConfig():** Stays async because DocStore `sync()` is inherently async. This is construction, not registration.
+- **destroy() method:** Add to GraphCore for clean shutdown (process lifecycle, not plugin lifecycle).
 - **Options objects:** Use options object pattern for all provider constructors per [[decisions/Options Object Pattern]].
+- **No ProviderLifecycle:** Cut entirely. `onRegister`/`onUnregister` hooks are hot-swap machinery. Not needed for cold boot.
 
 ## Summary
 
 | Task | Files | Breaking? |
 |------|-------|-----------|
 | 1. Add `id` field to interfaces | `types/provider.ts` | Yes |
-| 2. Add lifecycle interface | `types/provider.ts` | No (optional) |
-| 3. Update type guards | `types/provider.ts` | No |
-| 4. Update GraphCore registration | `types/graphcore.ts`, `core/graphcore.ts` | Yes (async) |
-| 4b. Update fromConfig() | `core/graphcore.ts` | Yes (async) |
-| 5. Add destroy() to GraphCore | `types/graphcore.ts`, `core/graphcore.ts` | No |
-| 6. Update DocStore | `providers/docstore/index.ts` + 10 callers | Yes |
-| 7. Update TransformersEmbedding | `providers/embedding/transformers.ts` + 5 callers | Yes |
+| 2. Update type guards | `types/provider.ts` | No |
+| 3. Update DocStore constructor | `providers/docstore/index.ts` + callers | Yes |
+| 4. Update TransformersEmbedding constructor | `providers/embedding/transformers.ts` + callers | Yes |
+| 5. Add type guard validation to registration | `core/graphcore.ts` | No |
+| 6. Update fromConfig() | `core/graphcore.ts` | Yes (async) |
+| 7. Add destroy() to GraphCore | `types/graphcore.ts`, `core/graphcore.ts` | No |
 | 8. Update serve.ts | `cli/commands/serve.ts` | N/A |
 | 9. Update tests | Multiple test files | N/A |
 
 ## Complete Blast Radius
 
-### Async Registration (Task 4, 4b)
-- `src/core/graphcore.ts`
-- `src/types/graphcore.ts`
-- `src/cli/commands/serve.ts`
-- `tests/unit/core/graphcore.test.ts`
-- `tests/integration/core/graphcore.integration.test.ts`
-- `tests/unit/mcp/handlers.test.ts`
-- `tests/unit/mcp/server.test.ts`
-- `tests/integration/mcp/handlers.integration.test.ts`
+### Provider Interfaces + Type Guards (Tasks 1-2)
+- `src/types/provider.ts` — `isStoreProvider`, `isEmbeddingProvider` only
+- `tests/unit/types/provider.test.ts`
+- `tests/unit/embedding/transformers.test.ts` — has `isEmbeddingProvider` check
 
-### DocStore Options Object (Task 6)
+Note: `isVectorIndex` stays unchanged — VectorIndex does not get `id`.
+
+### DocStore Options Object (Task 3)
 - `src/providers/docstore/index.ts` — implementation
 - `src/core/graphcore.ts` — `fromConfig()`
 - `src/cli/commands/serve.ts` — CLI startup
@@ -58,7 +69,7 @@ tags:
 - `tests/integration/mcp/handlers.integration.test.ts`
 - `tests/integration/watcher/file-events.test.ts`
 
-### TransformersEmbedding Options Object (Task 7)
+### TransformersEmbedding Options Object (Task 4)
 - `src/providers/embedding/transformers.ts` — implementation
 - `src/core/graphcore.ts` — `fromConfig()`
 - `src/cli/commands/serve.ts` — CLI startup
@@ -66,66 +77,56 @@ tags:
 - `tests/integration/core/graphcore.integration.test.ts`
 - `tests/integration/mcp/handlers.integration.test.ts`
 
-### Type Guard Updates (Task 3)
-- `src/types/provider.ts` — `isStoreProvider`, `isEmbeddingProvider` only
-- `tests/unit/types/provider.test.ts`
-- `tests/unit/embedding/transformers.test.ts` — has `isEmbeddingProvider` check
-
-Note: `isVectorIndex` stays unchanged — VectorIndex does not get `id`.
+### fromConfig() Async (Task 6)
+- `src/core/graphcore.ts`
+- `src/cli/commands/serve.ts`
+- `tests/unit/core/graphcore.test.ts`
+- `tests/integration/core/graphcore.integration.test.ts`
+- `tests/unit/mcp/handlers.test.ts`
+- `tests/unit/mcp/server.test.ts`
+- `tests/integration/mcp/handlers.integration.test.ts`
 
 ## Execution Order (TDD)
 
-**Phase 1: Type Guards**
+**Phase 1: Provider Interfaces + Type Guards**
 1. Write failing tests for `id` field validation in type guards
-2. Update `isStoreProvider` and `isEmbeddingProvider` to check `typeof obj.id === 'string' && obj.id.length > 0`
-3. Tests go green
+2. Add `ProviderBase` interface with `readonly id: string`
+3. Update `Store` and `Embedding` to extend `ProviderBase`
+4. Update `isStoreProvider` and `isEmbeddingProvider` to check `typeof obj.id === 'string' && obj.id.length > 0`
+5. VectorIndex unchanged — internal to Store, not registered with GraphCore
+6. Tests go green
 
-**Phase 2: Provider Interfaces**
-1. Add `ProviderBase` and `ProviderLifecycle` interfaces
-2. Update `Store` and `Embedding` to extend them
-3. VectorIndex unchanged — internal to Store, not registered with GraphCore
-
-**Phase 3: Provider Implementations**
+**Phase 2: Provider Implementations**
 1. Write failing tests for DocStore with options object and `id`
 2. Update DocStore constructor to options object pattern
-3. Add `id` field, `onRegister()`, `onUnregister()` to DocStore
-4. Update all 10 DocStore callers
+3. Add `readonly id` field (default: `'docstore'`)
+4. Update all DocStore callers
 5. Tests go green
-6. Repeat for TransformersEmbedding (5 callers)
+6. Repeat for TransformersEmbedding (default id: `'transformers'`)
 
-**Phase 4: GraphCore Registration**
-1. Write failing tests for async registration, type guard validation, lifecycle hooks
-2. Update `registerStore()` and `registerEmbedding()` to be async
-3. Add type guard validation
-4. Add lifecycle hook calls with error handling
-5. Tests go green
+**Phase 3: GraphCore Registration Validation**
+1. Write failing tests for type guard validation on registration
+2. Update `registerStore()` and `registerEmbedding()` to validate via type guards before assignment
+3. Registration stays synchronous — validate, assign, done
+4. Tests go green
 
-**Phase 5: GraphCore fromConfig()**
+**Phase 4: GraphCore fromConfig()**
 1. Write failing tests for async `fromConfig()`
 2. Update `fromConfig()` to return `Promise<GraphCoreImpl>`
-3. Tests go green
+3. Construction is async (DocStore sync), registration is sync
+4. Tests go green
 
-**Phase 6: GraphCore destroy()**
-1. Write failing tests for `destroy()` including idempotency and re-registration
-2. Implement `destroy()`
-3. Tests go green
+**Phase 5: GraphCore destroy()**
+1. Write failing tests for `destroy()` including idempotency
+2. Implement `destroy()` — calls `close()` on store, nulls references
+3. After destroy, operations throw (no silent failures)
+4. Tests go green
 
-**Phase 7: Update serve.ts**
-1. Update serve.ts with await and error handling:
-```typescript
-const core = new GraphCoreImpl();
-try {
-  await core.registerStore(store);
-  await core.registerEmbedding(embedding);
-} catch (err) {
-  store.close(); // Clean up if registration fails
-  throw err;
-}
-```
-
-**Phase 8: Final Verification**
-1. Run full test suite
-2. Manual test: `npm run dev` starts MCP server
+**Phase 6: Update serve.ts + Final Verification**
+1. Update serve.ts with `await GraphCoreImpl.fromConfig(config)`
+2. Add destroy on shutdown
+3. Run full test suite
+4. Manual test: `npm run dev` starts MCP server
 
 ## Task Details
 
@@ -141,37 +142,20 @@ export interface ProviderBase {
 }
 
 export interface Store extends ProviderBase {
-  // ... existing 16 methods unchanged
+  // ... existing methods unchanged
 }
 
 export interface Embedding extends ProviderBase {
-  // ... existing 4 methods unchanged
+  // ... existing methods unchanged
 }
 
 // VectorIndex does NOT extend ProviderBase — internal to Store
 export interface VectorIndex {
-  // ... existing 5 methods unchanged (no id field)
+  // ... existing methods unchanged (no id field)
 }
 ```
 
-### Task 2: Add Lifecycle Interface
-
-**File:** `src/types/provider.ts`
-
-```typescript
-/** Optional lifecycle hooks for providers */
-export interface ProviderLifecycle {
-  /** Called after registration with GraphCore. Errors propagate to caller. */
-  onRegister?(): Promise<void>;
-  /** Called before provider is replaced or GraphCore is destroyed. Best-effort, errors logged. */
-  onUnregister?(): Promise<void>;
-}
-
-export interface Store extends ProviderBase, ProviderLifecycle { ... }
-export interface Embedding extends ProviderBase, ProviderLifecycle { ... }
-```
-
-### Task 3: Update Type Guards
+### Task 2: Update Type Guards
 
 **File:** `src/types/provider.ts`
 
@@ -183,7 +167,7 @@ export function isStoreProvider(value: unknown): value is Store {
   const obj = value as Record<string, unknown>;
   return (
     typeof obj.id === 'string' &&
-    obj.id.length > 0 &&  // Non-empty validation
+    obj.id.length > 0 &&
     typeof obj.createNode === 'function' &&
     // ... rest unchanged
   );
@@ -194,114 +178,14 @@ export function isEmbeddingProvider(value: unknown): value is Embedding {
   const obj = value as Record<string, unknown>;
   return (
     typeof obj.id === 'string' &&
-    obj.id.length > 0 &&  // Non-empty validation
+    obj.id.length > 0 &&
     typeof obj.embed === 'function' &&
     // ... rest unchanged
   );
 }
 ```
 
-### Task 4: Update GraphCore Registration
-
-**Files:** `src/types/graphcore.ts`, `src/core/graphcore.ts`
-
-```typescript
-// Interface
-export interface GraphCore {
-  registerStore(provider: Store): Promise<void>;
-  registerEmbedding(provider: Embedding): Promise<void>;
-  destroy(): Promise<void>;
-  // ... rest unchanged
-}
-
-// Implementation with error handling
-async registerStore(provider: Store): Promise<void> {
-  if (!provider) {
-    throw new Error('Store provider is required');
-  }
-  if (!isStoreProvider(provider)) {
-    throw new Error('Invalid Store provider: missing required methods or id');
-  }
-
-  // Unregister previous provider (best-effort)
-  if (this.store?.onUnregister) {
-    try {
-      await this.store.onUnregister();
-    } catch (err) {
-      console.warn('Store onUnregister failed:', err);
-    }
-  }
-
-  this.store = provider;
-
-  // onRegister errors propagate — store is set, caller must handle
-  if (provider.onRegister) {
-    try {
-      await provider.onRegister();
-    } catch (err) {
-      // Rollback: clear the store reference
-      this.store = null;
-      throw err;
-    }
-  }
-}
-```
-
-**Invariant:** If `onRegister()` throws, `this.store` is NOT set (rolled back).
-
-### Task 4b: Update fromConfig()
-
-**File:** `src/core/graphcore.ts`
-
-```typescript
-static async fromConfig(config: RouxConfig): Promise<GraphCoreImpl> {
-  // ... validation unchanged
-  
-  const core = new GraphCoreImpl();
-  
-  const store = new DocStore({ sourceRoot, cacheDir });
-  await core.registerStore(store);
-  
-  const embedding = new TransformersEmbedding({ model });
-  await core.registerEmbedding(embedding);
-  
-  return core;
-}
-```
-
-### Task 5: Add destroy() to GraphCore
-
-**File:** `src/core/graphcore.ts`
-
-```typescript
-async destroy(): Promise<void> {
-  // Idempotent: no-op if already destroyed
-  if (!this.store && !this.embedding) {
-    return;
-  }
-
-  // Unregister in reverse order (best-effort)
-  if (this.embedding?.onUnregister) {
-    try {
-      await this.embedding.onUnregister();
-    } catch (err) {
-      console.warn('Embedding onUnregister failed:', err);
-    }
-  }
-  if (this.store?.onUnregister) {
-    try {
-      await this.store.onUnregister();
-    } catch (err) {
-      console.warn('Store onUnregister failed:', err);
-    }
-  }
-
-  this.embedding = null;
-  this.store = null;
-}
-```
-
-### Task 6: Update DocStore
+### Task 3: Update DocStore
 
 **File:** `src/providers/docstore/index.ts`
 
@@ -314,7 +198,7 @@ export interface DocStoreOptions {
   registry?: ReaderRegistry;
 }
 
-export class DocStore extends StoreProvider {
+export class DocStore implements Store {
   readonly id: string;
 
   constructor(options: DocStoreOptions) {
@@ -323,19 +207,11 @@ export class DocStore extends StoreProvider {
     this.id = id;
   }
 
-  async onRegister(): Promise<void> {
-    await this.sync();
-  }
-
-  async onUnregister(): Promise<void> {
-    this.close();
-  }
-
-  // close() is already idempotent (stopWatching and cache.close are safe to call twice)
+  // No onRegister/onUnregister — cold boot only
 }
 ```
 
-### Task 7: Update TransformersEmbedding
+### Task 4: Update TransformersEmbedding
 
 **File:** `src/providers/embedding/transformers.ts`
 
@@ -350,147 +226,99 @@ export class TransformersEmbedding implements Embedding {
   readonly id: string;
 
   constructor(options: TransformersEmbeddingOptions = {}) {
-    const { 
-      model = DEFAULT_MODEL, 
-      dimensions = DEFAULT_DIMENSIONS, 
-      id = 'transformers-embedding' 
-    } = options;
+    const { model, dimensions, id = 'transformers' } = options;
+    // ... existing constructor logic
     this.id = id;
-    this.model = model;
-    this.dims = dimensions;
-  }
-
-  async onRegister(): Promise<void> {
-    // No-op: pipeline is lazy-loaded on first embed() call
-  }
-
-  async onUnregister(): Promise<void> {
-    // Release reference for GC
-    // NOTE: @xenova/transformers may not truly unload from GPU memory
-    this.pipe = null;
   }
 }
 ```
 
-### Task 9: Test Cases
+### Task 5: GraphCore Registration (Synchronous)
 
-**Update Mock Factories** (`tests/unit/core/graphcore.test.ts`):
+**Files:** `src/types/graphcore.ts`, `src/core/graphcore.ts`
+
 ```typescript
-const createMockStore = (overrides?: Partial<Store>): Store => ({
-  id: 'test-store',  // NEW
-  createNode: vi.fn().mockResolvedValue(undefined),
-  // ... existing mocks
-  ...overrides,
-});
+// Interface — registration is sync
+export interface GraphCore {
+  registerStore(provider: Store): void;
+  registerEmbedding(provider: Embedding): void;
+  destroy(): void;
+  // ... rest unchanged
+}
 
-const createMockEmbedding = (overrides?: Partial<Embedding>): Embedding => ({
-  id: 'test-embedding',  // NEW
-  embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
-  // ... existing mocks
-  ...overrides,
-});
+// Implementation — validate and assign
+registerStore(provider: Store): void {
+  if (!isStoreProvider(provider)) {
+    throw new Error('Invalid Store provider: missing required methods or id');
+  }
+  this.store = provider;
+}
+
+registerEmbedding(provider: Embedding): void {
+  if (!isEmbeddingProvider(provider)) {
+    throw new Error('Invalid Embedding provider: missing required methods or id');
+  }
+  this.embedding = provider;
+}
 ```
 
-**Update transformers.test.ts:**
-The existing test `it('passes isEmbeddingProvider runtime check')` will need to verify `id` is present after TransformersEmbedding is updated.
+### Task 6: fromConfig() (Async)
 
-**Type Guard Tests:**
+**File:** `src/core/graphcore.ts`
+
 ```typescript
-it('returns false when id is missing');
-it('returns false when id is empty string');
-it('returns false when id is not a string');
+static async fromConfig(config: RouxConfig): Promise<GraphCoreImpl> {
+  // ... validation unchanged
+  
+  const core = new GraphCoreImpl();
+  
+  const store = new DocStore({ sourceRoot, cacheDir });
+  await store.sync(); // Async construction concern, not registration
+  core.registerStore(store); // Sync — validate and assign
+  
+  const embedding = new TransformersEmbedding({ model });
+  core.registerEmbedding(embedding); // Sync
+  
+  return core;
+}
 ```
 
-**Registration Tests:**
+### Task 7: destroy()
+
+**File:** `src/core/graphcore.ts`
+
 ```typescript
-it('rejects store without id');
-it('rejects store with empty id');
-it('calls onRegister when registering store');
-it('calls onUnregister when replacing store');
-it('propagates onRegister errors');
-it('does not set store if onRegister throws');  // NEW: invariant test
-it('continues registration if previous onUnregister throws');
+destroy(): void {
+  if (this.store?.close) {
+    this.store.close();
+  }
+  this.store = null;
+  this.embedding = null;
+}
 ```
 
-**Destroy Tests:**
-```typescript
-it('calls onUnregister on store');
-it('calls onUnregister on embedding');
-it('continues destroy if onUnregister throws');
-it('clears provider references after destroy');
-it('is idempotent (no-op on second call)');
-it('allows re-registration after destroy');
-```
+Simple, synchronous, idempotent. No lifecycle hooks to await, no error handling for hook failures.
 
-**DocStore Idempotency Test:**
-```typescript
-it('close() is idempotent', () => {
-  const store = new DocStore({ sourceRoot: '/tmp', cacheDir: '/tmp/.cache' });
-  store.close();
-  expect(() => store.close()).not.toThrow();
-});
-```
+## What Was Cut (and Why)
 
-## Files Modified
+| Cut | Reason |
+|-----|--------|
+| `ProviderLifecycle` interface | Hot-swap machinery. Not needed for cold boot. |
+| `onRegister()` / `onUnregister()` hooks | Same. Deferred to [[roadmap/Plugin Hot Reload]]. |
+| Async registration methods | No hooks to await. Validate-and-assign is sync. |
+| Rollback logic on registration | No replacement during runtime. Nothing to roll back. |
+| Provider replacement guards | Immutable after boot. Config changes take effect on restart. |
 
-| File | Type of Change |
-|------|----------------|
-| `src/types/provider.ts` | Add `ProviderBase`, `ProviderLifecycle`, update guards |
-| `src/types/graphcore.ts` | Async registration, add `destroy()` |
-| `src/core/graphcore.ts` | Validation, lifecycle, `destroy()`, async `fromConfig()` |
-| `src/providers/docstore/index.ts` | Options object, `id`, lifecycle hooks |
-| `src/providers/embedding/transformers.ts` | Options object, `id`, lifecycle hooks |
-| `src/cli/commands/serve.ts` | Await registration, error handling |
-| `tests/unit/types/provider.test.ts` | id validation tests |
-| `tests/unit/core/graphcore.test.ts` | Mock factories, registration/destroy tests |
-| `tests/unit/embedding/transformers.test.ts` | Verify id, options constructor |
-| `tests/unit/docstore/docstore.test.ts` | Options constructor |
-| `tests/unit/docstore/watcher.test.ts` | Options constructor |
-| `tests/unit/cli/serve.test.ts` | Options constructor, async |
-| `tests/unit/cli/status.test.ts` | Options constructor |
-| `tests/unit/cli/viz.test.ts` | Options constructor |
-| `tests/integration/core/graphcore.integration.test.ts` | Options, async |
-| `tests/integration/mcp/handlers.integration.test.ts` | Options, async |
-| `tests/integration/watcher/file-events.test.ts` | Options constructor |
+## Red Team History
 
-## Migration Guide
+- **Round 1-2:** Identified blast radius, confirmed options object pattern, validated VectorIndex exclusion.
+- **Round 3:** Found that all HIGH findings (concurrent access window, orphaned provider on failed replacement, reentrancy) stemmed from hot-swap complexity. Decision: cold boot only. Providers configured at startup, immutable during runtime. Config changes apply on next boot. All HIGHs resolved by elimination.
 
-For any code implementing `Store` or `Embedding`:
+## References
 
-1. Add `readonly id: string` property
-2. Add `id` to constructor (via options object)
-3. Optionally implement `onRegister()` and `onUnregister()`
-
-Lifecycle hooks are optional — existing implementations work without them.
-
-## Verification Checklist
-
-```bash
-# 1. Find any remaining positional constructor calls
-grep -r "new DocStore(" src/ tests/ --include="*.ts" | grep -v "sourceRoot:"
-grep -r "new TransformersEmbedding(" src/ tests/ --include="*.ts" | grep -v "model:"
-
-# 2. Run full test suite
-npm test
-
-# 3. Manual verification
-npm run dev  # Should start MCP server with lifecycle hooks called
-```
-
-## Resolved Decisions
-
-1. **destroy() method:** ✅ Add to GraphCore, idempotent
-2. **Async registration:** ✅ Breaking change accepted
-3. **sync() vs onRegister:** Keep `sync()` public, have `onRegister` call it
-4. **VectorIndex:** Does NOT get `id` or lifecycle — internal to Store
-5. **Error handling:** onRegister errors propagate (with rollback), onUnregister errors logged
-6. **Options objects:** Use for all provider constructors
-7. **onRegister rollback:** If onRegister throws, store is NOT set (added per M1)
-
-## Related
-
-- [[Library vs Application Boundaries]] — Plugin vs app distinction
-- [[roadmap/Multi-Store Architecture]] — Future multi-store support (depends on this)
-- [[GraphCore]] — Core orchestration hub
-- [[decisions/Options Object Pattern]] — Constructor pattern decision
-- [[decisions/Provider Lifecycle]] — Update after this ships
+- [[decisions/Options Object Pattern]] — constructor pattern
+- [[Library vs Application Boundaries]] — Roux is a library, not a framework
+- [[roadmap/Multi-Store Architecture]] — future multi-provider support
+- [[GraphCore]] — orchestration hub
+- [[decisions/Provider Lifecycle]] — lifecycle decisions
+- [[roadmap/Plugin Hot Reload]] — deferred runtime swap capability

@@ -11,7 +11,8 @@ export interface NodeMetadataResponse {
 
 /** Full response including content (for get_node, create, update, etc.). */
 export interface NodeResponse extends NodeMetadataResponse {
-  content: string;
+  /** null for ghost nodes (unresolved wikilink placeholders) */
+  content: string | null;
 }
 
 /** Extended response for get_node with depth > 0. */
@@ -25,7 +26,7 @@ export interface NodeWithContextResponse extends NodeResponse {
 /** Search results include similarity score. Content optional based on include_content param. */
 export interface SearchResultResponse extends NodeMetadataResponse {
   score: number;
-  content?: string;
+  content?: string | null;
 }
 
 /** Hub results pair ID with metric value. */

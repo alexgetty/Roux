@@ -382,6 +382,41 @@ describe('DocStore watcher integration', () => {
       );
     });
 
+    it('deletes orphaned ghost when watcher processes file update removing link', async () => {
+      // Setup: create file with unresolved link (creates ghost)
+      await writeMarkdownFile('linker.md', '---\ntitle: Linker\n---\n[[Missing Page]]');
+      await store.sync();
+
+      // Verify ghost was created
+      const linker = await store.getNode('linker.md');
+      expect(linker).not.toBeNull();
+      const ghostId = linker!.outgoingLinks[0]!;
+      expect(ghostId.startsWith('ghost_')).toBe(true);
+
+      let ghost = await store.getNode(ghostId);
+      expect(ghost).not.toBeNull();
+      expect(ghost?.title).toBe('Missing Page');
+
+      store.startWatching();
+
+      // Update file to remove the link
+      await writeMarkdownFile('linker.md', '---\ntitle: Linker\n---\nNo more links');
+      triggerEvent('change', join(sourceDir, 'linker.md'));
+
+      await vi.waitFor(
+        async () => {
+          // Link should be removed from linker
+          const updatedLinker = await store.getNode('linker.md');
+          expect(updatedLinker?.outgoingLinks).toHaveLength(0);
+
+          // Ghost should be deleted (orphaned)
+          ghost = await store.getNode(ghostId);
+          expect(ghost).toBeNull();
+        },
+        { timeout: 2000 }
+      );
+    });
+
     it('deletes embedding from vector store on unlink (after TTL)', async () => {
       // Track whether embedding exists via stateful mock (keyed by stable ID)
       const embeddingState = new Map<string, boolean>();

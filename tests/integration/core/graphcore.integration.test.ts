@@ -357,7 +357,8 @@ describe('GraphCore Integration', () => {
     it('getRandomNode with tag filter returns matching node', async () => {
       const taggedBId = await getIdByPath('tagged-b.md');
 
-      const node = await core.getRandomNode(['gamma']);
+      // Use excludeOrphans: false since test nodes have no links
+      const node = await core.getRandomNode(['gamma'], { excludeOrphans: false });
       expect(node).not.toBeNull();
       expect(node!.id).toBe(taggedBId); // Only one has gamma tag
     });

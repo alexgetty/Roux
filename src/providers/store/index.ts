@@ -10,6 +10,7 @@ import type {
   ListNodesResult,
   ResolveOptions,
   ResolveResult,
+  RandomNodeOptions,
 } from '../../types/provider.js';
 import type { NeighborOptions } from '../../types/edge.js';
 import { GraphManager } from '../../graph/manager.js';
@@ -70,12 +71,20 @@ export abstract class StoreProvider {
 
   // ── Discovery ──────────────────────────────────────────────
 
-  async getRandomNode(tags?: string[]): Promise<Node | null> {
+  async getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null> {
     let candidates: Node[];
     if (tags && tags.length > 0) {
       candidates = await this.searchByTags(tags, 'any');
     } else {
       candidates = await this.loadAllNodes();
+    }
+    // Ghost filtering
+    if (options?.ghostsOnly) {
+      // Return only ghost nodes
+      candidates = candidates.filter(n => n.content === null);
+    } else if (!options?.includeGhosts) {
+      // Exclude ghost nodes by default (content === null)
+      candidates = candidates.filter(n => n.content !== null);
     }
     if (candidates.length === 0) return null;
     return candidates[Math.floor(Math.random() * candidates.length)]!;
@@ -105,6 +114,13 @@ export abstract class StoreProvider {
     if (filter.path) {
       const lowerPath = filter.path.toLowerCase();
       nodes = nodes.filter(n => n.id.startsWith(lowerPath));
+    }
+    // Ghost filtering
+    const ghosts = filter.ghosts ?? 'include';
+    if (ghosts === 'exclude') {
+      nodes = nodes.filter(n => n.content !== null);
+    } else if (ghosts === 'only') {
+      nodes = nodes.filter(n => n.content === null);
     }
     const total = nodes.length;
     const offset = options?.offset ?? 0;

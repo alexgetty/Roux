@@ -3,12 +3,22 @@ import type { Direction, NeighborOptions } from './edge.js';
 
 export type Metric = 'in_degree' | 'out_degree';
 
+/** Filter for ghost node inclusion in results */
+export type GhostFilter = 'include' | 'only' | 'exclude';
+
+/** Filter for orphan node inclusion in results */
+export type OrphanFilter = 'include' | 'only' | 'exclude';
+
 // Batch operation types
 export interface ListFilter {
   /** Filter by tag (case-insensitive) */
   tag?: string;
   /** Filter by path prefix (startsWith) */
   path?: string;
+  /** Filter ghost nodes: 'include' (default), 'only', or 'exclude' */
+  ghosts?: GhostFilter;
+  /** Filter orphan nodes (no incoming or outgoing links): 'include' (default), 'only', or 'exclude' */
+  orphans?: OrphanFilter;
 }
 
 export interface ListOptions {
@@ -57,6 +67,17 @@ export interface CentralityMetrics {
 }
 
 export type TagMode = 'any' | 'all';
+
+export interface RandomNodeOptions {
+  /** Include ghost nodes in selection. Default false. */
+  includeGhosts?: boolean;
+  /** Return only ghost nodes. Default false. */
+  ghostsOnly?: boolean;
+  /** Exclude orphan nodes (no incoming or outgoing links). Default true. */
+  excludeOrphans?: boolean;
+  /** Return only orphan nodes. Default false. */
+  orphansOnly?: boolean;
+}
 
 export interface VectorSearchResult {
   id: string;
@@ -118,7 +139,7 @@ export interface Store extends ProviderBase, ProviderLifecycle {
   searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
 
   // Discovery
-  getRandomNode(tags?: string[]): Promise<Node | null>;
+  getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null>;
 
   // Link resolution (for MCP response formatting)
   resolveTitles(ids: string[]): Promise<Map<string, string>>;

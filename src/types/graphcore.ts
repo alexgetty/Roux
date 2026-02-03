@@ -9,6 +9,7 @@ import type {
   ListNodesResult,
   ResolveOptions,
   ResolveResult,
+  RandomNodeOptions,
 } from './provider.js';
 import type { NeighborOptions } from './edge.js';
 
@@ -43,7 +44,7 @@ export interface GraphCore {
 
   // Tag and discovery operations
   searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
-  getRandomNode(tags?: string[]): Promise<Node | null>;
+  getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null>;
 
   // Batch operations
   listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;

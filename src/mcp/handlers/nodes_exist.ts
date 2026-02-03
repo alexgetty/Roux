@@ -12,7 +12,7 @@ export const schema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        'Node IDs to check existence. IDs are normalized to lowercase (e.g., "Recipes/Bulgogi.md" becomes "recipes/bulgogi.md").',
+        'Node IDs to check existence. Accepts either stable nanoids (e.g., "abc123XYZ789") or file paths for backwards compatibility (e.g., "recipes/bulgogi.md"). Paths are normalized to lowercase. Prefer nanoid for direct lookup; path requires index scan.',
     },
   },
   required: ['ids'],

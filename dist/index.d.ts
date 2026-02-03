@@ -11,7 +11,8 @@ interface Node {
     /** Store-specific format */
     id: string;
     title: string;
-    content: string;
+    /** null for ghost nodes (placeholder for unresolved wikilinks) */
+    content: string | null;
     tags: string[];
     /** By id */
     outgoingLinks: string[];
@@ -50,11 +51,19 @@ interface Edge {
 }
 
 type Metric = 'in_degree' | 'out_degree';
+/** Filter for ghost node inclusion in results */
+type GhostFilter = 'include' | 'only' | 'exclude';
+/** Filter for orphan node inclusion in results */
+type OrphanFilter = 'include' | 'only' | 'exclude';
 interface ListFilter {
     /** Filter by tag (case-insensitive) */
     tag?: string;
     /** Filter by path prefix (startsWith) */
     path?: string;
+    /** Filter ghost nodes: 'include' (default), 'only', or 'exclude' */
+    ghosts?: GhostFilter;
+    /** Filter orphan nodes (no incoming or outgoing links): 'include' (default), 'only', or 'exclude' */
+    orphans?: OrphanFilter;
 }
 interface ListOptions {
     /** Default 100, max 1000 */
@@ -95,6 +104,16 @@ interface CentralityMetrics {
     outDegree: number;
 }
 type TagMode = 'any' | 'all';
+interface RandomNodeOptions {
+    /** Include ghost nodes in selection. Default false. */
+    includeGhosts?: boolean;
+    /** Return only ghost nodes. Default false. */
+    ghostsOnly?: boolean;
+    /** Exclude orphan nodes (no incoming or outgoing links). Default true. */
+    excludeOrphans?: boolean;
+    /** Return only orphan nodes. Default false. */
+    orphansOnly?: boolean;
+}
 interface VectorSearchResult {
     id: string;
     distance: number;
@@ -131,7 +150,7 @@ interface Store extends ProviderBase, ProviderLifecycle {
     storeEmbedding(id: string, vector: number[], model: string): Promise<void>;
     searchByVector(vector: number[], limit: number): Promise<VectorSearchResult[]>;
     searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
-    getRandomNode(tags?: string[]): Promise<Node | null>;
+    getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null>;
     resolveTitles(ids: string[]): Promise<Map<string, string>>;
     listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
@@ -196,7 +215,7 @@ interface GraphCore {
     findPath(source: string, target: string): Promise<string[] | null>;
     getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
     searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
-    getRandomNode(tags?: string[]): Promise<Node | null>;
+    getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null>;
     listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
 }
@@ -290,7 +309,7 @@ declare class GraphCoreImpl implements GraphCore {
     findPath(source: string, target: string): Promise<string[] | null>;
     getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
     searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
-    getRandomNode(tags?: string[]): Promise<Node | null>;
+    getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null>;
     listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
     static fromConfig(config: RouxConfig): Promise<GraphCoreImpl>;
@@ -328,7 +347,7 @@ declare abstract class StoreProvider {
     getHubs(metric: Metric, limit: number): Promise<Array<[string, number]>>;
     storeEmbedding(id: string, vector: number[], model: string): Promise<void>;
     searchByVector(vector: number[], limit: number): Promise<VectorSearchResult[]>;
-    getRandomNode(tags?: string[]): Promise<Node | null>;
+    getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null>;
     searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
     listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     nodesExist(ids: string[]): Promise<Map<string, boolean>>;
@@ -475,6 +494,10 @@ declare class DocStore extends StoreProvider {
     private registry;
     private fileWatcher;
     private onChangeCallback;
+    /** Pending unlinks waiting for potential rename detection (id -> metadata) */
+    private pendingUnlinks;
+    /** Time-to-live for pending unlinks before they're treated as real deletes */
+    private readonly UNLINK_TTL_MS;
     constructor(options: DocStoreOptions);
     sync(): Promise<void>;
     createNode(node: Node): Promise<void>;
@@ -484,6 +507,7 @@ declare class DocStore extends StoreProvider {
     getNodes(ids: string[]): Promise<Node[]>;
     getAllNodeIds(): Promise<string[]>;
     searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]>;
+    getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null>;
     resolveTitles(ids: string[]): Promise<Map<string, string>>;
     listNodes(filter: ListFilter, options?: ListOptions): Promise<ListNodesResult>;
     resolveNodes(names: string[], options?: ResolveOptions): Promise<ResolveResult[]>;
@@ -496,6 +520,11 @@ declare class DocStore extends StoreProvider {
     stopWatching(): void;
     isWatching(): boolean;
     private handleWatcherBatch;
+    /**
+     * Clean up expired pending vector deletes.
+     * These are real deletes (not renames) - safe to remove from vector index.
+     */
+    private cleanupExpiredUnlinks;
     private resolveAllLinks;
     getNeighbors(id: string, options: {
         direction: 'in' | 'out' | 'both';
@@ -514,6 +543,10 @@ declare class DocStore extends StoreProvider {
     /**
      * Write a generated ID back to file's frontmatter.
      * Returns false if file was modified since originalMtime (race condition).
+     *
+     * Fix #3: Re-reads file content after mtime check to avoid TOCTOU race.
+     * The file could change between the initial read and this write - using
+     * stale content would lose any concurrent edits.
      */
     private writeIdBack;
 }

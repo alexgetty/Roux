@@ -83,6 +83,15 @@ describe('nodeToResponse', () => {
     expect(response.links).toEqual([{ id: 'missing.md', title: 'missing.md' }]);
   });
 
+  it('returns null content for ghost nodes', async () => {
+    const node = createNode({ content: null });
+    const store = createMockStore();
+
+    const response = await nodeToResponse(node, store, 'primary');
+
+    expect(response.content).toBeNull();
+  });
+
   it('truncates content based on context and preserves prefix', async () => {
     const longContent = 'x'.repeat(TRUNCATION_LIMITS.primary + 100);
     const node = createNode({ content: longContent });

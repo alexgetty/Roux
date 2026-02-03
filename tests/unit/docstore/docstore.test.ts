@@ -81,7 +81,8 @@ Body content with [[Other Note]] link.`
       expect(node?.tags).toEqual(['test', 'example']);
       expect(node?.properties['custom']).toBe('value');
       expect(node?.content).toContain('Body content');
-      expect(node?.outgoingLinks).toContain('other note.md');
+      // Unresolved links become ghosts
+      expect(node?.outgoingLinks[0]?.startsWith('ghost_')).toBe(true);
     });
 
     it('derives title from path when frontmatter lacks title', async () => {
@@ -100,7 +101,7 @@ Content only`
       expect(node?.title).toBe('My Derived Title');
     });
 
-    it('normalizes wiki-link targets to IDs', async () => {
+    it('normalizes wiki-link targets to ghost IDs when unresolved', async () => {
       await writeMarkdownFile(
         'linker.md',
         `Links: [[Target Note]] and [[folder/Deep Note]]`
@@ -109,12 +110,18 @@ Content only`
       await store.sync();
       const node = await store.getNode('linker.md');
 
-      // Wiki links normalized: spaces become hyphens, lowercased, .md added
-      expect(node?.outgoingLinks).toContain('target note.md');
-      expect(node?.outgoingLinks).toContain('folder/deep note.md');
+      // Unresolved wiki links become ghost nodes
+      expect(node?.outgoingLinks).toHaveLength(2);
+      expect(node?.outgoingLinks.every(id => id.startsWith('ghost_'))).toBe(true);
+
+      // Ghost nodes should exist with original titles
+      const ghost1 = await store.getNode(node!.outgoingLinks[0]!);
+      const ghost2 = await store.getNode(node!.outgoingLinks[1]!);
+      expect(ghost1?.content).toBeNull();
+      expect(ghost2?.content).toBeNull();
     });
 
-    it('adds .md to links with dots in filename (not extensions)', async () => {
+    it('creates ghost nodes for links with dots in filename', async () => {
       await writeMarkdownFile(
         'dated.md',
         `Links: [[archive.2024]] and [[meeting.notes.draft]]`
@@ -123,12 +130,12 @@ Content only`
       await store.sync();
       const node = await store.getNode('dated.md');
 
-      // Dots in middle of filename should not be treated as extension
-      expect(node?.outgoingLinks).toContain('archive.2024.md');
-      expect(node?.outgoingLinks).toContain('meeting.notes.draft.md');
+      // Unresolved links become ghost nodes
+      expect(node?.outgoingLinks).toHaveLength(2);
+      expect(node?.outgoingLinks.every(id => id.startsWith('ghost_'))).toBe(true);
     });
 
-    it('does not add .md to links that already have file extension', async () => {
+    it('creates ghost nodes for explicit file extension links', async () => {
       await writeMarkdownFile(
         'explicit.md',
         `Links: [[file.md]] and [[doc.txt]] and [[image.png]]`
@@ -137,11 +144,9 @@ Content only`
       await store.sync();
       const node = await store.getNode('explicit.md');
 
-      expect(node?.outgoingLinks).toContain('file.md');
-      expect(node?.outgoingLinks).toContain('doc.txt');
-      expect(node?.outgoingLinks).toContain('image.png');
-      // Should NOT have double extensions
-      expect(node?.outgoingLinks).not.toContain('file.md.md');
+      // Unresolved links become ghost nodes (3 different ghosts)
+      expect(node?.outgoingLinks).toHaveLength(3);
+      expect(node?.outgoingLinks.every(id => id.startsWith('ghost_'))).toBe(true);
     });
 
     it('handles files without frontmatter', async () => {
@@ -417,6 +422,19 @@ Original content`
         ).rejects.toThrow(/not found/i);
       });
 
+      it('throws when updating a ghost node', async () => {
+        await writeMarkdownFile('note.md', '---\ntitle: Note\n---\nLink to [[Phantom]]');
+        await store.sync();
+
+        const note = await store.getNode('note.md');
+        const ghostNodeId = note?.outgoingLinks[0]!;
+        expect(ghostNodeId.startsWith('ghost_')).toBe(true);
+
+        await expect(
+          store.updateNode(ghostNodeId, { title: 'Real Now' })
+        ).rejects.toThrow(/ghost/i);
+      });
+
       it('derives outgoingLinks from content and rebuilds graph', async () => {
         await writeMarkdownFile('linked.md', '---\ntitle: Linked\n---\nContent');
         await store.sync();
@@ -478,6 +496,24 @@ Original content`
         await expect(
           readFile(join(sourceDir, 'doomed.md'), 'utf-8')
         ).rejects.toThrow();
+      });
+
+      it('deletes ghost node from cache without file removal', async () => {
+        await writeMarkdownFile('ref.md', '---\ntitle: Ref\n---\nLink to [[Phantom Target]]');
+        await store.sync();
+
+        const ref = await store.getNode('ref.md');
+        const ghostNodeId = ref?.outgoingLinks[0]!;
+        expect(ghostNodeId.startsWith('ghost_')).toBe(true);
+
+        // Ghost should exist
+        expect(await store.getNode(ghostNodeId)).not.toBeNull();
+
+        // Delete should succeed without throwing ENOENT
+        await store.deleteNode(ghostNodeId);
+
+        // Ghost should be gone
+        expect(await store.getNode(ghostNodeId)).toBeNull();
       });
 
       it('throws for non-existent node with path-like ID', async () => {
@@ -1367,14 +1403,20 @@ No links yet`
       expect(noteNode?.outgoingLinks).toContain(johnNode!.id);
     });
 
-    it('leaves unresolvable links as-is', async () => {
+    it('creates ghost node for unresolvable links', async () => {
       await writeMarkdownFile('source.md', 'Link to [[nonexistent]]');
 
       await store.sync();
       const node = await store.getNode('source.md');
 
-      // Unresolvable links remain as normalized paths
-      expect(node?.outgoingLinks).toContain('nonexistent.md');
+      // Unresolvable links become ghost nodes
+      expect(node?.outgoingLinks).toHaveLength(1);
+      expect(node?.outgoingLinks[0]?.startsWith('ghost_')).toBe(true);
+
+      // Ghost node should exist
+      const ghost = await store.getNode(node!.outgoingLinks[0]!);
+      expect(ghost?.title).toBe('nonexistent');
+      expect(ghost?.content).toBeNull();
     });
 
     it('picks alphabetically first match for ambiguous filenames', async () => {
@@ -1397,7 +1439,7 @@ No links yet`
       expect(hasItemA && hasItemB).toBe(false);
     });
 
-    it('treats partial path links literally (no suffix matching)', async () => {
+    it('treats partial path links literally (creates ghost, no suffix matching)', async () => {
       await writeMarkdownFile('deep/folder/target.md', '---\ntitle: Target\n---\nContent');
       await writeMarkdownFile('source.md', 'Link to [[folder/target]]');
 
@@ -1405,8 +1447,8 @@ No links yet`
       const node = await store.getNode('source.md');
       const deepTarget = await store.getNode('deep/folder/target.md');
 
-      // Should NOT resolve to deep/folder/target.md — partial paths stay literal
-      expect(node?.outgoingLinks).toContain('folder/target.md');
+      // Should NOT resolve to deep/folder/target.md — partial paths create ghosts
+      expect(node?.outgoingLinks[0]?.startsWith('ghost_')).toBe(true);
       expect(node?.outgoingLinks).not.toContain(deepTarget!.id);
     });
 
@@ -1486,6 +1528,292 @@ No links yet`
     });
   });
 
+  describe('ghost nodes', () => {
+    it('creates ghost node for unresolved wikilink', async () => {
+      await writeMarkdownFile('note.md', '---\ntitle: Note\n---\nLink to [[Missing Page]]');
+      await store.sync();
+
+      // The outgoing link should point to a ghost node
+      const note = await store.getNode('note.md');
+      expect(note?.outgoingLinks).toHaveLength(1);
+
+      const ghostId = note?.outgoingLinks[0]!;
+      expect(ghostId.startsWith('ghost_')).toBe(true);
+
+      // Ghost node should exist in the store
+      const ghost = await store.getNode(ghostId);
+      expect(ghost).not.toBeNull();
+      expect(ghost?.title).toBe('Missing Page');
+      expect(ghost?.content).toBeNull();
+      expect(ghost?.sourceRef).toBeUndefined();
+    });
+
+    it('multiple notes linking to same missing page create single ghost', async () => {
+      await writeMarkdownFile('note1.md', '---\ntitle: Note 1\n---\n[[API Reference]]');
+      await writeMarkdownFile('note2.md', '---\ntitle: Note 2\n---\nSee [[API Reference]] for more');
+      await store.sync();
+
+      const note1 = await store.getNode('note1.md');
+      const note2 = await store.getNode('note2.md');
+
+      // Both should point to the same ghost
+      expect(note1?.outgoingLinks[0]).toBe(note2?.outgoingLinks[0]);
+      expect(note1?.outgoingLinks[0]?.startsWith('ghost_')).toBe(true);
+    });
+
+    it('case variations of missing page create same ghost', async () => {
+      await writeMarkdownFile('note1.md', '---\ntitle: Note 1\n---\n[[API]]');
+      await writeMarkdownFile('note2.md', '---\ntitle: Note 2\n---\n[[api]]');
+      await writeMarkdownFile('note3.md', '---\ntitle: Note 3\n---\n[[Api]]');
+      await store.sync();
+
+      const note1 = await store.getNode('note1.md');
+      const note2 = await store.getNode('note2.md');
+      const note3 = await store.getNode('note3.md');
+
+      // All should point to the same ghost
+      expect(note1?.outgoingLinks[0]).toBe(note2?.outgoingLinks[0]);
+      expect(note2?.outgoingLinks[0]).toBe(note3?.outgoingLinks[0]);
+    });
+
+    it('uses target from aliased wikilink for ghost title', async () => {
+      await writeMarkdownFile('note.md', '---\ntitle: Note\n---\n[[target|displayed text]]');
+      await store.sync();
+
+      const note = await store.getNode('note.md');
+      const ghostId = note?.outgoingLinks[0]!;
+      const ghost = await store.getNode(ghostId);
+
+      // Ghost should be named after target, not displayed text
+      expect(ghost?.title).toBe('target');
+    });
+
+    it('does not create ghost for existing node', async () => {
+      await writeMarkdownFile('target.md', '---\ntitle: Target\n---\nReal content');
+      await writeMarkdownFile('source.md', '---\ntitle: Source\n---\n[[Target]]');
+      await store.sync();
+
+      const source = await store.getNode('source.md');
+      const target = await store.getNode('target.md');
+
+      // Should link to the real node, not a ghost
+      expect(source?.outgoingLinks[0]).toBe(target?.id);
+      expect(source?.outgoingLinks[0]?.startsWith('ghost_')).toBe(false);
+    });
+
+    it('deletes orphaned ghost when last link is removed', async () => {
+      // Create note with link to missing page
+      await writeMarkdownFile('note.md', '---\ntitle: Note\n---\n[[Missing Page]]');
+      await store.sync();
+
+      const note = await store.getNode('note.md');
+      const ghostId = note?.outgoingLinks[0]!;
+      expect(ghostId.startsWith('ghost_')).toBe(true);
+
+      // Ghost should exist
+      let ghost = await store.getNode(ghostId);
+      expect(ghost).not.toBeNull();
+
+      // Update note to remove the link
+      await store.updateNode(note!.id, { content: 'No more links' });
+
+      // Ghost should be deleted (orphaned)
+      ghost = await store.getNode(ghostId);
+      expect(ghost).toBeNull();
+    });
+
+    it('preserves ghost when still referenced by other nodes', async () => {
+      await writeMarkdownFile('note1.md', '---\ntitle: Note 1\n---\n[[Shared Ghost]]');
+      await writeMarkdownFile('note2.md', '---\ntitle: Note 2\n---\n[[Shared Ghost]]');
+      await store.sync();
+
+      const note1 = await store.getNode('note1.md');
+      const ghostId = note1?.outgoingLinks[0]!;
+
+      // Update note1 to remove link
+      await store.updateNode(note1!.id, { content: 'No more link' });
+
+      // Ghost should still exist (note2 still references it)
+      const ghost = await store.getNode(ghostId);
+      expect(ghost).not.toBeNull();
+    });
+
+    describe('ghost promotion', () => {
+      it('promotes ghost to real node when matching file is created', async () => {
+        // Create note linking to missing page
+        await writeMarkdownFile('note.md', '---\ntitle: Note\n---\n[[API Reference]]');
+        await store.sync();
+
+        const noteBefore = await store.getNode('note.md');
+        const ghostId = noteBefore?.outgoingLinks[0]!;
+        expect(ghostId.startsWith('ghost_')).toBe(true);
+
+        // Ghost should exist
+        let ghost = await store.getNode(ghostId);
+        expect(ghost).not.toBeNull();
+        expect(ghost?.title).toBe('API Reference');
+
+        // Create real file matching ghost title
+        await writeMarkdownFile('api-reference.md', '---\ntitle: API Reference\n---\nReal content');
+        await store.sync();
+
+        // Ghost should be deleted
+        ghost = await store.getNode(ghostId);
+        expect(ghost).toBeNull();
+
+        // Note should now link to real node
+        const noteAfter = await store.getNode('note.md');
+        expect(noteAfter?.outgoingLinks[0]?.startsWith('ghost_')).toBe(false);
+
+        // And real node should exist
+        const realNode = await store.getNode(noteAfter!.outgoingLinks[0]!);
+        expect(realNode?.title).toBe('API Reference');
+        expect(realNode?.content).toBe('Real content');
+      });
+
+      it('rewires all incoming links from ghost to real node', async () => {
+        // Multiple notes linking to same missing page
+        await writeMarkdownFile('note1.md', '---\ntitle: Note 1\n---\n[[Missing Page]]');
+        await writeMarkdownFile('note2.md', '---\ntitle: Note 2\n---\nSee [[Missing Page]]');
+        await writeMarkdownFile('note3.md', '---\ntitle: Note 3\n---\nAlso [[Missing Page]]');
+        await store.sync();
+
+        const note1Before = await store.getNode('note1.md');
+        const ghostId = note1Before?.outgoingLinks[0]!;
+
+        // All notes should point to same ghost
+        const note2Before = await store.getNode('note2.md');
+        const note3Before = await store.getNode('note3.md');
+        expect(note2Before?.outgoingLinks[0]).toBe(ghostId);
+        expect(note3Before?.outgoingLinks[0]).toBe(ghostId);
+
+        // Create matching real file
+        await writeMarkdownFile('missing-page.md', '---\ntitle: Missing Page\n---\nNow exists!');
+        await store.sync();
+
+        // All notes should now link to real node
+        const note1After = await store.getNode('note1.md');
+        const note2After = await store.getNode('note2.md');
+        const note3After = await store.getNode('note3.md');
+
+        expect(note1After?.outgoingLinks[0]?.startsWith('ghost_')).toBe(false);
+        expect(note1After?.outgoingLinks[0]).toBe(note2After?.outgoingLinks[0]);
+        expect(note2After?.outgoingLinks[0]).toBe(note3After?.outgoingLinks[0]);
+      });
+
+      it('promotes ghost with case-insensitive title matching', async () => {
+        // Create note with uppercase link
+        await writeMarkdownFile('note.md', '---\ntitle: Note\n---\n[[API]]');
+        await store.sync();
+
+        const noteBefore = await store.getNode('note.md');
+        const ghostId = noteBefore?.outgoingLinks[0]!;
+        expect(ghostId.startsWith('ghost_')).toBe(true);
+
+        // Create file with lowercase title
+        await writeMarkdownFile('api.md', '---\ntitle: api\n---\nLowercase title');
+        await store.sync();
+
+        // Ghost should be promoted
+        const ghost = await store.getNode(ghostId);
+        expect(ghost).toBeNull();
+
+        // Link should point to real node
+        const noteAfter = await store.getNode('note.md');
+        expect(noteAfter?.outgoingLinks[0]?.startsWith('ghost_')).toBe(false);
+      });
+
+      it('promotes ghost with whitespace-normalized title matching', async () => {
+        // Create note with extra whitespace in link
+        await writeMarkdownFile('note.md', '---\ntitle: Note\n---\n[[ My Page ]]');
+        await store.sync();
+
+        const noteBefore = await store.getNode('note.md');
+        const ghostId = noteBefore?.outgoingLinks[0]!;
+        expect(ghostId.startsWith('ghost_')).toBe(true);
+
+        // Create file with trimmed title
+        await writeMarkdownFile('my-page.md', '---\ntitle: My Page\n---\nTrimmed title');
+        await store.sync();
+
+        // Ghost should be promoted
+        const ghost = await store.getNode(ghostId);
+        expect(ghost).toBeNull();
+
+        // Link should point to real node
+        const noteAfter = await store.getNode('note.md');
+        expect(noteAfter?.outgoingLinks[0]?.startsWith('ghost_')).toBe(false);
+      });
+    });
+
+    it('resolves link via title fallback when filenameIndex misses due to whitespace', async () => {
+      // Node with trailing whitespace in quoted YAML title.
+      // buildFilenameIndex indexes by title.toLowerCase() (no trim) → "pasta "
+      // titleToRealId indexes by title.toLowerCase().trim() → "pasta"
+      // A wikilink [[Pasta]] normalizes to "pasta.md", resolveLinks lookupKey "pasta"
+      // filenameIndex misses ("pasta" !== "pasta "), but the title fallback (line 740-746) catches it
+      await writeMarkdownFile('target.md', '---\ntitle: "Pasta "\n---\nRecipe content');
+      await writeMarkdownFile('linker.md', '---\ntitle: Linker\n---\nMake some [[Pasta]]');
+      await store.sync();
+
+      const target = await store.getNode('target.md');
+      expect(target).not.toBeNull();
+      expect(target?.title).toBe('Pasta '); // trailing space preserved
+
+      const linker = await store.getNode('linker.md');
+      expect(linker?.outgoingLinks).toHaveLength(1);
+
+      // Link should resolve to target's real ID, not create a ghost
+      const linkId = linker?.outgoingLinks[0]!;
+      expect(linkId.startsWith('ghost_')).toBe(false);
+      expect(linkId).toBe(target?.id);
+    });
+
+    it('does not create ghost for empty wikilink brackets', async () => {
+      // Empty [[]] should be ignored by parser, no ghost created
+      await writeMarkdownFile('note.md', '---\ntitle: Note\n---\nEmpty [[]] link');
+      await store.sync();
+
+      const note = await store.getNode('note.md');
+      expect(note?.outgoingLinks).toHaveLength(0);
+    });
+
+    it('empty file is a real node, not a ghost', async () => {
+      // content: "" (empty string) vs content: null (ghost) must be distinct
+      await writeMarkdownFile('empty.md', '');
+      await store.sync();
+
+      const node = await store.getNode('empty.md');
+      expect(node).not.toBeNull();
+      expect(node?.content).toBe('');
+
+      // ghosts: 'exclude' should still include this empty real node
+      const result = await store.listNodes({ ghosts: 'exclude' });
+      expect(result.nodes.some(n => n.id === node!.id)).toBe(true);
+
+      // ghosts: 'only' should NOT include this node
+      const ghostOnly = await store.listNodes({ ghosts: 'only' });
+      expect(ghostOnly.nodes.some(n => n.id === node!.id)).toBe(false);
+    });
+
+    it('searchByTags excludes ghost nodes (ghosts have no tags)', async () => {
+      // Create note with tag that links to missing page
+      await writeMarkdownFile('tagged.md', '---\ntitle: Tagged\ntags: [test]\n---\n[[Missing Page]]');
+      await store.sync();
+
+      // Verify ghost was created
+      const tagged = await store.getNode('tagged.md');
+      const ghostId = tagged?.outgoingLinks[0]!;
+      expect(ghostId.startsWith('ghost_')).toBe(true);
+
+      // searchByTags should only return real nodes, never ghosts
+      const results = await store.searchByTags(['test'], 'any');
+      expect(results).toHaveLength(1);
+      expect(results.every(n => n.content !== null)).toBe(true);
+      expect(results.every(n => !n.id.startsWith('ghost_'))).toBe(true);
+    });
+  });
+
   describe('batch operations', () => {
     describe('listNodes', () => {
       beforeEach(async () => {
@@ -1537,6 +1865,48 @@ No links yet`
         const offset = await store.listNodes({}, { offset: 1 });
         expect(offset.nodes).toHaveLength(all.nodes.length - 1);
         expect(offset.total).toBe(all.total); // total unchanged with offset
+      });
+
+      describe('ghost filtering', () => {
+        beforeEach(async () => {
+          // Create a note with an unresolved link to create a ghost
+          await writeMarkdownFile('notes/linker.md', '---\ntitle: Linker\n---\n[[Missing Page]]');
+          await store.sync();
+        });
+
+        it('includes ghosts by default', async () => {
+          const result = await store.listNodes({});
+          const hasGhost = result.nodes.some(n => n.id.startsWith('ghost_'));
+          expect(hasGhost).toBe(true);
+        });
+
+        it('includes ghosts with ghosts: include', async () => {
+          const result = await store.listNodes({ ghosts: 'include' });
+          const hasGhost = result.nodes.some(n => n.id.startsWith('ghost_'));
+          expect(hasGhost).toBe(true);
+        });
+
+        it('excludes ghosts with ghosts: exclude', async () => {
+          const result = await store.listNodes({ ghosts: 'exclude' });
+          const hasGhost = result.nodes.some(n => n.id.startsWith('ghost_'));
+          expect(hasGhost).toBe(false);
+          // Should still have real nodes
+          expect(result.nodes.length).toBeGreaterThan(0);
+        });
+
+        it('returns only ghosts with ghosts: only', async () => {
+          const result = await store.listNodes({ ghosts: 'only' });
+          expect(result.nodes.length).toBe(1);
+          expect(result.nodes[0]!.id.startsWith('ghost_')).toBe(true);
+          expect(result.nodes[0]!.title).toBe('Missing Page');
+        });
+
+        it('combines ghost filter with other filters', async () => {
+          // Ghosts have no path, so path filter + include should exclude them
+          const result = await store.listNodes({ ghosts: 'include', path: 'recipes/' });
+          const hasGhost = result.nodes.some(n => n.id.startsWith('ghost_'));
+          expect(hasGhost).toBe(false);
+        });
       });
     });
 
@@ -1675,6 +2045,29 @@ No links yet`
         expect(result.get('exists.md')).toBe(true);
         expect(result.get('missing.md')).toBe(false);
       });
+
+      it('returns true for existing ghost nodes', async () => {
+        // Create a note linking to a missing page, which creates a ghost
+        await writeMarkdownFile('linker.md', '---\ntitle: Linker\n---\n[[Missing Page]]');
+        await store.sync();
+
+        const linker = await store.getNode('linker.md');
+        const gid = linker?.outgoingLinks[0]!;
+        expect(gid.startsWith('ghost_')).toBe(true);
+
+        // nodesExist should return true for the ghost
+        // Result keys are normalized (lowercased) per existing behavior
+        const result = await store.nodesExist([gid]);
+        expect(result.get(gid.toLowerCase())).toBe(true);
+      });
+
+      it('returns false for non-existing ghost IDs', async () => {
+        // A ghost ID that was never created
+        const fakeGhostId = 'ghost_nonexistent';
+        const result = await store.nodesExist([fakeGhostId]);
+        // Result keys are normalized (lowercased)
+        expect(result.get(fakeGhostId.toLowerCase())).toBe(false);
+      });
     });
   });
 
@@ -1689,7 +2082,8 @@ No links yet`
       await writeMarkdownFile('b.md', '---\ntitle: B\n---\nContent');
       await store.sync();
 
-      const result = await store.getRandomNode();
+      // Use excludeOrphans: false since these are basic functionality tests, not orphan tests
+      const result = await store.getRandomNode(undefined, { excludeOrphans: false });
       expect(result).not.toBeNull();
       // ID is now a stable nanoid
       expect(result?.id).toMatch(/^[A-Za-z0-9_-]{12}$/);
@@ -1700,7 +2094,7 @@ No links yet`
       await writeMarkdownFile('only.md', '---\ntitle: Only\n---\nContent');
       await store.sync();
 
-      const result = await store.getRandomNode();
+      const result = await store.getRandomNode(undefined, { excludeOrphans: false });
       // ID is now a stable nanoid, not path
       expect(result?.id).toMatch(/^[A-Za-z0-9_-]{12}$/);
       expect(result?.title).toBe('Only');
@@ -1711,7 +2105,7 @@ No links yet`
       await writeMarkdownFile('untagged.md', '---\ntags: [other]\n---\nB');
       await store.sync();
 
-      const result = await store.getRandomNode(['special']);
+      const result = await store.getRandomNode(['special'], { excludeOrphans: false });
       // ID is now a stable nanoid
       expect(result?.id).toMatch(/^[A-Za-z0-9_-]{12}$/);
       expect(result?.tags).toContain('special');
@@ -1722,7 +2116,7 @@ No links yet`
       await writeMarkdownFile('b.md', '---\ntags: [two]\n---\nB');
       await store.sync();
 
-      const result = await store.getRandomNode(['nonexistent']);
+      const result = await store.getRandomNode(['nonexistent'], { excludeOrphans: false });
       expect(result).toBeNull();
     });
 
@@ -1732,11 +2126,207 @@ No links yet`
       await writeMarkdownFile('third.md', '---\ntags: [nomatch]\n---\nC');
       await store.sync();
 
-      const result = await store.getRandomNode(['match']);
+      const result = await store.getRandomNode(['match'], { excludeOrphans: false });
       expect(result).not.toBeNull();
       // ID is now a stable nanoid
       expect(result?.id).toMatch(/^[A-Za-z0-9_-]{12}$/);
       expect(result?.tags).toContain('match');
+    });
+
+    describe('ghost exclusion', () => {
+      it('excludes ghosts by default', async () => {
+        // Create only a ghost (via unresolved link)
+        await writeMarkdownFile('linker.md', '---\ntitle: Linker\n---\n[[Missing Page]]');
+        await store.sync();
+
+        // Verify ghost was created
+        const linker = await store.getNode('linker.md');
+        expect(linker?.outgoingLinks[0]?.startsWith('ghost_')).toBe(true);
+
+        // getRandomNode should only return real nodes
+        // Run multiple times to ensure ghost is never returned
+        for (let i = 0; i < 10; i++) {
+          const result = await store.getRandomNode();
+          expect(result).not.toBeNull();
+          expect(result?.id.startsWith('ghost_')).toBe(false);
+        }
+      });
+
+      it('includes ghosts when includeGhosts: true', async () => {
+        // Create only a ghost (via unresolved link)
+        await writeMarkdownFile('linker.md', '---\ntitle: Linker\n---\n[[Missing Page]]');
+        await store.sync();
+
+        const linker = await store.getNode('linker.md');
+        const ghostId = linker?.outgoingLinks[0]!;
+
+        // With includeGhosts, should eventually return the ghost
+        let foundGhost = false;
+        for (let i = 0; i < 20; i++) {
+          const result = await store.getRandomNode(undefined, { includeGhosts: true });
+          if (result?.id === ghostId) {
+            foundGhost = true;
+            break;
+          }
+        }
+        expect(foundGhost).toBe(true);
+      });
+
+      it('returns only ghosts when ghostsOnly: true', async () => {
+        // Create real node and ghost
+        await writeMarkdownFile('linker.md', '---\ntitle: Linker\n---\n[[Missing Page]]');
+        await store.sync();
+
+        // With ghostsOnly, should only return ghost nodes
+        for (let i = 0; i < 10; i++) {
+          const result = await store.getRandomNode(undefined, { includeGhosts: true, ghostsOnly: true });
+          expect(result).not.toBeNull();
+          expect(result?.content).toBeNull();
+          expect(result?.id.startsWith('ghost_')).toBe(true);
+        }
+      });
+
+      it('returns null when ghostsOnly but no ghosts exist', async () => {
+        // Create only real nodes, no unresolved links
+        await writeMarkdownFile('real.md', '---\ntitle: Real\n---\nContent');
+        await store.sync();
+
+        const result = await store.getRandomNode(undefined, { includeGhosts: true, ghostsOnly: true });
+        expect(result).toBeNull();
+      });
+    });
+
+    describe('orphan filtering', () => {
+      it('excludes orphans by default (excludeOrphans: true)', async () => {
+        // Create connected nodes (A -> B)
+        await writeMarkdownFile('a.md', '---\ntitle: A\n---\n[[B]]');
+        await writeMarkdownFile('b.md', '---\ntitle: B\n---\nContent');
+        // Create orphan node (no links in or out)
+        await writeMarkdownFile('orphan.md', '---\ntitle: Orphan\n---\nNo links');
+        await store.sync();
+
+        // B is connected (has incoming from A)
+        // A is connected (has outgoing to B)
+        // orphan has no links at all
+
+        // With default excludeOrphans=true (no options), should never return orphan
+        const seen = new Set<string>();
+        for (let i = 0; i < 30; i++) {
+          const result = await store.getRandomNode();
+          if (result) seen.add(result.title);
+        }
+
+        expect(seen.has('Orphan')).toBe(false);
+        expect(seen.has('A') || seen.has('B')).toBe(true);
+      });
+
+      it('includes orphans when excludeOrphans: false', async () => {
+        // Create connected nodes (A -> B)
+        await writeMarkdownFile('a.md', '---\ntitle: A\n---\n[[B]]');
+        await writeMarkdownFile('b.md', '---\ntitle: B\n---\nContent');
+        // Create orphan node
+        await writeMarkdownFile('orphan.md', '---\ntitle: Orphan\n---\nNo links');
+        await store.sync();
+
+        // With excludeOrphans=false, should eventually return orphan
+        let foundOrphan = false;
+        for (let i = 0; i < 50; i++) {
+          const result = await store.getRandomNode(undefined, { excludeOrphans: false });
+          if (result?.title === 'Orphan') {
+            foundOrphan = true;
+            break;
+          }
+        }
+
+        expect(foundOrphan).toBe(true);
+      });
+
+      it('returns null when only orphans exist and excludeOrphans: true', async () => {
+        // Create only an orphan node
+        await writeMarkdownFile('lonely.md', '---\ntitle: Lonely\n---\nNo links at all');
+        await store.sync();
+
+        const result = await store.getRandomNode(undefined, { excludeOrphans: true });
+        expect(result).toBeNull();
+      });
+
+      it('combines ghost and orphan filtering', async () => {
+        // Create a ghost via unresolved link
+        await writeMarkdownFile('linker.md', '---\ntitle: Linker\n---\n[[Missing]]');
+        // Create orphan (no links)
+        await writeMarkdownFile('orphan.md', '---\ntitle: Orphan\n---\nNo links');
+        await store.sync();
+
+        // linker is connected (has outgoing link to ghost)
+        // ghost is connected (has incoming link from linker)
+        // orphan has no links
+
+        // With excludeOrphans=true and default ghost exclusion, should only get linker
+        for (let i = 0; i < 20; i++) {
+          const result = await store.getRandomNode();
+          expect(result).not.toBeNull();
+          expect(result?.title).toBe('Linker');
+        }
+      });
+
+      it('node with only outgoing links is not an orphan', async () => {
+        // A links to B, but nothing links to A
+        // A has outDegree=1, inDegree=0 → NOT an orphan
+        await writeMarkdownFile('source.md', '---\ntitle: Source\n---\n[[Target]]');
+        await writeMarkdownFile('target.md', '---\ntitle: Target\n---\nContent');
+        await store.sync();
+
+        // Source has outDegree > 0, should not be excluded
+        const seen = new Set<string>();
+        for (let i = 0; i < 30; i++) {
+          const result = await store.getRandomNode(undefined, { excludeOrphans: true });
+          if (result) seen.add(result.title);
+        }
+        expect(seen.has('Source')).toBe(true);
+        expect(seen.has('Target')).toBe(true);
+      });
+
+      it('node with only incoming links is not an orphan', async () => {
+        // A links to B, B has no outgoing links
+        // B has inDegree=1, outDegree=0 → NOT an orphan
+        await writeMarkdownFile('sender.md', '---\ntitle: Sender\n---\n[[Receiver]]');
+        await writeMarkdownFile('receiver.md', '---\ntitle: Receiver\n---\nNo outgoing links');
+        await store.sync();
+
+        // Receiver has inDegree > 0, should not be excluded
+        const seen = new Set<string>();
+        for (let i = 0; i < 30; i++) {
+          const result = await store.getRandomNode(undefined, { excludeOrphans: true });
+          if (result) seen.add(result.title);
+        }
+        expect(seen.has('Receiver')).toBe(true);
+      });
+
+      it('returns only orphans when orphansOnly: true', async () => {
+        // Create connected nodes (A -> B)
+        await writeMarkdownFile('a.md', '---\ntitle: A\n---\n[[B]]');
+        await writeMarkdownFile('b.md', '---\ntitle: B\n---\nContent');
+        // Create orphan node
+        await writeMarkdownFile('orphan.md', '---\ntitle: Orphan\n---\nNo links');
+        await store.sync();
+
+        // With orphansOnly, should only return orphan nodes
+        for (let i = 0; i < 10; i++) {
+          const result = await store.getRandomNode(undefined, { orphansOnly: true, excludeOrphans: false });
+          expect(result).not.toBeNull();
+          expect(result?.title).toBe('Orphan');
+        }
+      });
+
+      it('returns null when orphansOnly but no orphans exist', async () => {
+        // Create only connected nodes
+        await writeMarkdownFile('a.md', '---\ntitle: A\n---\n[[B]]');
+        await writeMarkdownFile('b.md', '---\ntitle: B\n---\nContent');
+        await store.sync();
+
+        const result = await store.getRandomNode(undefined, { orphansOnly: true, excludeOrphans: false });
+        expect(result).toBeNull();
+      });
     });
   });
 
@@ -1948,7 +2538,8 @@ Content with [[Link]]`
         expect(node?.title).toBe('Test Note');
         expect(node?.tags).toEqual(['tag1']);
         expect(node?.properties['custom']).toBe('value');
-        expect(node?.outgoingLinks).toContain('link.md');
+        // Unresolved link becomes ghost
+        expect(node?.outgoingLinks[0]?.startsWith('ghost_')).toBe(true);
       });
     });
 
@@ -2245,6 +2836,152 @@ Content with [[Link]]`
       expect(mockFileWatcher.start).toHaveBeenCalledTimes(1);
 
       customStore.close();
+    });
+  });
+
+  describe('branch coverage gaps', () => {
+    describe('createNode with null content (line 210)', () => {
+      it('falls back to empty string when content is null', async () => {
+        await store.sync();
+
+        const node: Node = {
+          id: 'null-content.md',
+          title: 'Null Content',
+          content: null,
+          tags: [],
+          outgoingLinks: [],
+          properties: {},
+        };
+
+        await store.createNode(node);
+
+        // The file should exist and be readable
+        const fileContent = await readFile(join(sourceDir, 'null-content.md'), 'utf-8');
+        // Content should be empty (the ?? '' fallback fired)
+        expect(fileContent).toContain('title: Null Content');
+        // The created node in cache should have empty string content (not null)
+        // since it was written as a real file
+        const allNodes = (store as any).cache.getAllNodes();
+        const created = allNodes.find((n: Node) => n.title === 'Null Content');
+        expect(created).toBeDefined();
+      });
+    });
+
+    describe('getRandomNode missing centrality (lines 395, 402)', () => {
+      it('excludes node from orphansOnly when centrality record is missing', async () => {
+        await writeMarkdownFile('has-centrality.md', '---\ntitle: Has Centrality\n---\nSome content');
+        await writeMarkdownFile('no-centrality.md', '---\ntitle: No Centrality\n---\nOther content');
+        await store.sync();
+
+        const cache = (store as any).cache;
+        const allNodes = cache.getAllNodes() as Node[];
+        const noCentralityNode = allNodes.find((n: Node) => n.title === 'No Centrality');
+        expect(noCentralityNode).toBeDefined();
+
+        // Spy on getCentrality to return undefined for the no-centrality node
+        const originalGetCentrality = cache.getCentrality.bind(cache);
+        const spy = vi.spyOn(cache, 'getCentrality').mockImplementation((nodeId: string) => {
+          if (nodeId === noCentralityNode!.id) return null;
+          // Return zero-degree centrality for other nodes so they qualify as orphans
+          const real = originalGetCentrality(nodeId);
+          return real ?? { inDegree: 0, outDegree: 0, pagerank: 0 };
+        });
+
+        // orphansOnly: nodes without centrality should be excluded (return false)
+        const result = await store.getRandomNode(undefined, { orphansOnly: true, excludeOrphans: false });
+        // The no-centrality node should NOT appear since !centrality returns false
+        // The has-centrality node might appear if it has 0 in/out degree
+        if (result) {
+          expect(result.id).not.toBe(noCentralityNode!.id);
+        }
+
+        spy.mockRestore();
+      });
+
+      it('includes node in excludeOrphans when centrality record is missing', async () => {
+        await writeMarkdownFile('solo-node.md', '---\ntitle: Solo Node\n---\nAlone here');
+        await store.sync();
+
+        const cache = (store as any).cache;
+        const allNodes = cache.getAllNodes() as Node[];
+        const soloNode = allNodes.find((n: Node) => n.title === 'Solo Node');
+        expect(soloNode).toBeDefined();
+
+        // Return null for all centrality lookups
+        const spy = vi.spyOn(cache, 'getCentrality').mockReturnValue(null);
+
+        // excludeOrphans defaults to true; nodes without centrality return true (included)
+        const result = await store.getRandomNode(undefined, { excludeOrphans: true });
+        expect(result).not.toBeNull();
+        // The solo node should be included because !centrality returns true
+        expect(result!.id).toBe(soloNode!.id);
+
+        spy.mockRestore();
+      });
+    });
+
+    describe('resolveAllLinks with null content real node (line 698)', () => {
+      it('skips real nodes with null content during link resolution', async () => {
+        await writeMarkdownFile('real-node.md', '---\ntitle: Real Node\n---\nSome [[Target]] link');
+        await store.sync();
+
+        const cache = (store as any).cache;
+        const allNodes = cache.getAllNodes() as Node[];
+        const realNode = allNodes.find((n: Node) => n.title === 'Real Node');
+        expect(realNode).toBeDefined();
+
+        // Inject a fake real node with null content into getAllNodes
+        const originalGetAllNodes = cache.getAllNodes.bind(cache);
+        const spy = vi.spyOn(cache, 'getAllNodes').mockImplementation(() => {
+          const nodes = originalGetAllNodes();
+          nodes.push({
+            id: 'fake-null-content-id',
+            title: 'Null Content Node',
+            content: null,
+            tags: [],
+            outgoingLinks: ['target'],
+            properties: {},
+          });
+          return nodes;
+        });
+
+        // Call resolveAllLinks directly to avoid syncGraph FK constraint on the fake node
+        (store as any).resolveAllLinks();
+
+        spy.mockRestore();
+
+        // Should not throw - the null content node is skipped gracefully
+        const updatedNode = await store.getNode(realNode!.id);
+        expect(updatedNode).not.toBeNull();
+      });
+    });
+
+    describe('resolveAllLinks originalTitle fallback (line 751)', () => {
+      it('uses linkTitle when normalizedToOriginal has no entry for the link', async () => {
+        // Create a node that will have an outgoing link not present in any content
+        await writeMarkdownFile('source.md', '---\ntitle: Source\n---\nJust text, no wikilinks');
+        await store.sync();
+
+        const cache = (store as any).cache;
+        const allNodes = cache.getAllNodes() as Node[];
+        const sourceNode = allNodes.find((n: Node) => n.title === 'Source');
+        expect(sourceNode).toBeDefined();
+
+        // Manually inject an outgoing link that won't appear in any node's content
+        // This means normalizedToOriginal won't have an entry for it
+        cache.updateOutgoingLinks(sourceNode!.id, ['phantom link']);
+
+        // Re-run resolveAllLinks via sync
+        await store.sync();
+
+        // The phantom link should have created a ghost node using the linkTitle fallback
+        const updatedAllNodes = cache.getAllNodes() as Node[];
+        const ghostNode = updatedAllNodes.find(
+          (n: Node) => n.content === null && n.title.toLowerCase().includes('phantom')
+        );
+        expect(ghostNode).toBeDefined();
+        expect(ghostNode!.content).toBeNull();
+      });
     });
   });
 });

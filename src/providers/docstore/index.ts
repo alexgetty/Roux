@@ -11,6 +11,7 @@ import type {
   ResolveOptions,
   ResolveResult,
   CentralityMetrics,
+  RandomNodeOptions,
 } from '../../types/provider.js';
 import { StoreProvider } from '../store/index.js';
 import { Cache } from './cache.js';
@@ -36,7 +37,7 @@ import {
 import { ReaderRegistry } from './reader-registry.js';
 import type { FileContext } from './types.js';
 import { MarkdownReader } from './readers/index.js';
-import { generateId } from './id.js';
+import { generateId, ghostId, isGhostId } from './id.js';
 
 /**
  * Create a registry with default readers pre-registered.
@@ -206,13 +207,14 @@ export class DocStore extends StoreProvider {
     // Generate fresh stable ID
     const stableId = generateId();
 
-    const rawLinks = extractWikiLinks(node.content);
+    const content = node.content ?? '';
+    const rawLinks = extractWikiLinks(content);
     const parsed = {
       id: stableId,
       title: node.title,
       tags: node.tags,
       properties: node.properties,
-      content: node.content,
+      content,
       rawLinks,
     };
     const markdown = serializeToMarkdown(parsed);
@@ -258,11 +260,16 @@ export class DocStore extends StoreProvider {
       throw new Error(`Node not found: ${id}`);
     }
 
+    // Ghost nodes cannot be updated — create a real node to replace them
+    if (isGhostId(existing.id)) {
+      throw new Error(`Cannot update ghost node "${existing.title}" — create a real node to replace it`);
+    }
+
     // Strip id from updates if present - original ID must be preserved
     const { ...safeUpdates } = updates;
 
     // Derive outgoingLinks from content (new or existing)
-    const contentForLinks = safeUpdates.content ?? existing.content;
+    const contentForLinks = safeUpdates.content ?? existing.content!;
     const rawLinks = extractWikiLinks(contentForLinks);
     const outgoingLinks = rawLinks.map((link) => normalizeWikiLink(link));
 
@@ -282,7 +289,7 @@ export class DocStore extends StoreProvider {
       title: updated.title,
       tags: updated.tags,
       properties: updated.properties,
-      content: updated.content,
+      content: updated.content!, // Non-null: ghost guard above ensures real node
       rawLinks,
     };
     const markdown = serializeToMarkdown(parsed);
@@ -312,10 +319,12 @@ export class DocStore extends StoreProvider {
       throw new Error(`Node not found: ${id}`);
     }
 
-    // Get file path from sourceRef
-    /* v8 ignore next - defensive: all DocStore nodes have sourceRef.path */
-    const filePath = existing.sourceRef?.path ?? join(this.sourceRoot, existing.id);
-    await rm(filePath);
+    // Ghost nodes have no backing file — skip file deletion
+    if (!isGhostId(existing.id)) {
+      /* v8 ignore next - defensive: all real DocStore nodes have sourceRef.path */
+      const filePath = existing.sourceRef?.path ?? join(this.sourceRoot, existing.id);
+      await rm(filePath);
+    }
     this.cache.deleteNode(existing.id);
     if (this.vectorIndex) await this.vectorIndex.delete(existing.id);
 
@@ -362,6 +371,42 @@ export class DocStore extends StoreProvider {
 
   async searchByTags(tags: string[], mode: TagMode, limit?: number): Promise<Node[]> {
     return this.cache.searchByTags(tags, mode, limit);
+  }
+
+  async getRandomNode(tags?: string[], options?: RandomNodeOptions): Promise<Node | null> {
+    let candidates: Node[];
+    if (tags && tags.length > 0) {
+      candidates = await this.searchByTags(tags, 'any');
+    } else {
+      candidates = this.cache.getAllNodes();
+    }
+
+    // Ghost filtering
+    if (options?.ghostsOnly) {
+      candidates = candidates.filter(n => n.content === null);
+    } else if (!options?.includeGhosts) {
+      candidates = candidates.filter(n => n.content !== null);
+    }
+
+    // Orphan filtering (default: exclude orphans)
+    if (options?.orphansOnly) {
+      candidates = candidates.filter(n => {
+        const centrality = this.cache.getCentrality(n.id);
+        if (!centrality) return false;
+        return centrality.inDegree === 0 && centrality.outDegree === 0;
+      });
+    } else if (options?.excludeOrphans ?? true) {
+      candidates = candidates.filter(n => {
+        const centrality = this.cache.getCentrality(n.id);
+        // Nodes without centrality records are treated as non-orphans
+        if (!centrality) return true;
+        // Orphan = both in_degree and out_degree are 0
+        return centrality.inDegree > 0 || centrality.outDegree > 0;
+      });
+    }
+
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)]!;
   }
 
   async resolveTitles(ids: string[]): Promise<Map<string, string>> {
@@ -604,14 +649,17 @@ export class DocStore extends StoreProvider {
   private resolveAllLinks(): void {
     const nodes = this.cache.getAllNodes();
 
-    // Build title-based index for wikilink resolution
-    // buildFilenameIndex indexes by title (primary) and filename (fallback)
-    const filenameIndex = buildFilenameIndex(nodes);
+    // Separate ghost and real nodes
+    const realNodes = nodes.filter(n => !isGhostId(n.id));
+    const ghostNodes = nodes.filter(n => isGhostId(n.id));
+
+    // Build title-based index for wikilink resolution (real nodes only)
+    const filenameIndex = buildFilenameIndex(realNodes);
     const validNodeIds = new Set(nodes.map((n) => n.id));
 
     // Build path-to-ID mapping for partial path resolution (e.g., [[folder/note]])
     const pathToId = new Map<string, string>();
-    for (const node of nodes) {
+    for (const node of realNodes) {
       if (node.sourceRef?.path) {
         const relativePath = relative(this.sourceRoot, node.sourceRef.path);
         const normalizedPath = normalizeId(relativePath);
@@ -619,27 +667,142 @@ export class DocStore extends StoreProvider {
       }
     }
 
-    // Resolve links for each node
-    for (const node of nodes) {
+    // Check for ghost promotion: ghosts that now have matching real nodes
+    // Build title->realNodeId mapping for promotion detection
+    const titleToRealId = new Map<string, string>();
+    for (const node of realNodes) {
+      const key = node.title.toLowerCase().trim();
+      if (!titleToRealId.has(key)) {
+        titleToRealId.set(key, node.id);
+      }
+    }
+
+    // Map from ghost ID to real node ID for promotion
+    const ghostToRealId = new Map<string, string>();
+    for (const ghost of ghostNodes) {
+      const key = ghost.title.toLowerCase().trim();
+      const realId = titleToRealId.get(key);
+      if (realId) {
+        ghostToRealId.set(ghost.id, realId);
+      }
+    }
+
+    // Track ghosts to create (deduped by ghost ID)
+    // Map from ghost ID to title (first original case encountered wins)
+    const ghostsToCreate = new Map<string, { id: string; title: string }>();
+
+    // Build normalized->original mapping for ghost titles
+    // We need original case for ghost titles, but links are stored normalized
+    const normalizedToOriginal = new Map<string, string>();
+    for (const node of realNodes) {
+      if (node.content === null) continue;
+      const rawLinks = extractWikiLinks(node.content);
+      for (const raw of rawLinks) {
+        const normalized = normalizeWikiLink(raw);
+        // First occurrence wins (preserves original casing)
+        if (!normalizedToOriginal.has(normalized)) {
+          normalizedToOriginal.set(normalized, raw);
+        }
+      }
+    }
+
+    // Resolve links for each real node
+    for (const node of realNodes) {
       const resolvedIds = resolveLinks(
         node.outgoingLinks,
         filenameIndex,
         validNodeIds
       );
 
-      // Second pass: resolve any remaining paths (like "folder/target.md") to stable IDs
+      // Second pass: resolve remaining links, promote ghosts, or create new ghosts
       const finalIds = resolvedIds.map((link) => {
-        // If already a valid stable ID, keep it
+        // If it's a ghost that should be promoted, use the real ID
+        if (isGhostId(link) && ghostToRealId.has(link)) {
+          return ghostToRealId.get(link)!;
+        }
+
+        // If already a valid ghost ID that exists, keep it
+        if (isGhostId(link) && validNodeIds.has(link)) {
+          return link;
+        }
+
+        // If already a valid real node ID, keep it
         if (validNodeIds.has(link)) {
           return link;
         }
+
         // Try path-based lookup for partial paths
         const stableId = pathToId.get(link);
-        return stableId ?? link;
+        if (stableId) {
+          return stableId;
+        }
+
+        // Check if this link matches a ghost that should be promoted
+        const linkTitle = link.replace(/\.md$/i, '');
+        const linkKey = linkTitle.toLowerCase().trim();
+        const realIdForLink = titleToRealId.get(linkKey);
+        if (realIdForLink) {
+          return realIdForLink;
+        }
+
+        // Unresolved link - create ghost
+        // Use original title if available, otherwise use linkTitle
+        const originalTitle = normalizedToOriginal.get(link);
+        const title = originalTitle ?? linkTitle;
+        const gid = ghostId(title);
+
+        // Add to ghosts to create (if not already queued and not already exists)
+        if (!validNodeIds.has(gid) && !ghostsToCreate.has(gid)) {
+          ghostsToCreate.set(gid, { id: gid, title });
+        }
+
+        return gid;
       });
 
       if (finalIds.some((r, i) => r !== node.outgoingLinks[i])) {
         this.cache.updateOutgoingLinks(node.id, finalIds);
+      }
+    }
+
+    // Create ghost nodes for all unresolved links
+    for (const { id, title } of ghostsToCreate.values()) {
+      const ghost: Node = {
+        id,
+        title,
+        content: null,
+        tags: [],
+        outgoingLinks: [],
+        properties: {},
+      };
+      this.cache.upsertGhostNode(ghost);
+      validNodeIds.add(id);
+    }
+
+    // Delete promoted ghosts
+    for (const gid of ghostToRealId.keys()) {
+      this.cache.deleteNode(gid);
+    }
+
+    // Delete orphaned ghosts (ghosts with no incoming links)
+    // Refresh the ghost list since we may have created/deleted some above
+    const updatedNodes = this.cache.getAllNodes();
+    const updatedGhosts = updatedNodes.filter(n => isGhostId(n.id));
+
+    // Build set of all referenced ghost IDs
+    const referencedGhostIds = new Set<string>();
+    for (const node of updatedNodes) {
+      if (isGhostId(node.id)) continue;
+      for (const linkId of node.outgoingLinks) {
+        if (isGhostId(linkId)) {
+          referencedGhostIds.add(linkId);
+        }
+      }
+    }
+
+    // Delete ghosts that are not referenced
+    for (const ghost of updatedGhosts) {
+      if (!referencedGhostIds.has(ghost.id)) {
+        this.cache.deleteNode(ghost.id);
       }
     }
   }

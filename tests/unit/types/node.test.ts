@@ -84,6 +84,16 @@ describe('isNode', () => {
     expect(isNode({ ...validNode, content: [] })).toBe(false);
   });
 
+  it('returns true for ghost node with content: null', () => {
+    const ghostNode = { ...validNode, content: null };
+    expect(isNode(ghostNode)).toBe(true);
+  });
+
+  it('returns false when content is undefined', () => {
+    const { content: _, ...noContent } = validNode;
+    expect(isNode({ ...noContent, content: undefined })).toBe(false);
+  });
+
   it('returns false when tags is not an array', () => {
     expect(isNode({ ...validNode, tags: 'not-array' })).toBe(false);
   });

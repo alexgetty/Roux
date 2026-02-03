@@ -3,12 +3,16 @@ id: t9itxnRlEOm4
 title: Frontmatter Id
 tags:
   - roadmap
+  - superseded
+  - archived
 type: Feature
-status: Proposed
+status: Superseded
 priority: P3
 effort: M
 phase: Future
 category: Storage & Providers
+superseded_by: decisions/Node Identity
+release: v0.2.0
 ---
 # Feature - Frontmatter ID
 

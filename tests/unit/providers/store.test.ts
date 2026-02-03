@@ -17,7 +17,8 @@ function makeNode(
   return {
     id,
     title: opts?.title ?? id,
-    content: opts?.content ?? '',
+    // Use 'content' in (opts ?? {}) to detect explicit null
+    content: opts && 'content' in opts ? opts.content : '',
     tags: opts?.tags ?? [],
     outgoingLinks: opts?.outgoingLinks ?? [],
     properties: opts?.properties ?? {},
@@ -379,6 +380,33 @@ describe('StoreProvider', () => {
       const result = await store.listNodes({});
       expect(result.nodes).toHaveLength(3);
     });
+
+    describe('ghost filtering', () => {
+      beforeEach(() => {
+        store.nodes.clear();
+        store.nodes.set('real1.md', makeNode('real1.md', { title: 'Real 1', content: 'content' }));
+        store.nodes.set('real2.md', makeNode('real2.md', { title: 'Real 2', content: 'content' }));
+        store.nodes.set('ghost1.md', makeNode('ghost1.md', { title: 'Ghost 1', content: null }));
+      });
+
+      it('includes ghosts by default', async () => {
+        const result = await store.listNodes({});
+        expect(result.total).toBe(3);
+        expect(result.nodes.some(n => n.id === 'ghost1.md')).toBe(true);
+      });
+
+      it('ghosts: "exclude" omits ghost nodes', async () => {
+        const result = await store.listNodes({ ghosts: 'exclude' });
+        expect(result.total).toBe(2);
+        expect(result.nodes.every(n => n.id !== 'ghost1.md')).toBe(true);
+      });
+
+      it('ghosts: "only" returns only ghost nodes', async () => {
+        const result = await store.listNodes({ ghosts: 'only' });
+        expect(result.total).toBe(1);
+        expect(result.nodes[0]!.id).toBe('ghost1.md');
+      });
+    });
   });
 
   describe('nodesExist', () => {
@@ -534,6 +562,40 @@ describe('StoreProvider', () => {
     it('returns null when tag filter matches nothing', async () => {
       const result = await store.getRandomNode(['nonexistent-tag']);
       expect(result).toBeNull();
+    });
+
+    describe('ghost filtering', () => {
+      beforeEach(() => {
+        store.nodes.clear();
+        store.nodes.set('real', makeNode('real', { content: 'content' }));
+        store.nodes.set('ghost', makeNode('ghost', { content: null }));
+      });
+
+      it('excludes ghost nodes by default', async () => {
+        for (let i = 0; i < 20; i++) {
+          const result = await store.getRandomNode();
+          expect(result).not.toBeNull();
+          expect(result!.id).toBe('real');
+        }
+      });
+
+      it('includes ghosts when includeGhosts is true', async () => {
+        const seen = new Set<string>();
+        for (let i = 0; i < 50; i++) {
+          const result = await store.getRandomNode(undefined, { includeGhosts: true });
+          if (result) seen.add(result.id);
+        }
+        expect(seen.has('real')).toBe(true);
+        expect(seen.has('ghost')).toBe(true);
+      });
+
+      it('returns only ghosts when ghostsOnly is true', async () => {
+        for (let i = 0; i < 20; i++) {
+          const result = await store.getRandomNode(undefined, { includeGhosts: true, ghostsOnly: true });
+          expect(result).not.toBeNull();
+          expect(result!.id).toBe('ghost');
+        }
+      });
     });
   });
 

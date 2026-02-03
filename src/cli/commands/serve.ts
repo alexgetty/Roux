@@ -67,8 +67,10 @@ export async function serveCommand(
 
     if (!hasExistingEmbedding(store, id)) {
       const node = await store.getNode(id);
-      if (node && node.content) {
-        const vector = await embedding.embed(node.content);
+      if (node) {
+        // Ghost nodes (content === null) are embedded by title
+        const textToEmbed = node.content ?? node.title;
+        const vector = await embedding.embed(textToEmbed);
         await store.storeEmbedding(id, vector, embedding.modelId());
       }
     }
@@ -105,8 +107,10 @@ export async function serveCommand(
         for (const id of changedIds) {
           try {
             const node = await store.getNode(id);
-            if (node && node.content) {
-              const vector = await embedding.embed(node.content);
+            if (node) {
+              // Ghost nodes (content === null) are embedded by title
+              const textToEmbed = node.content ?? node.title;
+              const vector = await embedding.embed(textToEmbed);
               await store.storeEmbedding(id, vector, embedding.modelId());
             }
           } catch (err) {

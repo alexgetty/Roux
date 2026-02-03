@@ -924,7 +924,7 @@ describe('GraphCore', () => {
 
       const result = await core.getRandomNode();
 
-      expect(mockStore.getRandomNode).toHaveBeenCalledWith(undefined);
+      expect(mockStore.getRandomNode).toHaveBeenCalledWith(undefined, undefined);
       expect(result?.id).toBe('random.md');
     });
 
@@ -937,8 +937,20 @@ describe('GraphCore', () => {
 
       const result = await core.getRandomNode(['special']);
 
-      expect(mockStore.getRandomNode).toHaveBeenCalledWith(['special']);
+      expect(mockStore.getRandomNode).toHaveBeenCalledWith(['special'], undefined);
       expect(result?.id).toBe('tagged.md');
+    });
+
+    it('passes options to store', async () => {
+      const node = createMockNode('random.md');
+      vi.mocked(mockStore.getRandomNode).mockResolvedValue(node);
+
+      const core = new GraphCoreImpl();
+      await core.registerStore(mockStore);
+
+      await core.getRandomNode(undefined, { includeGhosts: true });
+
+      expect(mockStore.getRandomNode).toHaveBeenCalledWith(undefined, { includeGhosts: true });
     });
 
     it('returns null when store returns null', async () => {
